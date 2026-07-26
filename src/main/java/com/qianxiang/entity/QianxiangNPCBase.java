@@ -48,7 +48,35 @@ public abstract class QianxiangNPCBase extends Villager {
 
     protected QianxiangNPCBase(EntityType<? extends Villager> type, Level level) {
         super(type, level);
+        // 锁死为「傻子」职业：千相 NPC 继承 Villager 只是为了复用其 AI/渲染/交易 GUI，
+        // 并不想要原版的职业体系。不锁的话：
+        //  ① 附近有讲台/工作方块时会自动转职，updateTrades 是 append 语义 ——
+        //     8 条千相交易后面会接上原版职业交易；
+        //  ② 转职后 brain 的 WorkAtPoi 每日 restock() 会绕过我们自己的补货时间闸门
+        //     （那道闸门只在打开 GUI 时检查）。
+        // NITWIT 没有 job site、没有工作活动，是原版里唯一「不会转职」的职业。
+        setVillagerData(getVillagerData()
+                .setProfession(net.minecraft.world.entity.npc.VillagerProfession.NITWIT));
     }
+
+    /**
+     * 屏蔽原版职业交易表的填充。
+     * <p>原版 {@code updateTrades} 会按职业等级往 offers 里 <b>追加</b> 条目；
+     * 千相 NPC 的商品完全由 {@link #populateTrades} 决定，不接受原版追加。
+     */
+    @Override
+    protected void updateTrades() {
+        // 有意为空：商品表只由 populateTrades 提供
+    }
+
+    /** 千相 NPC 不参与原版村民的职业/等级成长（经验恒为 0，不会升级换表）。 */
+    @Override
+    public boolean showProgressBar() {
+        return false;
+    }
+
+    // 不被僵尸转化：见 QianxiangNPCEvents.onConversion。
+    // （转化由 Zombie.killedEntity 调 convertTo 触发，覆写 die 拦不住，必须用事件。）
 
     /** 千相 NPC 默认属性：以村民为基底，保证 MAX_HEALTH 等核心属性存在。 */
     public static AttributeSupplier.Builder createBaseAttributes() {
