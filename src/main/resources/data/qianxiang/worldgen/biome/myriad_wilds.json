@@ -14,7 +14,7 @@
     [],
     [],
     ["qianxiang:glimmer_tree", "qianxiang:wildlight_patch"],
-    []
+    ["qianxiang:rift_spire"]
   ],
   "creature_spawn_probability": 0.1,
   "spawners": {
