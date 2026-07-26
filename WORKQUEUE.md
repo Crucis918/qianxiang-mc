@@ -313,6 +313,87 @@ ClientSpellInput 加守卫、if→while。
 
 ---
 
+# 第四批：数据 json 审计发现（2026-07-27 凌晨第三队侦察代理，成就/loot/worldgen/recipe/tags 全查）
+
+## WQ-30 [ ] 【P0·数据】rift_stone 与 void_ore 缺 mineable 标签——挖掉永不掉落
+
+仓库 `data/` 下没有 `tags/block/` 目录，两方块又都 `.requiresCorrectToolForDrops()`
+（QianxiangBlocks.java:33/:68）。1.21 规则：不在任何 `minecraft:mineable/*` 标签的方块对所有
+工具 correctForDrops=false → `loot_table/blocks/rift_stone.json`、`void_ore.json` 永不执行。
+裂隙岩（传送门框）拆一次永久损失；虚痕矿挖不出 void_shard（仅剩 Boss 掉落兜底）。
+**修法**：新建 `data/minecraft/tags/block/mineable/pickaxe.json` 收录两方块；按设计意图可再加
+`needs_iron_tool.json`（void_ore 建议铁镐档）。**验收**：生存模式镐挖两方块有掉落。
+
+## WQ-31 [ ] 【高·数据】legendary_material 在 kill_warden 同一瞬间必然自动弹出
+
+守望者战利品第 1 池 100% 必掉 void_shard 1-2，而该成就条件正是"持有 void_shard 或
+reverse_core"——两个 challenge 成就同帧弹出，终局沦为击杀附赠。
+**修法**：与 WQ-6 联动——WQ-6 落地后条件改"持有 warden_core"（首选，一并解决）；
+若先行止血，可临时收窄为只认 reverse_core（需 void_shard+rift_essence+ender_eye 再合成一步）。
+**领此单前先看 WQ-6 状态，避免改两次。**
+
+## WQ-32 [ ] 【中·数据】first_forge 可在工作台达成（从未碰过锻造台）
+
+`advancement/story/first_forge.json` 的 items 列表含 `qianxiang:spell_book`，而 spell_book 有
+纯原版材料的工作台配方（recipe/spell_book.json）——工作台合一本书同时点亮 first_forge 和
+子节点 story/spell_book，"初铸"文案与条件背离。
+**修法**：first_forge 的 items 删掉 spell_book 一项。
+
+## WQ-33 [ ] 【中·平衡】void_ore 生成密度约为原版钻石 8 倍——LEGENDARY 材料白菜价
+
+`placed_feature/void_ore.json`：count 8/区块 × size 8，y∈[-64,32]，无 rarity_filter。挖矿
+10 分钟即可架空 Boss 掉落线（与 WQ-6 的独占性设计冲突）。
+**修法**：count 降 1-2、size 降 4、加 rarity_filter；与 P3 观察项（rift_essence_from_void_shard
+1 换 2 的兑换曲线）一起通盘调平。
+
+## WQ-34 [ ] 【中·体验】守望者自然刷新无 spawn_costs——多只 Boss 血条叠 HUD
+
+`biome/myriad_wilds.json` monster 池守望者权重 3、spawn_costs 为空对象，同屏可游荡多只
+各带 ServerBossEvent 的守望者。
+**修法**：spawn_costs 加 `"qianxiang:myriad_warden": {"energy_budget": 0.12, "charge": 1.0}`，
+权重降 1。
+
+## WQ-35 [ ] 【中·可发现性】22 个配方全部没有 recipe advancement——配方书完全隐身
+
+`advancement/` 下无 `recipes/` 目录，不装 JEI 的玩家无法在配方书里看到任何千相配方
+（包括入口方块锻造台）。
+**修法**：至少给 forge_table、rift_essence、spell_book、reverse_core 等关键配方补
+`advancement/recipes/<name>.json`（has_item criteria + rewards.recipes），其余可批量生成。
+
+## WQ-36 [ ] 【低·EF 数据】item_keyword 正则与显式文件打架 + phase_staff 兜底类型漂移
+
+①`capabilities/weapons/item_keyword/qianxiang_blades.json` 的正则 `qianxiang:.*_blade` 只能
+命中已有显式 json 的两把刀，且把声明 dagger 的 bone_blade 导向 tachi 连段——删掉该 keyword
+文件（types 文件留作参考）。②`capabilities/weapons/phase_staff.json` 静态兜底写
+`epicfight:sword`，Java 动态分类是 DAGGER——静态 json 改 `epicfight:dagger` 对齐。
+
+## WQ-37 [ ] 【低·数据】三个空功能标签 + biome 废弃字段
+
+①`tags/item/materials/defense.json`/`reflect.json`/`slow.json` 全空——DEFENSE/REFLECT 是防具
+体系仅有的纯防御算子，datapack 扩展入口是哑的。建议填充：defense=shield/turtle_scute/
+iron_block、reflect=cactus/nautilus_shell、slow=cobweb/soul_sand/honey_block（注意 WQ 已把
+DEFENSE 映射到护腿原型，填充后玩家可用原版材料锻护腿）。②`biome/myriad_wilds.json` 残留
+1.19.4 已废弃的 `"precipitation": "rain"` 字段（静默无效），删除。
+
+## WQ-38 [ ] 【低·worldgen】荒光草悬浮空中 + 微光树叶徒手必掉
+
+①`configured_feature/wildlight_patch.json` 谓词只查目标位为空气不查脚下，y_spread 3 →
+实心发光块悬浮半空。改 `would_survive` 谓词或补下方方块检查。②`loot_table/blocks/
+glimmer_leaves.json` 无剪刀/精准分支，徒手打叶必掉方块，且让 myriad_fragment 零成本可刷。
+包 alternatives 加 shears/silk_touch 条件。
+
+**第四批观察项（暂不开单）**：rift_essence 三条配方 + void_shard 1 换 2 的兑换关系把档位
+曲线压平（随 WQ-6/33 通盘调）；story/rift_essence 支线可先于父节点完成（仅显示顺序怪，
+无碍）；`src/main/resources` 无显式 pack.mcmeta（NeoForge 自动合成，可跑，未钉 pack_format）。
+
+**第四批已核查无问题**：成就树 11 节点无孤儿无环、icon/lang/实体 id 全对；loot_table 全部
+1.21 新 schema 正确；worldgen 引用闭合、11 个 feature 步骤索引全对、dimension_type 自洽；
+22 配方无冲突、id 全存在（含 1.20.5+ 改名物品）；phase_materials 字段与解析代码零偏差；
+25/26 功能标签齐（缺 REVERSE 属设计意图）；EF 数据包三层目录名与 jar 内常量逐字节一致、
+动画 id 真实存在；无幽灵物品（39 物品全有获取途径）；创造标签全收录。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
