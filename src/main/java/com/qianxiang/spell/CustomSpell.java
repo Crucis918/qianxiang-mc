@@ -250,7 +250,12 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
      * @param maxPower 本次锻造的材料预算上限（会再夹进 [1, {@link #MAX_POWER}]）
      */
     public static CustomSpell fromSpellJson(String spellJson, int minPower, int maxPower) {
-        JsonObject obj = parse(spellJson);
+        JsonObject raw = parse(spellJson);
+        if (raw == null) return null;
+        // 先按数据自带版本号升级 schema（见 SpellJsonMigrations）：
+        // 历史数据无 v 字段 → v0，走修饰词旧名折算；
+        // 版本高于本模组所知 → 返回 null，宁可拒绝也不按旧规则误解析。
+        JsonObject obj = SpellJsonMigrations.migrateToCurrent(raw);
         if (obj == null) return null;
         try {
             String element = optString(obj, "element").toLowerCase(java.util.Locale.ROOT);

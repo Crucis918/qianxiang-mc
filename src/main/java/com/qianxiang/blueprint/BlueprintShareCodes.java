@@ -33,6 +33,15 @@ public final class BlueprintShareCodes {
     /** 分享码前缀（含版本）。 */
     public static final String PREFIX = "QXBP1.";
 
+    /** 载荷 schema 版本键。 */
+    public static final String VERSION_KEY = "v";
+
+    /** 本功能上线前产出的码（无 v 字段）：格式与 v1 兼容，可直接解析。 */
+    public static final int LEGACY_VERSION = 0;
+
+    /** 当前载荷 schema 版本。字段有增删时 +1，并在 decode 里补迁移分支。 */
+    public static final int CURRENT_VERSION = 1;
+
     /** 解码后字节数上限（64KB，远超正常蓝图的几百字节）。 */
     public static final int MAX_DECODED_BYTES = 64 * 1024;
 
@@ -50,6 +59,7 @@ public final class BlueprintShareCodes {
             Tag tag = BlueprintData.CODEC.encodeStart(NbtOps.INSTANCE, data).getOrThrow();
             CompoundTag root = new CompoundTag();
             root.put("bp", tag);
+            root.putInt(VERSION_KEY, CURRENT_VERSION);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             NbtIo.writeCompressed(root, baos);
             return PREFIX + Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray());
@@ -79,6 +89,16 @@ public final class BlueprintShareCodes {
         try {
             CompoundTag root = NbtIo.readCompressed(
                     new ByteArrayInputStream(bytes), NbtAccounter.create(MAX_DECODED_BYTES));
+
+            // 版本判定：无 v 字段 = v0（本功能上线前产出的码，格式与 v1 兼容，照常解析）；
+            // 高于当前版本 = 由更新的模组产出，明确提示升级而不是静默失败或误解析。
+            int version = root.contains(VERSION_KEY) ? root.getInt(VERSION_KEY) : LEGACY_VERSION;
+            if (version > CURRENT_VERSION) {
+                throw new IllegalArgumentException(
+                        "这个蓝图码来自更新版本的千相（码版本 " + version
+                                + "，本模组支持到 " + CURRENT_VERSION + "），请更新模组后再导入");
+            }
+
             BlueprintData data = BlueprintData.CODEC
                     .parse(NbtOps.INSTANCE, root.get("bp")).getOrThrow();
             return sanitize(data);

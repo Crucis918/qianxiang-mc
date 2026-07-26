@@ -201,6 +201,78 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 版本化与迁移（WQ-7） ============================
+
+    /** 无版本字段的旧码（本功能上线前产出）必须仍能导入。 */
+    @GameTest(template = "item_concept")
+    public static void legacyShareCodeStillImports(GameTestHelper helper) throws Exception {
+        BlueprintData data = new BlueprintData(
+                List.of("qianxiang:ember_iron"), "weapon", 5.0, "老码", null, null);
+        // 手工编一个不含 v 字段的 v0 码（模拟历史数据）
+        var tag = BlueprintData.CODEC.encodeStart(
+                net.minecraft.nbt.NbtOps.INSTANCE, data).getOrThrow();
+        var root = new net.minecraft.nbt.CompoundTag();
+        root.put("bp", tag);
+        var baos = new java.io.ByteArrayOutputStream();
+        net.minecraft.nbt.NbtIo.writeCompressed(root, baos);
+        String legacyCode = BlueprintShareCodes.PREFIX
+                + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray());
+
+        BlueprintData decoded = BlueprintShareCodes.decode(legacyCode);
+        helper.assertTrue("老码".equals(decoded.name()), "无 v 字段的旧码应能正常导入");
+        helper.assertTrue(decoded.materials().equals(data.materials()), "旧码材料应无损");
+        helper.succeed();
+    }
+
+    /** 来自更新版本的码要给出「请更新模组」而非静默失败或误解析。 */
+    @GameTest(template = "item_concept")
+    public static void futureShareCodeAsksForUpdate(GameTestHelper helper) throws Exception {
+        BlueprintData data = new BlueprintData(
+                List.of("qianxiang:ember_iron"), "weapon", 5.0, "未来码", null, null);
+        var tag = BlueprintData.CODEC.encodeStart(
+                net.minecraft.nbt.NbtOps.INSTANCE, data).getOrThrow();
+        var root = new net.minecraft.nbt.CompoundTag();
+        root.put("bp", tag);
+        root.putInt(BlueprintShareCodes.VERSION_KEY, BlueprintShareCodes.CURRENT_VERSION + 5);
+        var baos = new java.io.ByteArrayOutputStream();
+        net.minecraft.nbt.NbtIo.writeCompressed(root, baos);
+        String futureCode = BlueprintShareCodes.PREFIX
+                + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(baos.toByteArray());
+
+        try {
+            BlueprintShareCodes.decode(futureCode);
+            helper.fail("未来版本的码应被拒绝");
+        } catch (IllegalArgumentException expected) {
+            helper.assertTrue(expected.getMessage().contains("更新"),
+                    "拒绝原因应提示玩家更新模组，实际：" + expected.getMessage());
+        }
+        helper.succeed();
+    }
+
+    /** spellJson 迁移：v0 旧词折算，且迁移幂等（对已是 v1 的数据不再改动）。 */
+    @GameTest(template = "item_concept")
+    public static void spellJsonMigrationIsIdempotent(GameTestHelper helper) {
+        CustomSpell first = CustomSpell.fromSpellJson(
+                "{\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\","
+                        + "\"modifiers\":[\"duration\"],\"power\":2}", 1);
+        helper.assertTrue(first != null && first.modifiers().contains("extended"),
+                "v0 旧词 duration 应折算为 extended");
+
+        // 已带当前版本号的数据再解析一次，结果必须一致
+        CustomSpell second = CustomSpell.fromSpellJson(
+                "{\"v\":" + com.qianxiang.spell.SpellJsonMigrations.CURRENT_VERSION
+                        + ",\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\","
+                        + "\"modifiers\":[\"extended\"],\"power\":2}", 1);
+        helper.assertTrue(second != null && second.modifiers().contains("extended"),
+                "当前版本数据应原样通过");
+
+        // 未来版本必须拒绝，而不是按旧规则误解析
+        CustomSpell future = CustomSpell.fromSpellJson(
+                "{\"v\":999,\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\"}", 1);
+        helper.assertTrue(future == null, "未来版本的 spellJson 应拒绝解析而非猜测");
+        helper.succeed();
+    }
+
     // ============================ 锻造台重算短路的正确性（WQ-28） ============================
 
     /**
