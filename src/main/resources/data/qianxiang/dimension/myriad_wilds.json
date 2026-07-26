@@ -2,7 +2,7 @@
   "type": "qianxiang:myriad_wilds",
   "generator": {
     "type": "minecraft:noise",
-    "settings": "minecraft:overworld",
+    "settings": "minecraft:amplified",
     "biome_source": {
       "type": "minecraft:fixed",
       "biome": "qianxiang:myriad_wilds"

@@ -42,9 +42,17 @@ public final class SpellCastHandler {
             }
 
             ItemStack stack = serverPlayer.getMainHandItem();
+
+            // 优先级 ①：AI 锻造相杖上的自由法术（CUSTOM_SPELL 组件）。
+            CustomSpell custom = stack.get(QianxiangDataComponents.CUSTOM_SPELL.get());
+            if (custom != null) {
+                castCustomSpell(custom, serverPlayer);
+                return;
+            }
+
             ResourceLocation spellId = stack.get(QianxiangDataComponents.SPELL.get());
             if (spellId == null) {
-                // 自由法术路径：主手法术书 → 施放当前选中的 CustomSpell。
+                // 优先级 ③：主手法术书 → 施放当前选中的 CustomSpell。
                 com.qianxiang.spell.SpellBookData book =
                         stack.get(QianxiangDataComponents.SPELLBOOK.get());
                 if (book != null && book.selected() != null) {
@@ -52,6 +60,7 @@ public final class SpellCastHandler {
                 }
                 return;
             }
+            // 优先级 ②：旧硬编码法术（存档兼容路径）。
 
             Spell spell = Spell.byId(spellId);
             PlayerSpellData data = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);

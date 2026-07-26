@@ -528,7 +528,6 @@ public final class AttributeScheme {
      *       （见集成契约），特殊效果等级才得以随产物携带。</li>
      * </ul>
      * </p>
-     * TODO：MOVEMENT_SPEED vs MOVE_SPEED —— 1.21.1 Mojang official mapping 中属性常量名待构建期确认。
      */
     public static void applyModifiersToStack(ItemStack stack, ComposedAttributes attr) {
         if (stack == null) return;

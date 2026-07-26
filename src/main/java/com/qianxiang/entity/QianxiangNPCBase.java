@@ -13,15 +13,35 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.level.Level;
 import org.slf4j.Logger;
 
 /**
- * 千相 NPC 基础类 —— MVP 直接继承原版 {@link Villager}，获得 Villager-like AI 与渲染，
- * 同时覆盖交互逻辑以触发外交烙印、称号与对话。
+ * 千相 NPC 基础类 —— 继承原版 {@link Villager} 获得 Villager-like AI 与渲染，
+ * 在其上实现千相自己的交易与外交：
+ * <ul>
+ *   <li>右键：打招呼（按烙印选对话）+ 打开<b>真实交易界面</b>（原版 Merchant GUI）。</li>
+ *   <li>潜行 + 右键：只对话，不开交易（保留旧 MVP 的纯对话路径）。</li>
+ *   <li>定价：按玩家势力好感度动态折扣/加价（specialPriceDiff，±25% 封顶）——
+ *       声望不再只是聊天提示，而是真金白银。</li>
+ *   <li>好感度：<b>完成交易</b>才 +1 外交烙印并记相谱（右键刷好感的老路废弃）。</li>
+ *   <li>补货：距上次补货超过一个 MC 日（24000 tick）时重置交易次数。</li>
+ * </ul>
+ * 商品表由子类 {@link #populateTrades(MerchantOffers)} 提供，随实体 NBT 持久化（AbstractVillager 自带）。
  */
 public abstract class QianxiangNPCBase extends Villager {
     private static final Logger LOGGER = Qianxiang.LOGGER;
+
+    /** 声望折扣封顶（百分比）：好感 +25 → 75 折，-25 → 加价 25%。 */
+    private static final int MAX_DISCOUNT_PCT = 25;
+
+    /** 补货间隔：一个 MC 日。 */
+    private static final long RESTOCK_INTERVAL_TICKS = 24000L;
+
+    /** 上次补货的游戏时间（不落盘：重载后视为可补货，无害）。 */
+    private long lastRestockGameTime = Long.MIN_VALUE;
 
     protected QianxiangNPCBase(EntityType<? extends Villager> type, Level level) {
         super(type, level);
@@ -36,12 +56,59 @@ public abstract class QianxiangNPCBase extends Villager {
 
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
-        // 跳过原版交易 GUI，改为千相对话/外交计数
-        if (!level().isClientSide() && player instanceof ServerPlayer serverPlayer) {
-            handleInteraction(serverPlayer);
+        if (level().isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!(player instanceof ServerPlayer serverPlayer) || !isAlive() || isSleeping() || isTrading()) {
+            return InteractionResult.PASS;
+        }
+
+        // 潜行 + 右键：只对话（旧 MVP 路径），不开交易
+        if (player.isSecondaryUseActive()) {
+            sendGreeting(serverPlayer);
+            return InteractionResult.SUCCESS;
+        }
+
+        try {
+            sendGreeting(serverPlayer);
+            MerchantOffers offers = getOffers();
+            if (offers.isEmpty()) {
+                populateTrades(offers);
+            }
+            maybeRestock();
+            applyReputationPricing(serverPlayer, offers);
+            setTradingPlayer(serverPlayer);
+            openTradingScreen(serverPlayer, getDisplayName(), 1);
+        } catch (Exception e) {
+            LOGGER.error("[Qianxiang] NPC 交易开启失败", e);
         }
         return InteractionResult.SUCCESS;
     }
+
+    /** 完成一笔交易：外交烙印 +1（好感随真实交易增长）+ 相谱铭刻。 */
+    @Override
+    public void notifyTrade(MerchantOffer offer) {
+        super.notifyTrade(offer);
+        if (!(getTradingPlayer() instanceof ServerPlayer player)) {
+            return;
+        }
+        try {
+            PlayerFactionData before = player.getData(QianxiangAttachments.FACTION_DATA);
+            PlayerFactionData after = before.withDiplomacy(1).updateTitle();
+            player.setData(QianxiangAttachments.FACTION_DATA, after);
+
+            SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
+            String npcName = Component.translatable(getType().getDescriptionId()).getString();
+            String itemName = offer.getResult().getHoverName().getString();
+            player.setData(QianxiangAttachments.SAGA_DATA,
+                    saga.withEntry("§7[" + npcName + "] §r成交「" + itemName + "」，好感度 " + after.reputation()));
+        } catch (Exception e) {
+            LOGGER.error("[Qianxiang] NPC 交易记账失败", e);
+        }
+    }
+
+    /** 子类填充自己的商品表（首次交互时调用一次，随实体 NBT 持久化）。 */
+    protected abstract void populateTrades(MerchantOffers offers);
 
     /** 子类提供自己的对话 key 前缀，如 {@code qianxiang.npc.wandering_sage}。 */
     protected abstract String getDialogPrefix();
@@ -49,33 +116,59 @@ public abstract class QianxiangNPCBase extends Villager {
     /** 子类提供交易价格提示 key。 */
     protected abstract String getPriceHintKey();
 
-    protected void handleInteraction(ServerPlayer player) {
+    /** 按烙印发一句对话 + 价格档提示（不改任何数据）。 */
+    private void sendGreeting(ServerPlayer player) {
         try {
-            PlayerFactionData before = player.getData(QianxiangAttachments.FACTION_DATA);
-            PlayerFactionData after = before.withDiplomacy(1).updateTitle();
-            player.setData(QianxiangAttachments.FACTION_DATA, after);
-
-            // 相谱录追加交易记录
-            SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
-            String npcName = Component.translatable(getType().getDescriptionId()).getString();
-            player.setData(QianxiangAttachments.SAGA_DATA,
-                    saga.withEntry("§7[" + npcName + "] §r外交烙印 +1，当前好感度 " + after.reputation()));
-
-            // 根据烙印/好感发送不同对话
-            String brand = after.getDominantBrand();
-            String dialogKey = getDialogPrefix() + ".dialog." + brand;
-            player.sendSystemMessage(Component.translatable(dialogKey));
-
-            // 简单价格提示（MVP 仅聊天提示，不涉及真实交易价格修改）
-            if (after.reputation() >= 20) {
+            PlayerFactionData data = player.getData(QianxiangAttachments.FACTION_DATA);
+            player.sendSystemMessage(Component.translatable(
+                    getDialogPrefix() + ".dialog." + data.getDominantBrand()));
+            int pct = discountPercent(data);
+            if (pct > 0) {
                 player.sendSystemMessage(Component.translatable(getPriceHintKey() + ".discount"));
-            } else if (after.reputation() <= -20) {
+            } else if (pct < 0) {
                 player.sendSystemMessage(Component.translatable(getPriceHintKey() + ".premium"));
             } else {
                 player.sendSystemMessage(Component.translatable(getPriceHintKey() + ".normal"));
             }
         } catch (Exception e) {
-            LOGGER.error("[Qianxiang] NPC interaction failed", e);
+            LOGGER.error("[Qianxiang] NPC 对话失败", e);
+        }
+    }
+
+    /** 声望 → 折扣百分比，clamp 到 ±{@value MAX_DISCOUNT_PCT}。正 = 打折，负 = 加价。 */
+    private static int discountPercent(PlayerFactionData data) {
+        return Math.clamp(data.reputation(), -MAX_DISCOUNT_PCT, MAX_DISCOUNT_PCT);
+    }
+
+    /** 把声望折扣写进每条 offer 的 specialPriceDiff（负值 = 降价）。 */
+    private void applyReputationPricing(ServerPlayer player, MerchantOffers offers) {
+        int pct;
+        try {
+            pct = discountPercent(player.getData(QianxiangAttachments.FACTION_DATA));
+        } catch (Exception e) {
+            pct = 0;
+        }
+        for (MerchantOffer offer : offers) {
+            int base = offer.getBaseCostA().getCount();
+            int diff = -Math.round(base * pct / 100.0F);
+            // 保证最终价 ≥1（specialPriceDiff 只作用于 costA）
+            if (base + diff < 1) {
+                diff = 1 - base;
+            }
+            offer.setSpecialPriceDiff(diff);
+        }
+    }
+
+    /** 距上次补货超过一个 MC 日则重置所有交易次数。 */
+    private void maybeRestock() {
+        long now = level().getGameTime();
+        if (lastRestockGameTime == Long.MIN_VALUE) {
+            lastRestockGameTime = now;
+            return;
+        }
+        if (now - lastRestockGameTime >= RESTOCK_INTERVAL_TICKS) {
+            getOffers().forEach(MerchantOffer::resetUses);
+            lastRestockGameTime = now;
         }
     }
 }

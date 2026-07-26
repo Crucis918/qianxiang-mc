@@ -15,12 +15,18 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import java.util.Set;
 
 /**
- * 万象森罗简易传送门：用裂隙精髓右键裂隙岩触发传送。
+ * 万象森罗简易传送门：右键裂隙岩触发传送。
  * <p>
- * MVP 阶段不强制检测完整门框，只需右键裂隙岩即可在主世界与万象森罗之间往返。
- * 事件在服务端处理，消耗一个裂隙精髓（创造模式除外），并取消默认交互。
+ * MVP 阶段不强制检测完整门框。规则：
+ * <ul>
+ *   <li>主世界 → 万象森罗：手持裂隙精髓右键裂隙岩，消耗 1 个（创造模式除外）。</li>
+ *   <li>万象森罗 → 主世界：空手或手持裂隙精髓右键裂隙岩即可，<b>不消耗</b>——
+ *       避免"进得去回不来"的死局。</li>
+ *   <li>抵达万象森罗时，若落点附近没有裂隙岩，自动放置一块作为回程锚点。</li>
+ * </ul>
+ * 事件在服务端处理，并取消默认交互。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class MyriadWildsPortalHandler {
 
     private MyriadWildsPortalHandler() {}
@@ -28,25 +34,44 @@ public final class MyriadWildsPortalHandler {
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
         if (event.getLevel().isClientSide()) return;
-        if (!event.getItemStack().is(QianxiangMaterials.RIFT_ESSENCE.get())) return;
         if (!event.getLevel().getBlockState(event.getPos()).is(QianxiangBlocks.RIFT_STONE.get())) return;
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
+
+        boolean leavingWilds = player.serverLevel().dimension() == QianxiangDimensions.MYRIAD_WILDS;
+        boolean holdingEssence = event.getItemStack().is(QianxiangMaterials.RIFT_ESSENCE.get());
+        // 去程必须持精髓；回程空手或持精髓皆可（不消耗）
+        if (!leavingWilds && !holdingEssence) return;
+        if (leavingWilds && !holdingEssence && !event.getItemStack().isEmpty()) return;
 
         event.setCanceled(true);
 
         ServerLevel target = player.server.getLevel(
-                player.serverLevel().dimension() == QianxiangDimensions.MYRIAD_WILDS
-                        ? ServerLevel.OVERWORLD
-                        : QianxiangDimensions.MYRIAD_WILDS);
+                leavingWilds ? ServerLevel.OVERWORLD : QianxiangDimensions.MYRIAD_WILDS);
         if (target == null) return;
 
         BlockPos pos = findSafePos(target, player.blockPosition());
         player.teleportTo(target, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5,
                 Set.of(), player.getYRot(), player.getXRot());
 
-        if (!player.isCreative()) {
-            event.getItemStack().shrink(1);
+        if (!leavingWilds) {
+            if (!player.isCreative()) {
+                event.getItemStack().shrink(1);
+            }
+            ensureReturnAnchor(target, pos);
         }
+    }
+
+    /** 抵达万象森罗后，若落点周围没有裂隙岩，就近放置一块，保证回程可用。 */
+    private static void ensureReturnAnchor(ServerLevel level, BlockPos arrival) {
+        for (BlockPos p : BlockPos.betweenClosed(arrival.offset(-6, -3, -6), arrival.offset(6, 3, 6))) {
+            if (level.getBlockState(p).is(QianxiangBlocks.RIFT_STONE.get())) return;
+        }
+        BlockPos anchor = arrival.east();
+        if (!level.getBlockState(anchor).canBeReplaced()) {
+            anchor = arrival.above(2);
+            if (!level.getBlockState(anchor).canBeReplaced()) return;
+        }
+        level.setBlockAndUpdate(anchor, QianxiangBlocks.RIFT_STONE.get().defaultBlockState());
     }
 
     private static BlockPos findSafePos(ServerLevel level, BlockPos reference) {

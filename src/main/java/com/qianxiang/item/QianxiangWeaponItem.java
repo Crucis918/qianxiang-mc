@@ -125,9 +125,14 @@ public class QianxiangWeaponItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
         ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
-        // 铭刻法术（相杖等法器）
+        // 铭刻法术（相杖等法器）：AI 自由法术（CUSTOM_SPELL）优先于旧硬编码法术（SPELL）
+        com.qianxiang.spell.CustomSpell customSpell =
+                stack.get(QianxiangDataComponents.CUSTOM_SPELL.get());
         ResourceLocation spellId = stack.get(QianxiangDataComponents.SPELL.get());
-        if (spellId != null) {
+        if (customSpell != null) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.spell",
+                    customSpell.displayName()).withStyle(ChatFormatting.LIGHT_PURPLE));
+        } else if (spellId != null) {
             Spell spell = Spell.byId(spellId);
             tooltip.add(Component.translatable("qianxiang.tooltip.spell",
                     Component.translatable(spell.translationKey())).withStyle(ChatFormatting.LIGHT_PURPLE));
