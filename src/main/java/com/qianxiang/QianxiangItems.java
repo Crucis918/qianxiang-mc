@@ -64,7 +64,7 @@ public final class QianxiangItems {
             ITEMS.register("phase_chestplate", () -> new QianxiangArmorItem(ArmorItem.Type.CHESTPLATE,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相裤 phase_leggings —— 护腿载体（动态属性；当前锻造原型规则未指向它，创造/蓝图可用）。
+    // 相胫 phase_leggings —— 护腿载体（动态属性；BASE_HIDE + JUMP_BOOST 锻出，如皮革+兔子脚）。
     public static final DeferredHolder<Item, Item> PHASE_LEGGINGS =
             ITEMS.register("phase_leggings", () -> new QianxiangArmorItem(ArmorItem.Type.LEGGINGS,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));

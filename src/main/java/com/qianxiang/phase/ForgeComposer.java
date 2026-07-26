@@ -270,6 +270,7 @@ public final class ForgeComposer {
      *   <li>含 MANA + 武器基底 → {@link QianxiangItems#PHASE_STAFF} 相杖（法系）</li>
      *   <li>含 BASE_HIDE + NIGHT_VISION → {@link QianxiangItems#PHASE_HELMET} 相盔（夜视头盔）</li>
      *   <li>含 BASE_HIDE + RESISTANCE → {@link QianxiangItems#PHASE_CHESTPLATE} 相甲（坚韧胸甲）</li>
+     *   <li>含 BASE_HIDE + JUMP_BOOST → {@link QianxiangItems#PHASE_LEGGINGS} 相胫（跃升护腿）</li>
      *   <li>含 BASE_HIDE + SPEED_BOOST → {@link QianxiangItems#PHASE_BOOTS} 相靴（疾行之靴）</li>
      *   <li>纯 BASE_HIDE/DEFENSE 或反伤 → {@link QianxiangItems#PHASE_SHIELD} 相盾（保持现有）</li>
      *   <li>含 AREA_HARVEST → {@link QianxiangItems#PHASE_HOE} 相锄（广域耕作工具）</li>
@@ -277,7 +278,7 @@ public final class ForgeComposer {
      *   <li>含 BASE_BONE → {@link QianxiangItems#BONE_BLADE} 骨刃（锋锐）</li>
      *   <li>否则（金属/木质基底）→ {@link QianxiangItems#EMBER_BLADE} 灼烧之刃</li>
      * </ul>
-     * 优先级：MANA 杖 > 防具（盔 > 甲 > 靴 > 盾）> 骨刃 > 武器特征（攻击向算子）> 工具（锄 > 水壶）> 金属刃。
+     * 优先级：MANA 杖 > 防具（盔 > 甲 > 胫 > 靴 > 盾）> 骨刃 > 武器特征（攻击向算子）> 工具（锄 > 水壶）> 金属刃。
      * 同一材料组合产出固定原型；换材料 = 换属性（强度靠材料）。
      * <p>
      * 无 BASE_*（无相骨架）时走独立兜底分支：MANA→相杖；GROWTH→水壶；AREA_HARVEST→相锄；
@@ -296,6 +297,7 @@ public final class ForgeComposer {
             // —— 防具分支：皮制基底 + 穿戴效果算子 → 对应护甲件；纯皮制/防御 → 相盾 ——
             if (union.contains(PhaseFunction.NIGHT_VISION)) return QianxiangItems.PHASE_HELMET;
             if (union.contains(PhaseFunction.RESISTANCE)) return QianxiangItems.PHASE_CHESTPLATE;
+            if (union.contains(PhaseFunction.JUMP_BOOST)) return QianxiangItems.PHASE_LEGGINGS;
             if (union.contains(PhaseFunction.SPEED_BOOST)) return QianxiangItems.PHASE_BOOTS;
             return QianxiangItems.PHASE_SHIELD;
         }
