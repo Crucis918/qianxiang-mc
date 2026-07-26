@@ -28,7 +28,9 @@ ${mod_description}
 
 [[dependencies.${mod_id}]]
     modId = "${epicfight_modid}"
-    type = "required"
+    # optional：不装 Epic Fight 也能正常游玩（战斗回落原版）。
+    # 代码侧由 Qianxiang.java 的 ModList.isLoaded 守卫保证不触发类加载。
+    type = "optional"
     versionRange = "${epicfight_version_range}"
     # BEFORE：让千相的 RegisterCapabilitiesEvent 监听先于 EF 执行，
     # 动态特征→动作 provider 才能优先于 EF 的全物品静态 provider（NeoForge 按注册顺序取首个非 null）。

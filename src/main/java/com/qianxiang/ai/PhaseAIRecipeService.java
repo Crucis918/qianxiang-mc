@@ -416,7 +416,7 @@ public final class PhaseAIRecipeService {
         sb.append("- 玩家没描述攻击动作时省略 moveset 字段。\n");
         sb.append("【Epic Fight 动画库】\n");
         try {
-            sb.append(com.qianxiang.compat.MovesetCompat.promptSummary()).append('\n');
+            sb.append(com.qianxiang.combat.AnimationLibrary.promptSummary()).append('\n');
         } catch (Throwable t) {
             // 动画库摘要失败不拖垮 prompt
         }

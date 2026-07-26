@@ -249,16 +249,32 @@ public final class ForgeComposer {
     }
 
     /**
-     * AI 动作定制：movesetJson（契约：category/combos/collider）经
-     * {@link com.qianxiang.compat.MovesetCompat} 解析为 WeaponMoveset 写入产物
-     * CUSTOM_MOVESET 组件——任意产物类型都写（武器形态由 category 表达）。
-     * AnimationLibrary/WeaponMoveset/CUSTOM_MOVESET 由动作集子代理提供，
-     * 未合并时 MovesetCompat 静默降级。任何异常吞掉记日志——AI 输出不可信，不能拖垮合成。
+     * AI 动作定制：movesetJson（契约：category/combos/collider）解析为
+     * {@link com.qianxiang.combat.WeaponMoveset} 写入产物 CUSTOM_MOVESET 组件——
+     * 任意产物类型都写（武器形态由 category 表达）。
+     * <p>
+     * 与连击编辑器链路（{@link com.qianxiang.network.MovesetApplyHandler}）语义一致：
+     * <b>最多 6 段、允许重复段</b>。此前 AI 链路走反射层且限 4 段并去重，
+     * 两条链路对同一份 movesetJson 会产出不同结果。
+     * <p>
+     * 任何异常吞掉记日志——AI 输出不可信，不能拖垮合成。
      */
     private static void applyAiMoveset(ItemStack out, String movesetJson) {
         if (movesetJson == null || movesetJson.isBlank() || out.isEmpty()) return;
         try {
-            com.qianxiang.compat.MovesetCompat.applyMoveset(out, movesetJson);
+            com.qianxiang.combat.WeaponMoveset parsed =
+                    com.qianxiang.combat.WeaponMoveset.fromJson(movesetJson);
+            if (parsed == null) return;
+            java.util.List<net.minecraft.resources.ResourceLocation> combos = new ArrayList<>();
+            for (var id : parsed.combos()) {
+                if (com.qianxiang.combat.AnimationLibrary.byId(id) == null) continue;
+                combos.add(id);
+                if (combos.size() >= com.qianxiang.network.MovesetApplyHandler.MAX_SEGMENTS) break;
+            }
+            if (combos.isEmpty()) return;
+            out.set(QianxiangDataComponents.CUSTOM_MOVESET.get(),
+                    new com.qianxiang.combat.WeaponMoveset(
+                            parsed.category(), combos, parsed.colliderPreset()));
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 应用 AI movesetJson 失败（不影响产物）", t);
         }

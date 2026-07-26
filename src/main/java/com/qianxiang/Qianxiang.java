@@ -34,7 +34,17 @@ public final class Qianxiang {
         QianxiangMenus.MENUS.register(modEventBus);
         // Epic Fight 动态武器动作适配：锻造产物按特征（重/轻/长柄/杖/盾）实时选动作类型。
         // 需先于 EF 注册（mods.toml 对 epicfight 声明 ordering = "BEFORE"），静态 JSON 兜底。
-        modEventBus.addListener(QianxiangEFCompat::register);
+        //
+        // EF 是真软依赖（mods.toml 里 type = "optional"）：全模组对 yesman.epicfight.* 的引用
+        // 只存在于 QianxiangEFCompat 一个类里。方法引用 QianxiangEFCompat::register 只在
+        // 这个 if 内求值，未装 EF 时该类永不加载，也就不会 NoClassDefFoundError。
+        // 切勿把这个方法引用挪到 if 之外，也不要在本类顶部 import 任何 EF 类型。
+        if (net.neoforged.fml.ModList.get().isLoaded("epicfight")) {
+            modEventBus.addListener(QianxiangEFCompat::register);
+            LOGGER.info("[Qianxiang] 检测到 Epic Fight，已启用动态武器动作适配。");
+        } else {
+            LOGGER.info("[Qianxiang] 未检测到 Epic Fight，战斗回落原版（不影响锻造与法术）。");
+        }
         LOGGER.info("[Qianxiang] 相之凝结已加载 / phase-driven mod loaded.");
     }
 }

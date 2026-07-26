@@ -24,8 +24,9 @@ import java.util.List;
  * <p>
  * 安全边界：combos 逐个过 {@link AnimationLibrary#byId} 白名单（编辑器只能发库内动画，
  * 但网络包不可信），上限与编辑器一致为 6 段；解析/过滤后为空 → 拒绝。
- * 直接构造 {@link WeaponMoveset} 写组件，不走 MovesetCompat（其 AI 链路有 4 段上限+去重，
- * 与编辑器「逐段拼接、允许重复、上限 6」的语义不同）。
+ * 直接构造 {@link WeaponMoveset} 写组件。AI 锻造链路
+ * （{@code ForgeComposer.applyAiMoveset}）已统一为同一套语义：
+ * <b>逐段拼接、允许重复、上限 {@link #MAX_SEGMENTS} 段</b>。
  * </p>
  */
 public final class MovesetApplyHandler {

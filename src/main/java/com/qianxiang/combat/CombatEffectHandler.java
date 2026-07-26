@@ -47,12 +47,14 @@ import java.util.Map;
  * 全程 try-catch 包裹 + 服务端判 {@code !level.isClientSide()}。任何异常都吞掉并记日志，
  * 绝不让战斗部崩溃拖垮玩家对局。
  *
- * <h3>Epic Fight 兼容性（TODO，需统筹实测）</h3>
- * Epic Fight 会接管部分近战伤害管线。EF 21.15.x 通常仍走 vanilla 的
- * {@code actuallyHurt}→{@code reallyHurt}，{@link LivingDamageEvent.Post} 应仍触发；
- * 但 EF 的技能伤害若走自定义 DamageSource 路径，{@code getEntity()} 可能不是玩家主手持有者。
- * 统筹者实测：装备千相武器用 EF 技能打怪时，看特效是否触发；若不触发，需额外挂 EF 的
- * {@code ProjectileHitEvent} 或 {@code AttackPhase} 钩子补一层。
+ * <h3>Epic Fight 兼容性（已确认，2026-07 对 21.15.6 字节码核实）</h3>
+ * EF <b>不</b>旁路原版伤害管线：其主手攻击 {@code PlayerPatch.attack} 最终仍
+ * {@code invokevirtual Player.attack}，因此 {@link LivingDamageEvent.Post} 正常触发、
+ * {@code source.getEntity()} 就是玩家本人，本处理器的吸血/点燃/减速等特效在 EF 战斗下
+ * 与原版行为一致，无需额外挂 EF 钩子。
+ * <p>
+ * 同源结论：EF 也不覆盖物品栈的 {@code minecraft:attribute_modifiers}（只叠加），
+ * 所以"强度靠材料"在 EF 下完整生效。证据链见 {@code docs/epic-fight-compat-brief.md} §8 第 2 条。
  */
 @EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class CombatEffectHandler {

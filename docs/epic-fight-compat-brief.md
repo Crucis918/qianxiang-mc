@@ -123,7 +123,7 @@ Map<Style, ItemAttributeModifiers> modifiers;
 
 **关键结论（高置信度，基于代码结构）**：
 - EF **接管**战斗时的属性结算（伤害走 EF 的动画事件 + `attributeMap`），普通 MC 攻击路径在 EF 激活时被旁路。
-- 物品自带的 `DataComponents.ATTRIBUTE_MODIFIERS`（我们锻造产物的强度属性）**不会让 EF 崩**，但**可能被 EF 的 capability 属性覆盖/忽略**——具体是「叠加」还是「覆盖」**未在反编译层面 100% 坐实**（见 §8 未确认项）。
+- 物品自带的 `DataComponents.ATTRIBUTE_MODIFIERS`（我们锻造产物的强度属性）**不会让 EF 崩**，且已定论为**叠加而非覆盖**——材料强度在 EF 战斗下完整生效（字节码级证据见 §8 第 2 条）。
 
 ### 4.3 对千相设计的影响与建议
 
@@ -262,8 +262,20 @@ src/main/resources/data/qianxiang/capabilities/weapons/item_keyword/blade.json
 
 ## 8. 未确认项
 
-1. **武器类型定义 JSON（层② `capabilities/weapons/types/*.json`）的确切 schema**。本次只确认了加载器类名和 DIRECTORY，未从 jar 抽取该目录示例（需要时 `unzip <jar> 'data/epicfight/capabilities/weapons/types/*'` 即可取模板）。
-2. **EF capability 与 MC `ATTRIBUTE_MODIFIERS` 是「覆盖」还是「叠加」**。代码层面确认 EF 会注入自己的 AttributeModifier，但「物品自带 `ATTRIBUTE_MODIFIERS` 在 EF 战斗结算时是否仍被读取」**未在字节码层面 100% 坐实**，需运行时实测（拿一把高伤 ember_blade 进 EF 模式打怪看伤害）。
+1. ~~武器类型定义 JSON 的确切 schema~~ **（已解决）** schema 已抽取并落地为 `data/qianxiang/capabilities/weapons/types/qianxiang_blades.json`（category + collider + combos）。
+2. **（已定论：叠加，2026-07 对 21.15.6 字节码核实）** EF 不覆盖物品栈的
+   `minecraft:attribute_modifiers` 组件，材料强度差异在 EF 战斗下完整生效。证据：
+   ① EF 唯一挂进 vanilla 属性管线的钩子 `NeoForgeEntityEvent.epicfight$itemAttributeModifier`
+   经 `VanillaItemEventHooks.onModifyItemAttribute` 只调用 `ItemAttributeModifierEvent.addModifier`，
+   全 jar 无 `replaceModifier`/`clearModifiers`；且本版本 `CapabilityItem.getAttributeModifiers(null)`
+   返回空 multimap，该钩子实为空操作。② `CapabilityItem.getAttributeModifiersAsWeapon` 先读
+   `ItemStack.getAttributeModifiers()`（栈组件）再追加 capability 的 style attributes。
+   ③ EF 主手攻击 `PlayerPatch.attack` 最终 `invokevirtual Player.attack`，伤害仍由玩家
+   `ATTACK_DAMAGE` 属性（含组件修饰符）结算；`setOffhandDamage` 对主手直接 return。
+   ④ 副手双持换入的修饰符列表同样由 `getAttributeModifiersAsWeapon` 生成。
+   推论：**不要**把 ComposedAttributes 镜像进 EF 的 `addStyleAttibutes`（EF 方法名拼写如此），
+   否则副手路径与 EF 武器面板双重计数；千相 preset 仅带 impact/armor_negation 的现状即正确形态。
+   升级 EF 版本后的冒烟验证：/give 两把 attribute_modifiers 差异大的 ember_blade 各打盔甲架对比掉血。
 3. **动画 JSON 格式细节**（`animmodels/animations/biped/combat/*.json` 与 `data/*.json` 的字段）。v1 复用 EF 动画不需要，自创时再查。
 4. 官方文档（readthedocs）页面内容因 web-reader 配额受限，本次未抓取正文，仅从搜索摘要确认目录与主题。标题与 URL 可信，正文细节建议后续用浏览器直查。
 
