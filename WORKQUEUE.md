@@ -399,7 +399,7 @@ glimmer_leaves.json` 无剪刀/精准分支，徒手打叶必掉方块，且让 
 > 总判断：**"AI 当配方大脑"在默认配置下从未真正工作过**——玩家一直在用关键词兜底而不自知。
 > 本批按依赖顺序修：WQ-39/40/41 是让 AI 真正上线的三件套，先做。
 
-## WQ-39 [ ] 【P0·AI】prompt 塞全量材料库 ≈4 万 token——qwen2.5:7b 根本装不下
+## WQ-39 [x] 完成(9007d69) 【P0·AI】prompt 塞全量材料库 ≈4 万 token——qwen2.5:7b 根本装不下
 
 `PhaseAIRecipeService.buildSystemPrompt:306-312` 对材料库无截断逐条 append，而
 `MaterialLibrary.snapshot()`（:152-165）因 `ItemConceptResolver` 的兜底分支（万物皆有概念）
@@ -413,7 +413,7 @@ Ollama 分支下发 `options.num_ctx=8192`；③删掉"万物皆可当辅料/泥
 magic+明确需求演示 spell）；⑤输出模板从规则第 4 条提升为独立【输出格式】段放 prompt 末尾。
 **验收**：日志确认 prompt 长度 <8KB；本地 Ollama 实测一次 AI 推荐真实生效（非兜底摘要）。
 
-## WQ-40 [ ] 【高·AI】默认 5 秒超时必超 + 超时不入熔断 = 每次白等 10 秒
+## WQ-40 [x] 完成(9007d69) 【高·AI】默认 5 秒超时必超 + 超时不入熔断 = 每次白等 10 秒
 
 `AIConfig.DEFAULT_TIMEOUT_SECONDS=5`（:44），大 prompt 下 7B 模型必超时；`HttpTimeoutException`
 被 `AIClient.isConnectionIssue` 有意排除（只算连接类），熔断永不开 → `AIGateway:119-127`
@@ -422,7 +422,7 @@ magic+明确需求演示 spell）；⑤输出模板从规则第 4 条提升为�
 （阈值 3，与连接失败分开计数、分开日志文案）。
 **验收**：断网/慢模型场景下第 4 次请求起零延迟落兜底。
 
-## WQ-41 [ ] 【高·AI】两个材料 id 处理 bug——AI 选对了材料也会被剔除或放料失败
+## WQ-41 [x] 完成(9007d69) 【高·AI】两个材料 id 处理 bug——AI 选对了材料也会被剔除或放料失败
 
 ①`normalizeName:724-728` 给无冒号名强加 `qianxiang:` 前缀，"iron_ingot"→"qianxiang:iron_ingot"
 永不匹配，`MaterialLibrary.find` 的短名容错成死代码——小模型省 namespace 是最高频瑕疵，
@@ -432,13 +432,13 @@ AI 原样大小写，"Minecraft:Iron_Ingot" 一路传到客户端图标与放料
 全返 null（MC 不接受大写）——改 `picks.add(entry.registryName())`。
 **验收**：GameTest：喂含裸名/混合大小写材料的 AI JSON，断言解析结果全为规范 registryName。
 
-## WQ-42 [ ] 【中·AI】未开结构化输出 + temperature 0.7 过高
+## WQ-42 [x] 完成(9007d69) 【中·AI】未开结构化输出 + temperature 0.7 过高
 
 `AIClient` Ollama 分支加 `body.addProperty("format","json")`，OpenAI 分支加
 `response_format:{"type":"json_object"}`；temperature 0.7→0.2（照抄 registryName 类任务）。
 两行配置消掉一半解析失败面。
 
-## WQ-43 [ ] 【中·AI】extractJson 四类必败输入 + 解析失败零日志
+## WQ-43 [x] 完成(9007d69) 【中·AI】extractJson 四类必败输入 + 解析失败零日志
 
 实测矩阵（Gson 2.13.1）：围栏/闲聊/单引号/裸字段名/数组尾逗号 ✅ 容错；**对象尾逗号、
 字段名大小写（"Proposals"）、deepseek-r1 的 <think> 块、顶层数组** ❌ 整体失败——失败后
@@ -447,7 +447,7 @@ AI 原样大小写，"Minecraft:Iron_Ingot" 一路传到客户端图标与放料
 `{"proposals":...}`；字段读取走大小写不敏感 helper；解析失败记 WARN+原文前 300 字进 jsonl；
 prompt 加"summary 用与玩家输入相同语言，≤20 字"（gpt 类模型摘要语言错乱）。
 
-## WQ-44 [ ] 【中·AI】confirm 模式三处失准
+## WQ-44 [x] 完成(2854d57) 【中·AI】confirm 模式三处失准
 
 ①差异化信息"当前已放入材料"埋在 prompt 最末尾，前面全是推荐向段落——7B 注意力被稀释，
 评价模式答非所问变成重新推荐。改法：confirm 模式把当前材料+任务声明（"你的任务是评价
@@ -458,7 +458,7 @@ prompt 加"summary 用与玩家输入相同语言，≤20 字"（gpt 类模型�
 是 AI 评价。补前缀或改判 `RecipeResult.fallback` 字段。
 另：【EF 动画库】段改为命中动作关键词才插入；【自由法术】段只在 type==magic 时插入。
 
-## WQ-45 [ ] 【中·兜底】FallbackRecipes 质量包：否定语义/单字误触/六组缺失/七材料不可达/档位塌缩
+## WQ-45 [x] 完成(8663a70) 【中·兜底】FallbackRecipes 质量包：否定语义/单字误触/六组缺失/七材料不可达/档位塌缩
 
 ①`matchesAny:967-972` 裸 contains——"不要火"命中"火"塞火材料；先剥否定片段
 （不要X/无X/抗X/防X/no X/without X），单字键（火/血/防/护/术/甲/链）升 2 字词或加边界。
@@ -474,7 +474,7 @@ EffectGlossary 的 typicalMaterials 里它们永远被 `addIfExists...break` 的
 **验收**：GameTest：「不要火的剑」不含 ember 系；「雷电剑」含 thunder_stone；LEGENDARY 方案
 averageTier==LEGENDARY。
 
-## WQ-46 [ ] 【低·性能】MaterialLibrary 每次 find 全表扫 + 同一 JSON 解析三遍 + 死代码
+## WQ-46 [x] 完成(2854d57) 【低·性能】MaterialLibrary 每次 find 全表扫 + 同一 JSON 解析三遍 + 死代码
 
 `find()` 每调用重跑 snapshot()（1391 个 ItemStack+概念推导），被六处逐材料调用，一次"全部
 增益"兜底 ≈3.6 万次概念推导（服务端后台线程，给玩家叠秒级延迟）——snapshot 加按
@@ -482,7 +482,7 @@ PhaseMaterialRegistry 版本号失效的缓存，find 查预建 Map。`ask()` �
 extractQuestions/parseProposals 三次重复解析——解析一次传引用。删死代码
 `MaterialLibrary.buildFromTags:209-234`（零调用方且逻辑已分叉）。
 
-## WQ-47 [ ] 【低·数据资产】jsonl 日志补齐"建议 vs 采纳"链路（DP-3 飞轮的地基）
+## WQ-47 [x] 完成(HEAD) 【低·数据资产】jsonl 日志补齐"建议 vs 采纳"链路（DP-3 飞轮的地基）
 
 现在只记 ts/provider/model/cached/ok/latency/want——解析失败与成功在日志里长一样，采纳
 事件完全没记。补：每请求 req_id + raw_response 前 500 字 + proposal_count + dropped_materials
@@ -514,7 +514,7 @@ type/tier/mode/白名单不会跨需求错配；parseSpellJson/parseMovesetJson 
 - 复核期间新落的 cc6f1ab/1b44305/dfa7641 仅抽查回归：WQ-10/11 修复未被冲掉；发现一处
   语义问题记为 WQ-50。
 
-## WQ-48 [ ] 【中·返工】WQ-11 蓝图选料仍组件盲——会吃掉玩家高价值同款装备，且蓝图不可复现
+## WQ-48 [x] 完成(250cd7e) 【中·返工】WQ-11 蓝图选料仍组件盲——会吃掉玩家高价值同款装备，且蓝图不可复现
 
 split(1) 搬原栈和限 36 格都改对了，但 `:99` 匹配仍是 `s.is(item)` 取背包**首个命中**：
 ①玩家的经验修补附魔镐排在垃圾镐前面会被直接吃掉，无确认；②蓝图作者用白板附魔书存的
@@ -523,7 +523,7 @@ split(1) 搬原栈和限 36 格都改对了，但 `:99` 匹配仍是 `s.is(item)
 另补 WQ-11 验收点名的 GameTest（低耐久组件保留 + 护甲槽不被取用）。
 顺带：`:102` 中途失败不回滚——前几件材料已进台（不丢但体验差），失败时把已放材料退回背包更好。
 
-## WQ-49 [ ] 【中·玩法】护甲线"耐久靠材料"不成立——BASE_HIDE 不产 durability，皮甲恒定 150
+## WQ-49 [x] 完成(250cd7e) 【中·玩法】护甲线"耐久靠材料"不成立——BASE_HIDE 不产 durability，皮甲恒定 150
 
 `AttributeScheme:238-256` 只有 BASE_METAL/WOOD/BONE 累加 durability，`case BASE_HIDE` 只给
 armor 和 powerScore。纯皮革组合锻出的四件护甲 durability==0 → override 回落固定 150，
@@ -533,12 +533,12 @@ armor 和 powerScore。纯皮革组合锻出的四件护甲 durability==0 → ov
 **附**：`DrawbackHandler` 的 frail 代价（每命中 hurtAndBreak）在耐久修复后**首次真正上线**，
 数值是在恒 no-op 路径上调的——实机冒烟一次 frail 武器的磨损速度是否合理。
 
-## WQ-50 [ ] 【低·语义】recordForge 3 秒限流误伤"3 秒内锻两件不同产物"
+## WQ-50 [x] 完成(250cd7e) 【低·语义】recordForge 3 秒限流误伤"3 秒内锻两件不同产物"
 
 1b44305 的限流在读产物属性**之前**就返回——快速手动锻造两件不同物品，第二件既不写相谱
 也不涨位格。若非 WQ-26 的预期取舍，应改为按产物 id 去重/合并计数，而不是纯时间窗拦截。
 
-## WQ-51 [ ] 【低·纵深】三个加固点（不阻塞任何结单）
+## WQ-51 [x] 完成(8663a70) 【低·纵深】三个加固点（不阻塞任何结单）
 
 ①`ForgeTableBlockEntity` 补覆写 `canPlaceItem(int,ItemStack)` 返回 `slot < MATERIAL_SLOTS`——
 当前无 capability 注册所以不可利用，但这是产物槽最后一个默认 true 的口子；
@@ -563,7 +563,7 @@ WQ-53、WQ-20（三处上限均高于合法客户端实际值，不会误踢）�
 lang 683/683 双向零差集，但 GameTest 只断言了"无配方产出"，商人表/其它 loot/kit 三条
 回归面无护栏，建议补断言）。
 
-## WQ-57 [ ] 【高·返工】WQ-8 的退蓝实现是无限法力电池——比原 bug 更糟
+## WQ-57 [x] 完成(HEAD) 【高·返工】WQ-8 的退蓝实现是无限法力电池——比原 bug 更糟
 
 `refundOnInvalidTarget` 挂在 `SpellEffectEngine.resolveHit` 的 per-target 分支（:222/:230），
 而 resolveHit 被 AoE 与链式循环**逐目标**调用（:118/:141/:326）。后果三条：①一发 AoE
@@ -572,7 +572,7 @@ cost<15 的法术每次净赚；③命中集合里同时有友方时**治疗照�
 **修法**：退款上提到 cast 层，一次施法只结算一次、退实际 manaCost、且仅当零个目标生效时退。
 **验收**：GameTest：AoE heal 命中 N 个非友方，断言法力净变化 == -manaCost（不是 +）。
 
-## WQ-58 [ ] 【中·返工】WQ-21 锚点候选未排除玩家头部格——会把裂隙岩放进玩家头里
+## WQ-58 [x] 完成(HEAD) 【中·返工】WQ-21 锚点候选未排除玩家头部格——会把裂隙岩放进玩家头里
 
 `MyriadWildsPortalHandler:97-99` 的候选框 `betweenClosed(arrival.offset(-1,0,-1),
 arrival.offset(1,2,1))` 只跳过 arrival 自身，未跳过 `arrival.above()`。脚边一圈不可替换而
@@ -581,7 +581,7 @@ arrival.offset(1,2,1))` 只跳过 arrival 自身，未跳过 `arrival.above()`�
 另低危：强制兜底 :106 的 `canBeReplaced() || !isCollisionShapeFullBlock(...)` 会覆盖
 箱子/台阶/楼梯——等于破坏玩家容器，条件应收紧为只覆盖可替换方块。
 
-## WQ-59 [ ] 【中·返工】WQ-16 落点算法三类地形塌陷 + 污染主世界地形
+## WQ-59 [x] 完成(HEAD) 【中·返工】WQ-16 落点算法三类地形塌陷 + 污染主世界地形
 
 ①全空气柱（虚空上方）：heightmap 返回 minBuildHeight → clamp → 玩家被放到**世界最底层**
 y=min+2，不掉虚空但等同活埋；②树冠/雪层/台阶：`isSolidRender` 对树叶 false，落在树上会
@@ -591,7 +591,7 @@ y=min+2，不掉虚空但等同活埋；②树冠/雪层/台阶：`isSolidRender
 **修法**：落点失败时改用"回退到维度出生点附近"而非就地造块；回程路径不建基座；
 基座材质用黑曜石且只在目标维度内建；heightmap 查询前先判区块是否已加载。
 
-## WQ-60 [ ] 【中·返工】WQ-31 未达成目标——warden_core 同样 100% 掉落，双成就仍同帧弹
+## WQ-60 [x] 完成(HEAD) 【中·返工】WQ-31 未达成目标——warden_core 同样 100% 掉落，双成就仍同帧弹
 
 `loot_table/entities/myriad_warden.json` 末池 warden_core 是 `rolls 1.0` 无 conditions 无
 looting，与原来的 void_shard 第 1 池**触发时机完全等价**：kill_warden 与 legendary_material
@@ -602,7 +602,7 @@ goal，challenge 唯一留给 forge_legendary。
 附带低危：forge_legendary 只检查材料槽有核就授予，不校验产物是否真为 LEGENDARY，与成就
 文案"锻造出一件传奇相器"错配。
 
-## WQ-61 [ ] 【低·返工】FallbackRecipes.legendaryCatalyst() 的判据恒为真
+## WQ-61 [x] 完成(HEAD) 【低·返工】FallbackRecipes.legendaryCatalyst() 的判据恒为真
 
 `:699-703` 用 `MaterialLibrary.exists("qianxiang:warden_core")` 判断——exists 查的是注册表
 索引，装着 mod 就恒 true，不是"玩家有核"。后果：所有攻击/法术向 LEGENDARY 兜底方案一律

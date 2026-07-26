@@ -67,6 +67,7 @@ public final class SpellEffectEngine {
             ServerLevel level = player.serverLevel();
             level.playSound(null, player.blockPosition(), castSoundFor(form),
                     SoundSource.PLAYERS, 0.6f, pitchFor(element));
+            resetTally();
             switch (form) {
                 case "self" -> castSelf(level, player, element, effect, power, mods);
                 case "aoe" -> castAoe(level, player, element, effect, power, mods);
@@ -74,6 +75,9 @@ public final class SpellEffectEngine {
                 case "touch" -> castTouch(level, player, element, effect, power, mods);
                 default -> castProjectile(level, player, element, effect, power, mods);
             }
+            // projectile 形式的命中发生在若干 tick 之后，本次同步结算里必然是 0/0，
+            // settleCast 的「零受益且有无效目标」条件自然不成立，不会误退款。
+            settleCast(player, spell);
         } catch (Throwable t) {
             Qianxiang.LOGGER.error("[Qianxiang] 自由法术施放失败 spell={}", spell, t);
         }
@@ -218,16 +222,18 @@ public final class SpellEffectEngine {
                     if (isAlly(caster, target)) {
                         target.heal(power * 2.0f);
                         burstAt(level, element, target, 12);
+                        markEffective();
                     } else {
-                        refundOnInvalidTarget(caster, "heal");
+                        markIneffective();
                     }
                 }
                 case "buff" -> {
                     if (isAlly(caster, target)) {
                         target.addEffect(new MobEffectInstance(buffFor(element), 220 * durMul, amplifierOf(power)));
                         burstAt(level, element, target, 12);
+                        markEffective();
                     } else {
-                        refundOnInvalidTarget(caster, "buff");
+                        markIneffective();
                     }
                 }
                 case "debuff" -> {
@@ -376,25 +382,72 @@ public final class SpellEffectEngine {
 
     // ---------- 工具 ----------
 
+    // ===== 「本次施法是否有任何目标真正受益」的 per-cast 记账 =====
+    // 退款必须按「一次施法」结算，不能按「每个命中目标」：resolveHit 会被 AoE 与
+    // 链式循环逐目标调用，挂在那里等于一发 AoE 命中 5 只怪就退 5 次；
+    // 若命中集合里还混着友方，治疗照常生效却仍退蓝——补偿直接变成奖励。
+    // 这两条加起来比原来的「静默扣蓝」更糟，所以记账只在这里累计，
+    // 真正的退款在 cast() 收尾时一次性结算。
+
+    private static final ThreadLocal<int[]> CAST_TALLY = ThreadLocal.withInitial(() -> new int[2]);
+    private static final int IDX_EFFECTIVE = 0;
+    private static final int IDX_INEFFECTIVE = 1;
+
+    /** 本次施法有一个目标真正吃到了效果。 */
+    private static void markEffective() {
+        CAST_TALLY.get()[IDX_EFFECTIVE]++;
+    }
+
+    /** 本次施法有一个目标因「非友方」而什么都没发生。 */
+    private static void markIneffective() {
+        CAST_TALLY.get()[IDX_INEFFECTIVE]++;
+    }
+
+    // ===== 测试入口：让 GameTest 能直接验证记账判据，不必构造真实网络连接 =====
+
+    /** 在干净记账上跑一段标记操作，返回 [受益数, 无效数]。 */
+    public static int[] tallySnapshotForTest(Runnable marking) {
+        resetTally();
+        marking.run();
+        int[] t = CAST_TALLY.get();
+        int[] snapshot = {t[IDX_EFFECTIVE], t[IDX_INEFFECTIVE]};
+        resetTally();
+        return snapshot;
+    }
+
+    public static void markEffectiveForTest() {
+        markEffective();
+    }
+
+    public static void markIneffectiveForTest() {
+        markIneffective();
+    }
+
+    /** 退款判据：零受益且至少有一个无效目标（与目标数无关，故最多退一次）。 */
+    public static boolean shouldRefundForTest(int[] tally) {
+        return tally[IDX_EFFECTIVE] == 0 && tally[IDX_INEFFECTIVE] > 0;
+    }
+
+    private static void resetTally() {
+        int[] t = CAST_TALLY.get();
+        t[IDX_EFFECTIVE] = 0;
+        t[IDX_INEFFECTIVE] = 0;
+    }
+
     /**
-     * heal/buff 命中非友方目标时的补偿：退还法力 + 一句 actionbar 提示。
-     * <p>
-     * 此前这条路径是纯静默的——玩家拿治疗弹打僵尸，法力扣了、冷却进了、
-     * 什么都没发生也没有任何反馈，看起来像 bug。
-     * <p>
-     * 退还额按生成公式 {@code 10 + 5*power} 估算（所有锻造/AI 产出的法术都用它，
-     * 见 {@link CustomSpell#fromSpellJson}）。命中回调拿不到原始 CustomSpell，
-     * 若某个法术组件携带了自定义 manaCost，退还额可能与实际扣除略有出入；
-     * 退还上限被夹在「不超过法力上限」内，绝不会凭空造蓝。
+     * 一次施法收尾：只有「零个目标受益且至少有一个目标被判无效」时才退款，
+     * 且<b>退实际 manaCost</b>（此前写死 10+5*1=15，cost 小于它的法术每次净赚）。
      */
-    private static void refundOnInvalidTarget(@Nullable ServerPlayer caster, String effect) {
-        if (caster == null) {
+    private static void settleCast(@Nullable ServerPlayer caster, CustomSpell spell) {
+        int[] t = CAST_TALLY.get();
+        boolean nothingWorked = t[IDX_EFFECTIVE] == 0 && t[IDX_INEFFECTIVE] > 0;
+        resetTally();
+        if (caster == null || spell == null || !nothingWorked) {
             return;
         }
         try {
             var data = caster.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
-            int refund = 10 + 5 * 1;   // 保守下限：按最低 power 估算，宁可少退不多退
-            int restored = Math.min(data.maxMana(), data.currentMana() + refund);
+            int restored = Math.min(data.maxMana(), data.currentMana() + Math.max(0, spell.manaCost()));
             if (restored != data.currentMana()) {
                 caster.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
                         data.withMana(restored));
@@ -404,10 +457,10 @@ public final class SpellEffectEngine {
                     caster, "spell_invalid_target", 1_000L)) {
                 caster.displayClientMessage(
                         net.minecraft.network.chat.Component.translatable(
-                                "qianxiang.spell.ally_only", effect), true);
+                                "qianxiang.spell.ally_only", spell.effect()), true);
             }
-        } catch (Throwable t) {
-            Qianxiang.LOGGER.debug("[Qianxiang] 无效目标补偿失败（不影响主流程）：{}", t.toString());
+        } catch (Throwable t2) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 无效目标补偿失败（不影响主流程）：{}", t2.toString());
         }
     }
 

@@ -201,6 +201,38 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 无效目标补偿（WQ-8/57） ============================
+
+    /**
+     * AoE 治疗打一群怪：退款最多结算一次，绝不能按命中目标数叠加。
+     * <p>直接验证记账层（{@code settleCast} 的判据），避免在 GameTest 的 mock 玩家上
+     * 触发真实网络同步——那条路径需要真实连接，与本用例要验证的逻辑无关。
+     */
+    @GameTest(template = "item_concept")
+    public static void ineffectiveTallyRefundsAtMostOnce(GameTestHelper helper) {
+        // 记账是 per-cast 的：无论标记多少个无效目标，判定结果都只是「本次施法零受益」
+        int[] tally = com.qianxiang.spell.SpellEffectEngine.tallySnapshotForTest(() -> {
+            for (int i = 0; i < 5; i++) {
+                com.qianxiang.spell.SpellEffectEngine.markIneffectiveForTest();
+            }
+        });
+        helper.assertTrue(tally[0] == 0, "不应有任何目标受益，实际 " + tally[0]);
+        helper.assertTrue(tally[1] == 5, "应记录 5 个无效目标，实际 " + tally[1]);
+        helper.assertTrue(com.qianxiang.spell.SpellEffectEngine.shouldRefundForTest(tally),
+                "零受益 + 有无效目标 → 应退款（且只退一次，与目标数无关）");
+
+        // 命中集合里只要有一个友方真正受益，就不该退款（否则治疗生效还倒赚）
+        int[] mixed = com.qianxiang.spell.SpellEffectEngine.tallySnapshotForTest(() -> {
+            com.qianxiang.spell.SpellEffectEngine.markEffectiveForTest();
+            for (int i = 0; i < 4; i++) {
+                com.qianxiang.spell.SpellEffectEngine.markIneffectiveForTest();
+            }
+        });
+        helper.assertTrue(!com.qianxiang.spell.SpellEffectEngine.shouldRefundForTest(mixed),
+                "有目标真正受益时不得退款（否则补偿变奖励）");
+        helper.succeed();
+    }
+
     // ============================ 兜底配方质量（WQ-45） ============================
 
     /** 否定语义：「不要火的剑」不得塞火材料，但「抗火」是合法功能需求不能被误剥。 */

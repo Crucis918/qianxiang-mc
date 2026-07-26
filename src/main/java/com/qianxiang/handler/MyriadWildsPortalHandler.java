@@ -68,7 +68,7 @@ public final class MyriadWildsPortalHandler {
         player.serverLevel().playSound(null, player.blockPosition(),
                 net.minecraft.sounds.SoundEvents.PORTAL_TRAVEL,
                 net.minecraft.sounds.SoundSource.PLAYERS, 0.3f, 1.4f);
-        BlockPos pos = findSafePos(target, player.blockPosition());
+        BlockPos pos = findSafePos(target, player.blockPosition(), !leavingWilds);
         player.teleportTo(target, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5,
                 Set.of(), player.getYRot(), player.getXRot());
         target.playSound(null, pos, net.minecraft.sounds.SoundEvents.PORTAL_TRAVEL,
@@ -96,14 +96,17 @@ public final class MyriadWildsPortalHandler {
         // 候选：脚边一圈 → 头顶两格 → 脚下（最后手段，玩家会站上去）
         for (BlockPos candidate : BlockPos.betweenClosed(
                 arrival.offset(-1, 0, -1), arrival.offset(1, 2, 1))) {
-            if (candidate.equals(arrival)) continue;            // 不占玩家自己的格子
+            // 不占玩家自己的两格身位——放进头部格会直接把玩家闷死
+            if (candidate.equals(arrival) || candidate.equals(arrival.above())) continue;
             if (level.getBlockState(candidate).canBeReplaced()) {
                 level.setBlockAndUpdate(candidate.immutable(), anchorState);
                 return;
             }
         }
+        // 强制兜底只覆盖「可替换方块」（空气/草/水）——原条件把非完整碰撞箱也算进去，
+        // 会连箱子/台阶/楼梯一起覆盖掉，等于破坏玩家的容器。
         BlockPos forced = arrival.above(3);
-        if (level.getBlockState(forced).canBeReplaced() || !level.getBlockState(forced).isCollisionShapeFullBlock(level, forced)) {
+        if (level.getBlockState(forced).canBeReplaced()) {
             level.setBlockAndUpdate(forced, anchorState);
             return;
         }
@@ -119,10 +122,10 @@ public final class MyriadWildsPortalHandler {
      * 向上找「脚下是实心、身体两格是空、脚下不是流体」的位置，找不到就
      * 在候选点铺一块裂隙岩当基座。
      */
-    private static BlockPos findSafePos(ServerLevel level, BlockPos reference) {
-        BlockPos surface = level.getHeightmapPos(Heightmap.Types.WORLD_SURFACE, reference);
+    private static BlockPos findSafePos(ServerLevel level, BlockPos reference, boolean mayBuildPlatform) {
         int minY = level.getMinBuildHeight() + 1;
         int maxY = level.getMaxBuildHeight() - 2;
+        BlockPos surface = level.getHeightmapPos(Heightmap.Types.WORLD_SURFACE, reference);
         int startY = Math.clamp(surface.getY(), minY, maxY);
 
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
@@ -132,9 +135,21 @@ public final class MyriadWildsPortalHandler {
                 return cursor.immutable();
             }
         }
-        // 没有天然可站点：在起始高度铺一块裂隙岩作基座（同时兼作回程锚点）
-        BlockPos platform = new BlockPos(reference.getX(), startY, reference.getZ());
-        level.setBlockAndUpdate(platform, QianxiangBlocks.RIFT_STONE.get().defaultBlockState());
+
+        // 没有天然落点（全空气柱/树冠/雪层）。
+        // 回程去主世界时**绝不**改地形——在别人的树顶或海面上凭空生成一块裂隙岩
+        // 是实打实的地形污染，旧实现从不这么做。
+        if (!mayBuildPlatform) {
+            BlockPos spawn = level.getSharedSpawnPos();
+            BlockPos spawnSurface = level.getHeightmapPos(Heightmap.Types.WORLD_SURFACE, spawn);
+            return spawnSurface.above();
+        }
+
+        // 在目标维度内铺一小块黑曜石基座（比裂隙岩更不易被误挖，也不冒充回程锚点）
+        BlockPos platform = new BlockPos(reference.getX(),
+                Math.clamp(startY, minY, maxY - 2), reference.getZ());
+        level.setBlockAndUpdate(platform,
+                net.minecraft.world.level.block.Blocks.OBSIDIAN.defaultBlockState());
         return platform.above();
     }
 

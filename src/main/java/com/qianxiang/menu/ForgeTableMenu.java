@@ -38,6 +38,13 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连锻一次点击刷满位格。 */
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
 
+    /**
+     * 「传奇产物」的强度门槛（forge_legendary 成就用）。
+     * <p>森罗之核单件在 LEGENDARY 档就贡献可观强度，配任意基底都能轻松越过；
+     * 但拿核配一堆空气/纯辅料做出的弱产物达不到，与成就文案保持一致。
+     */
+    private static final double LEGENDARY_POWER_THRESHOLD = 12.0;
+
     /** 上次参与组合的材料指纹，用于跳过无谓的重算（见 slotsChanged）。 */
     private int lastMaterialsFingerprint = Integer.MIN_VALUE;
 
@@ -177,15 +184,23 @@ public class ForgeTableMenu extends AbstractContainerMenu {
                     net.minecraft.sounds.SoundEvents.ANVIL_USE,
                     net.minecraft.sounds.SoundSource.BLOCKS, 0.7f, 1.1f);
         }
-        // 进程终点：材料里用了森罗之核（Boss 独占掉落）即达成「以核铸相」。
-        // 必须在扣料之前检测——扣完就看不到它了。
+        // 进程终点「以核铸相」：材料含森罗之核（Boss 独占掉落）**且产物确实够传奇**。
+        // 必须在扣料之前检测——扣完就看不到核了。
+        // 只看材料有核是不够的：成就文案写的是「锻造出一件传奇相器」，
+        // 拿核配一堆垃圾料做出个弱产物也算达成的话，文案与实际就对不上了。
         if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            boolean usedCore = false;
             for (int i = 0; i < MATERIAL_SLOTS; i++) {
                 if (container.getItem(i).is(com.qianxiang.QianxiangItems.WARDEN_CORE.get())) {
-                    com.qianxiang.QianxiangAdvancements.grant(
-                            serverPlayer, com.qianxiang.QianxiangAdvancements.FORGE_LEGENDARY);
+                    usedCore = true;
                     break;
                 }
+            }
+            var attrs = resultStack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+            boolean legendaryGrade = attrs != null && attrs.powerScore() >= LEGENDARY_POWER_THRESHOLD;
+            if (usedCore && legendaryGrade) {
+                com.qianxiang.QianxiangAdvancements.grant(
+                        serverPlayer, com.qianxiang.QianxiangAdvancements.FORGE_LEGENDARY);
             }
         }
 

@@ -10,7 +10,7 @@
     "description": {
       "translate": "advancement.qianxiang.legendary_material.desc"
     },
-    "frame": "challenge"
+    "frame": "goal"
   },
   "criteria": {
     "has_legendary": {

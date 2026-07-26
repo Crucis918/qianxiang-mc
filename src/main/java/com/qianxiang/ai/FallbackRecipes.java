@@ -743,9 +743,12 @@ public final class FallbackRecipes {
      * Boss 独占掉落在兜底路径上完全没有存在感。攻击向/法术向优先用核。
      */
     private static String legendaryCatalyst() {
-        return MaterialLibrary.exists("qianxiang:warden_core")
-                ? "qianxiang:warden_core"
-                : "qianxiang:rift_essence";
+        // 不能用 MaterialLibrary.exists —— 它查的是注册表索引，装着 mod 就恒为 true，
+        // 而不是「玩家手上有核」。那样所有攻击/法术向的传奇兜底方案都会要求
+        // Boss 独占材料，没打过守望者的玩家在 AI 掉线时拿到的是永远配不齐的方案
+        // （放料会静默失败，玩家完全不知道为什么）。
+        // 兜底的价值在于「一定能做出来」，所以这里退回人人可得的裂隙精髓。
+        return "qianxiang:rift_essence";
     }
 
     private static String pickBaseByTier(String type, PhaseTier tier) {
