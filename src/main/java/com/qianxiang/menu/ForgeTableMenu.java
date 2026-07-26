@@ -79,11 +79,14 @@ public class ForgeTableMenu extends AbstractContainerMenu {
      */
     public boolean applyBlueprint(BlueprintData blueprint) {
         int nextSlot = 0;
+        // 中途失败要整体回滚：否则前几件材料已经进了台子，玩家看到「材料不足」
+        // 却发现背包少了东西、台上多了半套料，还得手动搬回去。
+        java.util.List<Integer> placedSlots = new ArrayList<>();
         for (String name : blueprint.materials()) {
             ResourceLocation id = ResourceLocation.tryParse(name);
-            if (id == null) return false;
+            if (id == null) return rollbackBlueprint(placedSlots);
             Item item = BuiltInRegistries.ITEM.get(id);
-            if (item == Items.AIR) return false;
+            if (item == Items.AIR) return rollbackBlueprint(placedSlots);
 
             int placeSlot = -1;
             for (int i = nextSlot; i < MATERIAL_SLOTS; i++) {
@@ -93,24 +96,21 @@ public class ForgeTableMenu extends AbstractContainerMenu {
                     break;
                 }
             }
-            if (placeSlot < 0) return false;
+            if (placeSlot < 0) return rollbackBlueprint(placedSlots);
 
             // 只扫主背包 36 格（0..INVENTORY_SIZE-1）——getContainerSize() 是 41，
             // 会把身上穿的 4 件盔甲和副手也当材料扒走。
-            int found = -1;
-            for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
-                ItemStack s = playerInventory.getItem(i);
-                if (!s.isEmpty() && s.is(item)) {
-                    found = i;
-                    break;
-                }
-            }
-            if (found < 0) return false;
+            // 且必须挑「最不值钱的同 id 那件」：取首个命中会把玩家的经验修补附魔镐
+            // 直接吃掉（同 id 的垃圾镐就在后面），而蓝图作者存的是白板方案，
+            // 用附魔件去配还会让产物属性与蓝图预览对不上。
+            int found = findCheapestMatch(item);
+            if (found < 0) return rollbackBlueprint(placedSlots);
 
             // 搬运原栈而非 new ItemStack(item, 1)：后者是出厂新品，
             // 会把残耐久/附魔/自定义名洗成白板（等于免费修复+洗附魔）。
             ItemStack moved = playerInventory.getItem(found).split(1);
             container.setItem(placeSlot, moved);
+            placedSlots.add(placeSlot);
         }
         // 蓝图中保存的 spellJson/movesetJson 一并重新应用（无对应 JSON 的旧蓝图则清除暂存，
         // 避免上一次 AI 响应的法术/动作串味到蓝图产物）。蓝图名作为自定义名恢复。
@@ -234,9 +234,14 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             // 材料槽各放 64 个，一次点击就能连锻 64 次。若每次都写一条相谱并 +1 位格，
             // 相谱会被同一批产物灌满 64 条，位格两次点击即触顶 100，
             // 直接架空 WILDS_POSITION_THRESHOLD 的维度门控设计。
-            // 这里给「铭刻 + 位格」设节流：连锻只记一次，锻造本身照常进行。
+            //
+            // 节流按「产物种类」而非纯时间窗：连锻同一件只记一次，
+            // 但 3 秒内手动锻出两件**不同**产物应当各记一条——那是两次真实创造，
+            // 纯时间窗会把第二件的相谱与位格一起吞掉。
+            String productKey = net.minecraft.core.registries.BuiltInRegistries.ITEM
+                    .getKey(resultStack.getItem()).toString();
             if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
-                    player, "forge_saga", FORGE_SAGA_COOLDOWN_MS)) {
+                    player, "forge_saga_" + productKey, FORGE_SAGA_COOLDOWN_MS)) {
                 return;
             }
             var attr = resultStack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
@@ -264,6 +269,66 @@ public class ForgeTableMenu extends AbstractContainerMenu {
                             + s.getComponents().hashCode());
         }
         return hash;
+    }
+
+    /** 把已放入台子的材料原样退回玩家背包；恒返回 false（供失败分支直接 return）。 */
+    private boolean rollbackBlueprint(java.util.List<Integer> placedSlots) {
+        for (int slot : placedSlots) {
+            ItemStack back = container.getItem(slot);
+            if (back.isEmpty()) continue;
+            container.setItem(slot, ItemStack.EMPTY);
+            if (!playerInventory.add(back)) {
+                // 背包在此期间被填满：掉在脚下总好过凭空消失
+                playerInventory.player.drop(back, false);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 在主背包里挑「最不值钱」的同 id 物品：无附魔 &gt; 无自定义名 &gt; 损伤最大（越旧越先用）。
+     * <p>取首个命中会把玩家的经验修补附魔镐直接吃掉（同 id 的垃圾镐就排在后面），
+     * 而蓝图作者存的是白板方案，用附魔件去配还会让产物属性与蓝图预览对不上。
+     * <p>找不到返回 -1。
+     */
+    private int findCheapestMatch(Item item) {
+        int best = -1;
+        long bestScore = Long.MAX_VALUE;
+        for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
+            ItemStack s = playerInventory.getItem(i);
+            if (s.isEmpty() || !s.is(item)) continue;
+            long score = valueScore(s);
+            if (score < bestScore) {
+                bestScore = score;
+                best = i;
+                if (score == 0) break;   // 已是纯白板且最旧，不可能更便宜
+            }
+        }
+        return best;
+    }
+
+    /** 价值粗评：数值越小越「不值钱」，优先被蓝图取用。 */
+    private static long valueScore(ItemStack stack) {
+        long score = 0;
+        var ench = stack.get(net.minecraft.core.component.DataComponents.ENCHANTMENTS);
+        if (ench != null && !ench.isEmpty()) {
+            score += 1_000_000L + ench.size() * 1000L;
+        }
+        var stored = stack.get(net.minecraft.core.component.DataComponents.STORED_ENCHANTMENTS);
+        if (stored != null && !stored.isEmpty()) {
+            score += 1_000_000L + stored.size() * 1000L;
+        }
+        if (stack.has(net.minecraft.core.component.DataComponents.CUSTOM_NAME)) {
+            score += 500_000L;
+        }
+        if (stack.has(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get())) {
+            score += 2_000_000L;    // 千相锻造产物本身很贵，最后才考虑
+        }
+        // 同等条件下优先消耗损伤大的（剩余耐久越少越先用掉）
+        if (stack.isDamageableItem()) {
+            score += Math.max(0, stack.getMaxDamage() - stack.getDamageValue());
+        }
+        return score;
     }
 
     /** 该玩家当前 AI 选择的指纹（客户端 SimpleContainer 恒为 0）。 */

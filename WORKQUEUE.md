@@ -9,7 +9,7 @@
 
 ---
 
-## WQ-1 [ ] 【高】法术 power 上限改为材料预算（"强度靠材料"的法术轨缺口）
+## WQ-1 [x] 完成(b766474) 【高】法术 power 上限改为材料预算（"强度靠材料"的法术轨缺口）
 
 **问题**：`phase/ForgeComposer.applyAiSpell` 用 `fromSpellJson(spellJson, maxTier + 1)`——材料
 最高档位只决定 power **下限**；上限是 `CustomSpell.MAX_POWER = 10` 全局定死。垃圾材料 +
@@ -26,7 +26,7 @@ AI/客户端报 power=10 完全合法，法术强度与材料脱钩，材料经�
 
 **验收**：新测试通过；现有 `spellJsonClampsOversizedPower`（上限语境=默认 10）仍绿。
 
-## WQ-2 [ ] 【高】AI 提案信任边界重构：客户端只回传索引
+## WQ-2 [x] 完成(fd41ec0) 【高】AI 提案信任边界重构：客户端只回传索引
 
 **问题**：服务端算 AI → 发客户端 → 客户端回传**spellJson 全文**（`network/SpellJsonReportPayload`，
 `movesetJson` 同理）。服务端不留提案副本，无法区分"选了方案二"和"自己编了合法 JSON"——
@@ -46,7 +46,7 @@ AI/客户端报 power=10 完全合法，法术强度与材料脱钩，材料经�
 **验收**：GameTest 覆盖"未收到提案的玩家回传索引 0 → 拒绝"；手测单人 AI 锻造全流程无回归。
 WQ-1 先做可独立上线，本单动协议建议单独一个 commit。
 
-## WQ-3 [ ] 【高】P0-2：Epic Fight 改真软依赖（现在不装 EF 进不了游戏）
+## WQ-3 [x] 完成(d403e1a) 【高】P0-2：Epic Fight 改真软依赖（现在不装 EF 进不了游戏）
 
 `src/main/templates/META-INF/neoforge.mods.toml` EF 依赖 `type="required"` → `"optional"`；
 `Qianxiang.java:37` 附近对 `QianxiangEFCompat::register` 的监听注册加
@@ -56,7 +56,7 @@ WQ-1 先做可独立上线，本单动协议建议单独一个 commit。
 **验收**：装 EF 启动 + 临时注释 dev runs 的 EF 依赖再启动，均能进世界、锻造、施法。README 的
 "软依赖不装不崩"从此为真。
 
-## WQ-4 [ ] 【中】P0-6：删除 compat/MovesetCompat.java 死脚手架 + 动作集语义统一
+## WQ-4 [x] 完成(d403e1a) 【中】P0-6：删除 compat/MovesetCompat.java 死脚手架 + 动作集语义统一
 
 231 行反射机制（猜包名/反射取字段/扒泛型签名）服务于"动作集子代理尚未合并"这个已不成立的
 前提（`MovesetCompat.java:198` 注释）。删类及全部调用点，统一走 `QianxiangEFCompat` 的类型化
@@ -64,7 +64,7 @@ WQ-1 先做可独立上线，本单动协议建议单独一个 commit。
 （`network/MovesetApplyHandler:26-29` 注释自认）→ 统一为 **6 段、允许重复**。
 **验收**：编译绿；grep 无 MovesetCompat 残留引用；动作编辑器手测能应用 6 段含重复动作。
 
-## WQ-5 [ ] 【中】P0-3 收尾：三处文档/注释更新（纯文档，结论已定，照抄即可）
+## WQ-5 [x] 完成(d403e1a) 【中】P0-3 收尾：三处文档/注释更新（纯文档，结论已定，照抄即可）
 
 EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，只叠加**。
 1. `docs/epic-fight-compat-brief.md` §8 未确认项 #2 替换为以下结论：
@@ -86,7 +86,7 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 3. `combat/CombatEffectHandler.java:50` 的 `<h3>Epic Fight 兼容性(TODO,需统筹实测)</h3>`
    javadoc 改为已确认说明（`LivingDamageEvent.Post` 正常触发、attacker 是玩家）。
 
-## WQ-6 [ ] 【高】森罗之核：Boss 独占掉落 + 成就终点闭环
+## WQ-6 [x] 完成(d8a0070) 【高】森罗之核：Boss 独占掉落 + 成就终点闭环
 
 前置：先 `git show a9b964b 467477f` 核对并行改动——Boss 已有冲击波/追踪弹/半血狂化，
 成就树已扩三条支线；**但 Boss 仍无独占掉落**。按 `docs/next-milestone-plan.md` §3.2/3.3 实施：
@@ -106,7 +106,7 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 **验收**：GameTest：击杀守望者掉落表包含 warden_core；含核锻造授予 forge_legendary。
 手测全进程链成就顺序正确（新世界→kit→锻造→进维度→杀 Boss→才弹 legendary_material→用核锻造弹终点）。
 
-## WQ-7 [ ] 【中】组件与分享码加版本号 + 迁移注册表
+## WQ-7 [x] 完成(6044047) 【中】组件与分享码加版本号 + 迁移注册表
 
 `CUSTOM_SPELL`/`CUSTOM_MOVESET`/`SPELLBOOK` 组件和蓝图分享码（`blueprint/BlueprintShareCodes`）
 均无版本字段；schema 已发生过一次演化（spellJson 旧词折算）。趁字段还少：
@@ -116,14 +116,14 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
    （v0→v1 就是现有 normalizeLegacyWords 逻辑的搬家）。
 **验收**：旧格式分享码（不带 v 字段）仍能导入；GameTest 覆盖 v0 码 roundtrip。
 
-## WQ-8 [ ] 【低·快赢】heal/buff 打怪物：扣蓝无反馈
+## WQ-8 [x] 完成(1b44305) 【低·快赢】heal/buff 打怪物：扣蓝无反馈
 
 `spell/SpellEffectEngine.resolveHit`（约 212-223 行）要求 isAlly，heal/buff 的 projectile/beam/touch
 形式对怪物命中时什么都不发生，但法力已扣、冷却已进、无任何提示。修法：命中非友方时
 退回法力（或干脆不进冷却）+ actionbar 提示「该法术只能作用于友方」（lang 键中英各 1）。
 **验收**：手测 heal 弹体打僵尸出提示且蓝退回。
 
-## WQ-9 [ ] 【中】法术冷却同步 + HUD 显示 + 同步风暴修复
+## WQ-9 [x] 完成(c0fa031) 【中】法术冷却同步 + HUD 显示 + 同步风暴修复
 
 三件事同一批文件一起修：
 1. **同步风暴（先修）**：`SpellTickHandler:30-40` 的发包条件是 `next != data`，而
@@ -170,14 +170,14 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 **修法**：覆写 `onRemove`，`!state.is(newState.getBlock())` 时 `Containers.dropContents` 再 super。
 **验收**：GameTest：放材料后破坏方块，断言掉落物包含材料。
 
-## WQ-13 [ ] 【中·经济】声望折扣错误作用于收购单的 costA——高声望卖货投入减半
+## WQ-13 [x] 完成(1b44305) 【中·经济】声望折扣错误作用于收购单的 costA——高声望卖货投入减半
 
 `QianxiangNPCBase.applyReputationPricing`（:152-168）对**每条** offer 的 costA 打折，但收购型
 offer（碎片×2→5 绿宝石）的 costA 是玩家交出的货。声望 25% 时交货量 2→1，收益翻倍；
 屠杀烙印反向双重惩罚。**修法**：只对 `getBaseCostA().is(Items.EMERALD)` 的售出型条目写
 specialPriceDiff。（压到 0 白嫖不成立，已核实三重下限保险，勿改动那部分。）
 
-## WQ-14 [ ] 【中·NPC】NPC 继承整套 Villager 大脑：会转职/被原版补货绕过/被僵尸转化消灭
+## WQ-14 [x] 完成(de9ddee) 【中·NPC】NPC 继承整套 Villager 大脑：会转职/被原版补货绕过/被僵尸转化消灭
 
 `QianxiangNPCBase extends Villager` 未锁职业未剪 brain：①附近有讲台等 job-site 会转职，
 `updateTrades` 是 append——8 条千相交易后面接原版职业交易；②转职后 brain 的 WorkAtPoi 每日
@@ -187,7 +187,7 @@ specialPriceDiff。（压到 0 白嫖不成立，已核实三重下限保险，�
 僵尸转化需拦 `Zombie.killedEntity` 路径（覆写 die 或事件取消转化）。
 **验收**：手测放讲台 NPC 不转职；僵尸杀 NPC 不出僵尸村民。
 
-## WQ-15 [ ] 【中·卡死】AI 解析中关 GUI → 锻造台永久卡 STATE_PARSING（落盘持久）+ 线程池泄漏
+## WQ-15 [x] 完成(de9ddee) 【中·卡死】AI 解析中关 GUI → 锻造台永久卡 STATE_PARSING（落盘持久）+ 线程池泄漏
 
 `ForgeTableAIHandler` 复位依赖"玩家此刻仍开着菜单"（:56-68），关 GUI/下线后回包直接 return；
 `tickServer` 只对 STATE_COMPLETE 倒计时，PARSING 无超时；状态还落盘。玩家中途开了另一台
@@ -199,7 +199,7 @@ IPayloadContext→ServerPlayer→ServerLevel 整个对象图，反复进出世�
 PARSING 归一为 IDLE；④监听 `ServerStoppingEvent` 对 executor `shutdownNow` 并丢弃队列。
 **验收**：发起 AI 后立即关 GUI，超时后方块状态自动复位；重开存档无残留 PARSING 粒子。
 
-## WQ-16 [ ] 【中·落点】传送门落点含流体高度图——amplified 地形可直接落岩浆/海面
+## WQ-16 [x] 完成(1b44305) 【中·落点】传送门落点含流体高度图——amplified 地形可直接落岩浆/海面
 
 `MyriadWildsPortalHandler:98-105` 用 `MOTION_BLOCKING_NO_LEAVES`（流体计入），落点无安全复检；
 y<=min+1 时兜底 y=100 不查是否闷在石头里；`getHeightmapPos` 未生成区块时主线程同步生成
@@ -207,7 +207,7 @@ y<=min+1 时兜底 y=100 不查是否闷在石头里；`getHeightmapPos` 未生�
 **修法**：`WORLD_SURFACE` 取高后向上扫两格可站立且脚下非流体的位置，找不到建 3×3 黑曜石基座。
 **验收**：手测传送到海洋/岩浆湖坐标不落液体。
 
-## WQ-17 [ ] 【低·反馈】蓝图使用失败也写相谱 + Blueprint 包无限流
+## WQ-17 [x] 完成(1b44305) 【低·反馈】蓝图使用失败也写相谱 + Blueprint 包无限流
 
 `BlueprintServerHandler:79-81` 的 `withEntry` 在 `if (ok)` 之外——缺材料连点"使用"每次都写一条
 相谱（500 上限会被垃圾挤掉真历史），且 handler 无冷却可被刷。
@@ -220,20 +220,20 @@ y<=min+1 时兜底 y=100 不查是否闷在石头里；`getHeightmapPos` 未生�
 **修法**：`findMaterialSlot` 改为优先空槽，无空槽才堆叠。
 **验收**：GameTest：AI 放料含重复材料时占用不同槽位。
 
-## WQ-19 [ ] 【低·经济】交易声望按笔计无节流——Shift 一键 12 笔直冲满折扣
+## WQ-19 [x] 完成(1b44305) 【低·经济】交易声望按笔计无节流——Shift 一键 12 笔直冲满折扣
 
 `notifyTrade`（:90-108）每笔 +1 声望且每笔写一条相谱，Shift 批量成交两次点击即触顶 ±25%，
 与 WQ-13 复合成"卖货涨声望→声望让卖货更赚"的印钞机。
 **修法**：声望加成设每 NPC/玩家/MC 日上限（如 5）；相谱按会话合并一条。
 
-## WQ-20 [ ] 【低·加固】上行包字段无长度上限（三处）
+## WQ-20 [x] 完成(cc6f1ab) 【低·加固】上行包字段无长度上限（三处）
 
 `AiPlaceMaterialsPayload:29-32` 的 `ByteBufCodecs.collection` 不带 maxSize，恶意包可带上万条
 id 各触发注册表查询+41 格扫描；`AiRequestPayload.java:45,47` 与 `BlueprintSavePayload.java:25`
 同病。**修法**：collection/字符串 codec 补 maxSize（材料列表 16、需求文本 1024、蓝图名 64 等
 合理上限），handler 里再截断。
 
-## WQ-21 [ ] 【低·软锁】回程锚点放置可静默失败 → 玩家困在维度
+## WQ-21 [x] 完成(1b44305) 【低·软锁】回程锚点放置可静默失败 → 玩家困在维度
 
 `MyriadWildsPortalHandler:86-96` 只试 2 个候选点，都不可替换就 return 无提示；玩家挖掉去程
 裂隙岩后无法回程。**修法**：候选扩为 3×3 必要时强制放置，失败发聊天警示。
@@ -242,7 +242,7 @@ id 各触发注册表查询+41 格扫描；`AiRequestPayload.java:45,47` 与 `Bl
 
 # 第三批：客户端/同步/性能狩猎发现（2026-07-26 深夜第二队侦察代理）
 
-## WQ-22 [ ] 【高·多人】全部命令零权限门控
+## WQ-22 [x] 完成(cc6f1ab) 【高·多人】全部命令零权限门控
 
 全仓库 `grep "requires("` 零命中：多人服任意玩家可 `/qianxiang kit`（无限刷全套装备/刷怪蛋）、
 `/qianxiang dim`（无条件跨维度，绕过位格门控与裂隙精髓消耗）、`/qianxiang ask <串>`（往单线程
@@ -251,7 +251,7 @@ id 各触发注册表查询+41 格扫描；`AiRequestPayload.java:45,47` 与 `Bl
 ask 若保留给玩家则加 per-player 冷却（如 100 tick）。
 **验收**：非 OP 玩家 tab 补全看不到 kit/dim；OP 正常使用。
 
-## WQ-23 [ ] 【高·多人】施法入口缺存活/观战校验 + 失败提示构成 1:1 包放大
+## WQ-23 [x] 完成(cc6f1ab) 【高·多人】施法入口缺存活/观战校验 + 失败提示构成 1:1 包放大
 
 `SpellCastHandler.handle`（:37-92）只判 `instanceof ServerPlayer`：观战者按 V 照常施法
 （ender 元素还会 `connection.teleport`）；死亡瞬间同理。且冷却/法力不足路径每个被拒上行包
@@ -260,7 +260,7 @@ ask 若保留给玩家则加 per-player 冷却（如 100 tick）。
 **修法**：入口加 `if (!p.isAlive() || p.isSpectator()) return;`；失败提示 per-player 20 tick 节流。
 **验收**：观战模式按 V 无任何效果；GameTest 覆盖 spectator 拒绝。
 
-## WQ-24 [ ] 【中·体验】伤害浮字寿命与帧率成反比——高刷屏上一闪即没
+## WQ-24 [x] 完成(c0fa031) 【中·体验】伤害浮字寿命与帧率成反比——高刷屏上一闪即没
 
 `ClientDamageNumbers:117,134` 用 `getGameTimeDeltaPartialTick(true)`（tick 内插值系数 0~1，
 非帧间 delta）累加 age：30FPS 活 2 秒、144FPS 只活 0.42 秒、240FPS 0.25 秒。
@@ -268,7 +268,7 @@ ask 若保留给玩家则加 per-player 冷却（如 100 tick）。
 `ClientTickEvent.Post` 渲染只读。顺带：`ACTIVE` 表在断线/换世界不清空，重进后旧 entityId
 撞新实体会冒幽灵数字——在 LoggingOut/LevelUnload 清一次。
 
-## WQ-25 [ ] 【中·性能】动态武器模型每帧全量重算 key + bake 失败静默重试风暴
+## WQ-25 [x] 完成(5f57a97) 【中·性能】动态武器模型每帧全量重算 key + bake 失败静默重试风暴
 
 `DynamicWeaponModel.getRenderPasses`（:62-68）每帧每栈重算变体 key：`shapeFromCustomName`
 （toLowerCase+14 次 contains）、`hasGranted` 每次开 Stream 对每 key toString（Texture:473-474）、
@@ -280,7 +280,7 @@ ask 若保留给玩家则加 per-player 冷却（如 100 tick）。
 **背景**：变体总上界 720 个（shape20×color9×tier4），与锻造物数量无关——缓存本身设计没错，
 问题只在 key 计算频率和失败路径。
 
-## WQ-26 [ ] 【中·平衡】Shift 连锻一次点击灌 64 条相谱 + 位格直冲 100 越过维度门控
+## WQ-26 [x] 完成(1b44305) 【中·平衡】Shift 连锻一次点击灌 64 条相谱 + 位格直冲 100 越过维度门控
 
 QUICK_MOVE 循环调 `quickMoveStack`（ForgeTableMenu:194-206），每轮 `recordForge` 追加一条
 相谱 + `withBumpedPosition(1)`。材料槽各放 64 个 shift 一下：64 条相谱、位格 0→64+
@@ -288,7 +288,7 @@ QUICK_MOVE 循环调 `quickMoveStack`（ForgeTableMenu:194-206），每轮 `reco
 **修法**：`recordForge` 按批次合并一条（带数量）；位格增长每次交互（或每 MC 日）限 +1。
 **验收**：shift 连锻后 /qianxiang saga 只多一条记录；位格增幅受限。
 
-## WQ-27 [ ] 【低·清理】客户端静态状态跨世界残留（两处）
+## WQ-27 [x] 完成(c0fa031) 【低·清理】客户端静态状态跨世界残留（两处）
 
 ①`ClientForgeTableAI.onResult/lastResult` 是 static，断线/崩溃不走 onClose → 持有整个 Screen
 对象图；且 `receive`（:41）无条件回发 `SpellJsonReportPayload`（锻造台已关也发）。
@@ -298,14 +298,14 @@ if 非 while 消费点击。
 receive 校验当前 Screen 再回发（注意 WQ-2 重构会改这条链路，先做 WQ-2 的话本条①随之消解）；
 ClientSpellInput 加守卫、if→while。
 
-## WQ-28 [ ] 【低·性能】两处热路径开销
+## WQ-28 [x] 完成(5f57a97) 【低·性能】两处热路径开销
 
 ①homing 弹体每 tick `getEntitiesOfClass(inflate(10))`+sort（SpellProjectileEntity:105-113）——
 改每 4 tick 重选目标并缓存目标 id。②锻造台任意一次容器点击（含背包无关格）全量重跑
 `ForgeComposer.compose` 并 setItem 新产物栈触发同步（ForgeTableMenu:252-258，quickMoveStack
 还会再调一次）——对材料槽内容做哈希，未变则跳过重算。
 
-## WQ-29 [ ] 【低·防御】产物槽 shift 部分搬运会清空余量（当前不可触发，防未来）
+## WQ-29 [x] 完成(1b44305) 【低·防御】产物槽 shift 部分搬运会清空余量（当前不可触发，防未来）
 
 `quickMoveStack` 产物分支 `moveItemStackTo` 部分成功也返回 true，随后无条件
 `slot.set(EMPTY)`（:231）。今日 compose 产物恒 count=1 不可触发（第一队已核实），但产物
@@ -315,7 +315,7 @@ ClientSpellInput 加守卫、if→while。
 
 # 第四批：数据 json 审计发现（2026-07-27 凌晨第三队侦察代理，成就/loot/worldgen/recipe/tags 全查）
 
-## WQ-30 [ ] 【P0·数据】rift_stone 与 void_ore 缺 mineable 标签——挖掉永不掉落
+## WQ-30 [x] 完成(cc6f1ab) 【P0·数据】rift_stone 与 void_ore 缺 mineable 标签——挖掉永不掉落
 
 仓库 `data/` 下没有 `tags/block/` 目录，两方块又都 `.requiresCorrectToolForDrops()`
 （QianxiangBlocks.java:33/:68）。1.21 规则：不在任何 `minecraft:mineable/*` 标签的方块对所有
@@ -324,7 +324,7 @@ ClientSpellInput 加守卫、if→while。
 **修法**：新建 `data/minecraft/tags/block/mineable/pickaxe.json` 收录两方块；按设计意图可再加
 `needs_iron_tool.json`（void_ore 建议铁镐档）。**验收**：生存模式镐挖两方块有掉落。
 
-## WQ-31 [ ] 【高·数据】legendary_material 在 kill_warden 同一瞬间必然自动弹出
+## WQ-31 [x] 完成(d8a0070) 【高·数据】legendary_material 在 kill_warden 同一瞬间必然自动弹出
 
 守望者战利品第 1 池 100% 必掉 void_shard 1-2，而该成就条件正是"持有 void_shard 或
 reverse_core"——两个 challenge 成就同帧弹出，终局沦为击杀附赠。
@@ -332,42 +332,42 @@ reverse_core"——两个 challenge 成就同帧弹出，终局沦为击杀附�
 若先行止血，可临时收窄为只认 reverse_core（需 void_shard+rift_essence+ender_eye 再合成一步）。
 **领此单前先看 WQ-6 状态，避免改两次。**
 
-## WQ-32 [ ] 【中·数据】first_forge 可在工作台达成（从未碰过锻造台）
+## WQ-32 [x] 完成(dfa7641) 【中·数据】first_forge 可在工作台达成（从未碰过锻造台）
 
 `advancement/story/first_forge.json` 的 items 列表含 `qianxiang:spell_book`，而 spell_book 有
 纯原版材料的工作台配方（recipe/spell_book.json）——工作台合一本书同时点亮 first_forge 和
 子节点 story/spell_book，"初铸"文案与条件背离。
 **修法**：first_forge 的 items 删掉 spell_book 一项。
 
-## WQ-33 [ ] 【中·平衡】void_ore 生成密度约为原版钻石 8 倍——LEGENDARY 材料白菜价
+## WQ-33 [x] 完成(dfa7641) 【中·平衡】void_ore 生成密度约为原版钻石 8 倍——LEGENDARY 材料白菜价
 
 `placed_feature/void_ore.json`：count 8/区块 × size 8，y∈[-64,32]，无 rarity_filter。挖矿
 10 分钟即可架空 Boss 掉落线（与 WQ-6 的独占性设计冲突）。
 **修法**：count 降 1-2、size 降 4、加 rarity_filter；与 P3 观察项（rift_essence_from_void_shard
 1 换 2 的兑换曲线）一起通盘调平。
 
-## WQ-34 [ ] 【中·体验】守望者自然刷新无 spawn_costs——多只 Boss 血条叠 HUD
+## WQ-34 [x] 完成(dfa7641) 【中·体验】守望者自然刷新无 spawn_costs——多只 Boss 血条叠 HUD
 
 `biome/myriad_wilds.json` monster 池守望者权重 3、spawn_costs 为空对象，同屏可游荡多只
 各带 ServerBossEvent 的守望者。
 **修法**：spawn_costs 加 `"qianxiang:myriad_warden": {"energy_budget": 0.12, "charge": 1.0}`，
 权重降 1。
 
-## WQ-35 [ ] 【中·可发现性】22 个配方全部没有 recipe advancement——配方书完全隐身
+## WQ-35 [x] 完成(dfa7641) 【中·可发现性】22 个配方全部没有 recipe advancement——配方书完全隐身
 
 `advancement/` 下无 `recipes/` 目录，不装 JEI 的玩家无法在配方书里看到任何千相配方
 （包括入口方块锻造台）。
 **修法**：至少给 forge_table、rift_essence、spell_book、reverse_core 等关键配方补
 `advancement/recipes/<name>.json`（has_item criteria + rewards.recipes），其余可批量生成。
 
-## WQ-36 [ ] 【低·EF 数据】item_keyword 正则与显式文件打架 + phase_staff 兜底类型漂移
+## WQ-36 [x] 完成(dfa7641) 【低·EF 数据】item_keyword 正则与显式文件打架 + phase_staff 兜底类型漂移
 
 ①`capabilities/weapons/item_keyword/qianxiang_blades.json` 的正则 `qianxiang:.*_blade` 只能
 命中已有显式 json 的两把刀，且把声明 dagger 的 bone_blade 导向 tachi 连段——删掉该 keyword
 文件（types 文件留作参考）。②`capabilities/weapons/phase_staff.json` 静态兜底写
 `epicfight:sword`，Java 动态分类是 DAGGER——静态 json 改 `epicfight:dagger` 对齐。
 
-## WQ-37 [ ] 【低·数据】三个空功能标签 + biome 废弃字段
+## WQ-37 [x] 完成(dfa7641) 【低·数据】三个空功能标签 + biome 废弃字段
 
 ①`tags/item/materials/defense.json`/`reflect.json`/`slow.json` 全空——DEFENSE/REFLECT 是防具
 体系仅有的纯防御算子，datapack 扩展入口是哑的。建议填充：defense=shield/turtle_scute/
@@ -375,7 +375,7 @@ iron_block、reflect=cactus/nautilus_shell、slow=cobweb/soul_sand/honey_block�
 DEFENSE 映射到护腿原型，填充后玩家可用原版材料锻护腿）。②`biome/myriad_wilds.json` 残留
 1.19.4 已废弃的 `"precipitation": "rain"` 字段（静默无效），删除。
 
-## WQ-38 [ ] 【低·worldgen】荒光草悬浮空中 + 微光树叶徒手必掉
+## WQ-38 [x] 完成(dfa7641) 【低·worldgen】荒光草悬浮空中 + 微光树叶徒手必掉
 
 ①`configured_feature/wildlight_patch.json` 谓词只查目标位为空气不查脚下，y_spread 3 →
 实心发光块悬浮半空。改 `would_survive` 谓词或补下方方块检查。②`loot_table/blocks/
@@ -584,7 +584,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 **注**：`AttributeScheme` 那段"durability 由 override 提供"的 javadoc 此前由修理会话写下但
 漏了注册侧前提，已一并纠正。
 
-## WQ-41 [ ] 【严重·凭据泄露】服务端 apiKey 明文推送给每个进服玩家
+## WQ-41 [x] 完成(cc6f1ab) 【严重·凭据泄露】服务端 apiKey 明文推送给每个进服玩家
 
 `network/AiConfigSyncHandler.java:52-60`（`onPlayerLogin` → `PacketDistributor.sendToPlayer`）
 经 `:64-68 currentPayload()` 把 `cfg.apiKey` 放进包；`AiConfigSyncPayload.java:37` 照发；
@@ -596,7 +596,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 保存时若仍是占位则不覆盖服务端已有 Key。
 **验收**：非 OP 玩家进服抓包无明文 Key；OP 打开界面仍能看到并修改真值。
 
-## WQ-42 [ ] 【高·客户端卡死】锻造台每帧 12 次全物品注册表扫描
+## WQ-42 [x] 完成(c0fa031) 【高·客户端卡死】锻造台每帧 12 次全物品注册表扫描
 
 `client/ForgeTableScreen.java:572`（render 内）→ `:1307` → `:1448 resolveItemStack`
 → `ai/MaterialLibrary.java:440 find()` → `:126 snapshot()`。`find()` 每次调用都重跑
@@ -609,7 +609,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 `find()` 改查预建 Map 而非线性扫描；`resolveItemStack` 结果在 Screen 里按提案缓存。
 **验收**：装整合包打开锻造台+AI 推荐，帧率无可感下降。
 
-## WQ-43 [ ] 【高·可打死服务端】AI 请求包无前置校验、无限流、执行器队列无界
+## WQ-43 [x] 完成(cc6f1ab) 【高·可打死服务端】AI 请求包无前置校验、无限流、执行器队列无界
 
 `ai/ForgeTableAIHandler.java:31-53`：`enqueueWork` 只用来设粒子状态，**AI 任务无条件
 `AI_EXECUTOR.submit`**——不校验玩家是否真的开着锻造台，无冷却；`:23` 的
@@ -620,7 +620,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 队列深度上限（满则直接回兜底）；`AiRequestPayload` 的 collection/字符串 codec 补 maxSize
 （与 WQ-20 合并做）。
 
-## WQ-44 [ ] 【中】Boss 冲击波对无敌目标仍施加击退
+## WQ-44 [x] 完成(1b44305) 【中】Boss 冲击波对无敌目标仍施加击退
 
 `entity/QianxiangMyriadWarden.java:159-162`（修理会话本人所写）：过滤器只排除自身/同类/
 裂隙蠹，`hurt()` 对创造与旁观模式玩家是空操作，但紧随其后的 `knockback()` **无条件执行**

@@ -201,6 +201,92 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 蓝图选料（WQ-11/48） ============================
+
+    /**
+     * 蓝图选料必须挑「最不值钱的同 id 那件」，且保留组件、不碰护甲槽。
+     * <p>取首个命中会把玩家的附魔工具吃掉；造新栈会把残耐久洗成白板。
+     */
+    @GameTest(template = "item_concept")
+    public static void blueprintPicksCheapestAndKeepsComponents(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var inv = player.getInventory();
+        inv.clearContent();
+
+        // 槽 0：附魔且几乎全新的镐（贵）；槽 1：白板破镐（便宜）
+        ItemStack precious = new ItemStack(Items.IRON_PICKAXE);
+        precious.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
+                net.minecraft.network.chat.Component.literal("传家宝"));
+        inv.setItem(0, precious);
+        ItemStack junk = new ItemStack(Items.IRON_PICKAXE);
+        junk.setDamageValue(junk.getMaxDamage() - 5);
+        inv.setItem(1, junk);
+        // 护甲槽放一件同 id 物品，验证不被取用
+        inv.armor.set(3, new ItemStack(Items.IRON_HELMET));
+
+        ForgeTableMenu menu = new ForgeTableMenu(1, inv, be);
+        boolean ok = menu.applyBlueprint(new BlueprintData(
+                List.of("minecraft:iron_pickaxe"), "tool", 1.0, "选料测试"));
+        helper.assertTrue(ok, "背包里有该材料，铺料应成功");
+
+        helper.assertTrue(inv.getItem(0).has(net.minecraft.core.component.DataComponents.CUSTOM_NAME),
+                "带自定义名的贵重物品不应被取走");
+        ItemStack placed = be.getItem(0);
+        helper.assertTrue(placed.is(Items.IRON_PICKAXE), "台上应放入铁镐，实际 " + placed);
+        helper.assertTrue(placed.getDamageValue() > 0,
+                "应取用损伤大的那把（组件/耐久必须原样保留，不能是出厂新品）");
+        helper.assertTrue(!inv.armor.get(3).isEmpty(), "护甲槽物品不应被蓝图取用");
+        helper.succeed();
+    }
+
+    /** 材料凑不齐时必须整体回滚，不留「半套料在台上、背包却少了东西」的中间态。 */
+    @GameTest(template = "item_concept")
+    public static void blueprintRollsBackOnMissingMaterial(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var inv = player.getInventory();
+        inv.clearContent();
+        inv.setItem(0, new ItemStack(Items.IRON_INGOT));   // 只有第一种材料
+
+        ForgeTableMenu menu = new ForgeTableMenu(1, inv, be);
+        boolean ok = menu.applyBlueprint(new BlueprintData(
+                List.of("minecraft:iron_ingot", "minecraft:diamond"), "weapon", 1.0, "缺料测试"));
+        helper.assertTrue(!ok, "缺材料时应返回失败");
+
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            helper.assertTrue(be.getItem(i).isEmpty(),
+                    "失败后材料槽 " + i + " 应为空（已放入的必须退回），实际 " + be.getItem(i));
+        }
+        boolean ingotBack = false;
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            if (inv.getItem(i).is(Items.IRON_INGOT)) ingotBack = true;
+        }
+        helper.assertTrue(ingotBack, "已放入的铁锭应退回玩家背包");
+        helper.succeed();
+    }
+
+    /** AI 放料：重复材料必须占不同槽（compose 按槽计零件）。 */
+    @GameTest(template = "item_concept")
+    public static void aiPlacementSpreadsDuplicatesAcrossSlots(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        be.setItem(0, new ItemStack(Items.IRON_INGOT));
+
+        // 已有一个铁锭时，下一个铁锭应落到空槽而非堆到槽 0
+        int slot = com.qianxiang.network.AiPlaceMaterialsHandler.findMaterialSlotForTest(be, Items.IRON_INGOT);
+        helper.assertTrue(slot != 0,
+                "重复材料应占用不同槽位（compose 按槽计零件），实际选中槽 " + slot);
+        helper.assertTrue(slot > 0 && slot < ForgeTableMenu.MATERIAL_SLOTS,
+                "应选中一个合法空槽，实际 " + slot);
+        helper.succeed();
+    }
+
     // ============================ AI 提案信任边界（WQ-2） ============================
 
     /**
@@ -461,6 +547,26 @@ public final class QianxiangCoreGameTests {
             helper.assertTrue(stack.getMaxStackSize() == 1,
                     item + " 装备类产物不应可堆叠，实际上限 " + stack.getMaxStackSize());
         }
+        helper.succeed();
+    }
+
+    /** 护甲线也要「耐久靠材料」：纯皮制基底必须产出正耐久且随档位放大。 */
+    @GameTest(template = "item_concept")
+    public static void armorDurabilityScalesWithTier(GameTestHelper helper) {
+        var common = com.qianxiang.phase.AttributeScheme.compose(List.of(
+                com.qianxiang.phase.AttributeScheme.MaterialInput.of(
+                        com.qianxiang.phase.PhaseTier.COMMON,
+                        com.qianxiang.phase.PhaseFunction.BASE_HIDE)));
+        var legendary = com.qianxiang.phase.AttributeScheme.compose(List.of(
+                com.qianxiang.phase.AttributeScheme.MaterialInput.of(
+                        com.qianxiang.phase.PhaseTier.LEGENDARY,
+                        com.qianxiang.phase.PhaseFunction.BASE_HIDE)));
+
+        helper.assertTrue(common.durability() > 0,
+                "皮制基底必须产出正耐久，否则护甲回落固定值、档位毫无意义，实际 " + common.durability());
+        helper.assertTrue(legendary.durability() > common.durability(),
+                "传奇皮革应比普通皮革耐用：传奇 " + legendary.durability()
+                        + " vs 普通 " + common.durability());
         helper.succeed();
     }
 

@@ -94,17 +94,26 @@ public final class AiPlaceMaterialsHandler {
         return -1;
     }
 
+    /** 测试入口：直接对容器做槽位选择（GameTest 无需构造完整菜单）。 */
+    public static int findMaterialSlotForTest(net.minecraft.world.Container container, Item item) {
+        return findMaterialSlot(container, item);
+    }
+
+    private static int findMaterialSlot(ForgeTableMenu menu, Item item) {
+        return findMaterialSlot(menu.getContainer(), item);
+    }
+
     /**
      * 找可放入指定物品的材料槽：优先空槽，其次可堆叠的同种物品槽。
      * 若找不到返回 -1（材料槽已满）。
      */
-    private static int findMaterialSlot(ForgeTableMenu menu, Item item) {
+    private static int findMaterialSlot(net.minecraft.world.Container container, Item item) {
         // 必须真·优先空槽：ForgeComposer 按「占用的槽数」计零件，数量无关。
         // 堆到同一槽的话，AI 承诺的 [铁锭,铁锭,煤] 实际只算 2 个零件，
         // 与蓝图路径（逐槽铺开）结果不一致。
         Integer stackable = null;
         for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
-            ItemStack s = menu.getContainer().getItem(i);
+            ItemStack s = container.getItem(i);
             if (s.isEmpty()) {
                 return i;
             }

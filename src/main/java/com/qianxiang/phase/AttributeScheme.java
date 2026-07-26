@@ -68,6 +68,13 @@ public final class AttributeScheme {
     public static final double BASE_BONE_POWER = 0.8;
 
     // BASE_HIDE：护甲基底 → 护甲路径
+    /**
+     * 皮制基底耐久。介于木质(60)与骨制(80)之间——护甲本就比武器脆，
+     * 但必须有值：否则纯皮革组合的 durability 恒为 0，护甲回落到固定 150，
+     * 「耐久靠材料」在整条护甲线上不成立（传奇皮甲和普通皮甲一样耐用）。
+     */
+    public static final double BASE_HIDE_DURABILITY = 70.0;
+
     public static final double BASE_HIDE_ARMOR = 2.0;
     public static final double BASE_HIDE_POWER = 0.6;
 
@@ -252,6 +259,7 @@ public final class AttributeScheme {
                     powerScore += BASE_BONE_POWER * mult;
                 }
                 case BASE_HIDE -> {
+                    durability += scaledI(BASE_HIDE_DURABILITY, mult);
                     armor += scaledF(BASE_HIDE_ARMOR, mult);
                     powerScore += BASE_HIDE_POWER * mult;
                 }
