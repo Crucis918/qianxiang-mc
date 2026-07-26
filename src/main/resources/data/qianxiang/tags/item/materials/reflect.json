@@ -1,2 +1,7 @@
-{ "replace": false, "values": [
-] }
+{
+  "replace": false,
+  "values": [
+    "minecraft:cactus",
+    "minecraft:nautilus_shell"
+  ]
+}

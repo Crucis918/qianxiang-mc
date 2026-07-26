@@ -1,2 +1,8 @@
-{ "replace": false, "values": [
-] }
+{
+  "replace": false,
+  "values": [
+    "minecraft:cobweb",
+    "minecraft:soul_sand",
+    "minecraft:honey_block"
+  ]
+}

@@ -10,32 +10,104 @@
     [],
     [],
     [],
-    ["qianxiang:void_ore"],
+    [
+      "qianxiang:void_ore"
+    ],
     [],
     [],
-    ["qianxiang:glimmer_tree", "qianxiang:wildlight_patch"],
-    ["qianxiang:rift_spire"]
+    [
+      "qianxiang:glimmer_tree",
+      "qianxiang:wildlight_patch"
+    ],
+    [
+      "qianxiang:rift_spire"
+    ]
   ],
   "creature_spawn_probability": 0.1,
   "spawners": {
     "monster": [
-      {"type": "minecraft:zombie", "weight": 30, "minCount": 2, "maxCount": 4},
-      {"type": "minecraft:skeleton", "weight": 25, "minCount": 1, "maxCount": 3},
-      {"type": "minecraft:spider", "weight": 25, "minCount": 1, "maxCount": 3},
-      {"type": "minecraft:creeper", "weight": 20, "minCount": 1, "maxCount": 2},
-      {"type": "minecraft:enderman", "weight": 15, "minCount": 1, "maxCount": 2},
-      {"type": "minecraft:witch", "weight": 5, "minCount": 1, "maxCount": 1},
-      {"type": "qianxiang:myriad_warden", "weight": 3, "minCount": 1, "maxCount": 1}
+      {
+        "type": "minecraft:zombie",
+        "weight": 30,
+        "minCount": 2,
+        "maxCount": 4
+      },
+      {
+        "type": "minecraft:skeleton",
+        "weight": 25,
+        "minCount": 1,
+        "maxCount": 3
+      },
+      {
+        "type": "minecraft:spider",
+        "weight": 25,
+        "minCount": 1,
+        "maxCount": 3
+      },
+      {
+        "type": "minecraft:creeper",
+        "weight": 20,
+        "minCount": 1,
+        "maxCount": 2
+      },
+      {
+        "type": "minecraft:enderman",
+        "weight": 15,
+        "minCount": 1,
+        "maxCount": 2
+      },
+      {
+        "type": "minecraft:witch",
+        "weight": 5,
+        "minCount": 1,
+        "maxCount": 1
+      },
+      {
+        "type": "qianxiang:myriad_warden",
+        "weight": 1,
+        "minCount": 1,
+        "maxCount": 1
+      }
     ],
     "creature": [
-      {"type": "minecraft:sheep", "weight": 12, "minCount": 2, "maxCount": 4},
-      {"type": "minecraft:rabbit", "weight": 10, "minCount": 2, "maxCount": 3},
-      {"type": "minecraft:fox", "weight": 8, "minCount": 1, "maxCount": 2},
-      {"type": "qianxiang:wandering_sage", "weight": 4, "minCount": 1, "maxCount": 1},
-      {"type": "qianxiang:abyss_merchant", "weight": 2, "minCount": 1, "maxCount": 1}
+      {
+        "type": "minecraft:sheep",
+        "weight": 12,
+        "minCount": 2,
+        "maxCount": 4
+      },
+      {
+        "type": "minecraft:rabbit",
+        "weight": 10,
+        "minCount": 2,
+        "maxCount": 3
+      },
+      {
+        "type": "minecraft:fox",
+        "weight": 8,
+        "minCount": 1,
+        "maxCount": 2
+      },
+      {
+        "type": "qianxiang:wandering_sage",
+        "weight": 4,
+        "minCount": 1,
+        "maxCount": 1
+      },
+      {
+        "type": "qianxiang:abyss_merchant",
+        "weight": 2,
+        "minCount": 1,
+        "maxCount": 1
+      }
     ],
     "ambient": [
-      {"type": "minecraft:bat", "weight": 10, "minCount": 4, "maxCount": 8}
+      {
+        "type": "minecraft:bat",
+        "weight": 10,
+        "minCount": 4,
+        "maxCount": 8
+      }
     ],
     "axolotls": [],
     "underground_water_creature": [],
@@ -43,11 +115,15 @@
     "water_ambient": [],
     "misc": []
   },
-  "spawn_costs": {},
+  "spawn_costs": {
+    "qianxiang:myriad_warden": {
+      "energy_budget": 0.12,
+      "charge": 1.0
+    }
+  },
   "temperature": 0.8,
   "downfall": 0.5,
   "has_precipitation": true,
-  "precipitation": "rain",
   "effects": {
     "sky_color": 7907327,
     "fog_color": 12638463,
