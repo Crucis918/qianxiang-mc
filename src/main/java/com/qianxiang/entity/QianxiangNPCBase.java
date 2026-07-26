@@ -40,7 +40,7 @@ public abstract class QianxiangNPCBase extends Villager {
     /** 补货间隔：一个 MC 日。 */
     private static final long RESTOCK_INTERVAL_TICKS = 24000L;
 
-    /** 上次补货的游戏时间（不落盘：重载后视为可补货，无害）。 */
+    /** 上次补货的游戏时间。落盘（见 {@link #addAdditionalSaveData}）——否则退出重进可无限刷新交易次数。 */
     private long lastRestockGameTime = Long.MIN_VALUE;
 
     protected QianxiangNPCBase(EntityType<? extends Villager> type, Level level) {
@@ -177,6 +177,22 @@ public abstract class QianxiangNPCBase extends Villager {
         if (now - lastRestockGameTime >= RESTOCK_INTERVAL_TICKS) {
             getOffers().forEach(MerchantOffer::resetUses);
             lastRestockGameTime = now;
+        }
+    }
+
+    @Override
+    public void addAdditionalSaveData(net.minecraft.nbt.CompoundTag tag) {
+        super.addAdditionalSaveData(tag);
+        if (lastRestockGameTime != Long.MIN_VALUE) {
+            tag.putLong("QxLastRestock", lastRestockGameTime);
+        }
+    }
+
+    @Override
+    public void readAdditionalSaveData(net.minecraft.nbt.CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        if (tag.contains("QxLastRestock")) {
+            lastRestockGameTime = tag.getLong("QxLastRestock");
         }
     }
 }
