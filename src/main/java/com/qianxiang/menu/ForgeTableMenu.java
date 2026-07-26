@@ -9,7 +9,6 @@ import com.qianxiang.cap.PlayerSpellData;
 import com.qianxiang.cap.QianxiangAttachments;
 import com.qianxiang.cap.SagaData;
 import com.qianxiang.phase.ForgeComposer;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.Container;
@@ -148,6 +147,12 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     private void onTakeResult(Player player, ItemStack resultStack) {
         recordForge(player, resultStack);  // 律二：锻造即传记，不可逆烙进相谱
         learnSpellFromResult(player, resultStack); // 相杖上的法术自动进入已学列表
+        if (!resultStack.isEmpty() && !player.level().isClientSide()) {
+            // 锻成即鸣砧：动态锻造没有固定配方音，这里统一给成品一记落锤
+            player.level().playSound(null, player.blockPosition(),
+                    net.minecraft.sounds.SoundEvents.ANVIL_USE,
+                    net.minecraft.sounds.SoundSource.BLOCKS, 0.7f, 1.1f);
+        }
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
             ItemStack s = container.getItem(i);
             if (!s.isEmpty()) { s.shrink(1); container.setItem(i, s); }
@@ -254,8 +259,6 @@ public class ForgeTableMenu extends AbstractContainerMenu {
 
     @Override
     public void removed(Player player) {
-        Qianxiang.LOGGER.info("[Qianxiang] ForgeTableMenu.removed 被调用（容器关闭），containerId={}，玩家={}",
-                this.containerId, player.getName().getString(), new Throwable("[Qianxiang] 容器关闭调用栈"));
         super.removed(player);
     }
 

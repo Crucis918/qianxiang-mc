@@ -49,8 +49,14 @@ public final class FactionEventHandler {
 
             SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
             String victimName = victim.getName().getString();
-            player.setData(QianxiangAttachments.SAGA_DATA,
-                    saga.withEntry("§c[屠杀] §r击杀 " + victimName + "，当前屠杀烙印 " + after.slaughterCount()));
+            saga = saga.withEntry("§c[屠杀] §r击杀 " + victimName + "，当前屠杀烙印 " + after.slaughterCount());
+            if (victim instanceof com.qianxiang.entity.QianxiangMyriadWarden) {
+                // 讨伐维度 Boss 是位格的大跃升（锻造每次 +1，讨伐一次 +5）
+                saga = saga.withEntry("§5[讨伐] §r讨灭森罗守望者，位格大幅提升").withBumpedPosition(5);
+                player.sendSystemMessage(Component.translatable("qianxiang.saga.position_up",
+                        saga.position()));
+            }
+            player.setData(QianxiangAttachments.SAGA_DATA, saga);
 
             // 称号切换时发送提示
             if (!before.title().equals(after.title())) {
