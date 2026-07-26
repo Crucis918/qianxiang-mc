@@ -235,6 +235,21 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
      * @return 解析结果；JSON 非法、缺 element/form/effect 或任一越出白名单时返回 null（调用方回退材料映射逻辑）
      */
     public static CustomSpell fromSpellJson(String spellJson, int minPower) {
+        return fromSpellJson(spellJson, minPower, MAX_POWER);
+    }
+
+    /**
+     * 同上，但额外接受<b>材料预算上限</b>。
+     * <p>
+     * 为什么需要它：模组的核心理念是「强度靠材料」，而此前法术轨是漏的——
+     * 材料档位只决定 power 的<b>下限</b>，上限是全局常量 {@link #MAX_POWER}=10。
+     * 于是拿一堆垃圾材料 + 客户端/AI 报 power=10 完全合法，法术强度与材料脱钩。
+     * 现在由调用方按材料最高档位换算预算（见 {@code ForgeComposer.applyAiSpell}），
+     * power 被夹在 [minPower, maxPower] 内。
+     *
+     * @param maxPower 本次锻造的材料预算上限（会再夹进 [1, {@link #MAX_POWER}]）
+     */
+    public static CustomSpell fromSpellJson(String spellJson, int minPower, int maxPower) {
         JsonObject obj = parse(spellJson);
         if (obj == null) return null;
         try {
@@ -264,8 +279,11 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
                     power = 1;
                 }
             }
-            // 契约：最终 power = clamp(max(spellJson.power, 最高材料 tier.ordinal()+1), 1, MAX_POWER)
-            power = net.minecraft.util.Mth.clamp(Math.max(power, minPower), 1, MAX_POWER);
+            // 契约：power = clamp(max(spellJson.power, 材料下限), 1, 材料预算上限)
+            // 上下限都由材料决定 —— 这是「强度靠材料」在法术轨的兑现。
+            int budget = net.minecraft.util.Mth.clamp(maxPower, 1, MAX_POWER);
+            int floor = net.minecraft.util.Mth.clamp(minPower, 1, budget);
+            power = net.minecraft.util.Mth.clamp(Math.max(power, floor), floor, budget);
 
             int manaCost = 10 + 5 * power;
             int cooldownTicks = 40 + 20 * power;

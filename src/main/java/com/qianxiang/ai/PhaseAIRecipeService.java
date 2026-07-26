@@ -381,6 +381,10 @@ public final class PhaseAIRecipeService {
         sb.append("- 效果 effect（选一）：damage 伤害 / heal 治疗 / buff 增益 / debuff 减益 / utility 功能。\n");
         sb.append("- 修饰 modifiers（可多选，可空）：homing 追踪 / piercing 穿透 / extended 持续 / amplified 强化 / chain 连锁。\n");
         sb.append("- power：1~10 的数，按目标档位与描述强度给（普通1~3、稀有3~5、史诗5~8、传奇8~10）。\n");
+        // 强度上限由材料档位决定（ForgeComposer 会硬性夹取），提前告诉 AI 免得它开空头支票
+        sb.append("- 重要：power 的实际上限由玩家放入的材料档位决定——");
+        sb.append("普通材料最高 4、稀有 6、史诗 8、传奇 10。");
+        sb.append("超出预算的数值会被系统夹回，请在预算内塑形（宁可靠 modifiers 与 form 做出特色）。\n");
         sb.append("示例：「追踪火球」={\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"homing\"],\"power\":2}；");
         sb.append("「范围治疗」={\"element\":\"nature\",\"form\":\"aoe\",\"effect\":\"heal\",\"modifiers\":[],\"power\":2}；");
         sb.append("「雷链」={\"element\":\"lightning\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"chain\"],\"power\":3}。\n");

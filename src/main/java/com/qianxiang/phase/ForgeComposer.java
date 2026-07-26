@@ -222,7 +222,10 @@ public final class ForgeComposer {
             for (MaterialPart p : parts) {
                 maxTier = Math.max(maxTier, p.tier().ordinal());
             }
-            CustomSpell spell = CustomSpell.fromSpellJson(spellJson, maxTier + 1);
+            // 材料预算：COMMON=4 / RARE=6 / EPIC=8 / LEGENDARY=10。
+            // 下限仍是 maxTier+1，上限从此也由材料决定——垃圾材料再也报不出 power=10。
+            int powerBudget = 4 + 2 * maxTier;
+            CustomSpell spell = CustomSpell.fromSpellJson(spellJson, maxTier + 1, powerBudget);
             if (spell == null) return;  // 无效 spellJson → 回退材料映射逻辑（不动已写入的默认结果）
             if (spellBook) {
                 out.set(QianxiangDataComponents.SPELLBOOK.get(), new SpellBookData(List.of(spell), 0));

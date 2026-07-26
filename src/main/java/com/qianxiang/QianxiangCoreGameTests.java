@@ -201,6 +201,41 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 法术强度绑材料预算（WQ-1） ============================
+
+    /** 普通材料 + 客户端/AI 报 power=10 → 必须被夹回普通档预算（4）。 */
+    @GameTest(template = "item_concept")
+    public static void spellPowerBoundByMaterialBudget(GameTestHelper helper) {
+        String greedyJson = "{\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":10}";
+
+        CustomSpell commonBudget = CustomSpell.fromSpellJson(greedyJson, 1, 4);
+        helper.assertTrue(commonBudget != null, "结构合法的 spellJson 不应解析失败");
+        helper.assertTrue(commonBudget.power() <= 4,
+                "普通材料预算应把 power 夹到 ≤4，实际 " + commonBudget.power());
+
+        CustomSpell legendaryBudget = CustomSpell.fromSpellJson(greedyJson, 1, 10);
+        helper.assertTrue(legendaryBudget.power() == 10,
+                "传奇预算下 power=10 应原样保留，实际 " + legendaryBudget.power());
+
+        // 旧签名（无预算）保持原语义：上限 MAX_POWER
+        CustomSpell legacy = CustomSpell.fromSpellJson(greedyJson, 1);
+        helper.assertTrue(legacy.power() == CustomSpell.MAX_POWER,
+                "旧签名应仍按全局上限，实际 " + legacy.power());
+        helper.succeed();
+    }
+
+    /** 预算低于下限时不得倒挂：clamp 顺序错会产出 power < 1 或抛异常。 */
+    @GameTest(template = "item_concept")
+    public static void spellPowerBudgetNeverInverts(GameTestHelper helper) {
+        CustomSpell spell = CustomSpell.fromSpellJson(
+                "{\"element\":\"frost\",\"form\":\"self\",\"effect\":\"buff\",\"power\":9}", 8, 2);
+        helper.assertTrue(spell != null, "下限高于预算时不应解析失败");
+        helper.assertTrue(spell.power() >= 1 && spell.power() <= CustomSpell.MAX_POWER,
+                "power 必须落在合法区间，实际 " + spell.power());
+        helper.assertTrue(spell.manaCost() > 0, "manaCost 应为正数，实际 " + spell.manaCost());
+        helper.succeed();
+    }
+
     // ============================ 森罗之核：Boss 独占与终局闭环 ============================
 
     /** 守望者掉落表必须含森罗之核，且它是全游戏唯一来源（无配方、不在商人表）。 */
