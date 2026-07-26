@@ -616,6 +616,96 @@ WQ-22/26/30/16 的验收条款要求实测或断言——补测或在工单里�
 
 ---
 
+# 复核报告三：AI 链路五项（9007d69 / 2854d57）对抗性审查（2026-07-27）
+
+**结单确认**：WQ-41 ✅（四类输入矩阵全通、picks 存规范 registryName、下游无残留 null 路径）、
+WQ-46 ✅（三次解析合一、缓存以 `PhaseMaterialRegistry.all()` 身份键失效——"/reload 后新材料
+立即可见"的保证在库层仍成立、buildFromTags 已删）。建议顺手清 `buildSystemPrompt` 6 参重载
+（已无调用方）。
+
+**返工清单（按优先级）**：
+
+## WQ-62 [ ] 【严重·返工 WQ-40】默认超时 30 秒对所有玩家都不生效（侦察会话已亲自核实）
+
+`AIConfig.java:48` 常量改成 30，但 `:73` 的 `DEFAULT_FILE` 模板里仍写死
+`"timeout_seconds": 5`——首次启动把模板写盘，下次读回来就是 5；常量 30 只在"文件缺该字段"
+时才生效。老存档也零迁移（`:161-163` 只 clamp）。**WQ-40 的核心改动等于没落地。**
+**修法**：①模板同步改 30；②加一次性迁移（读到 `timeout_seconds<=10` 且无 version 字段时
+抬到 30 并写回，写一条 INFO）；③配套：30s+重试=最坏 60 秒白等，而 `ForgeTableAIHandler:34`
+冷却只有 3 秒，等待期还能堆任务——建议 UI 侧加"AI 思考中/可取消"或把冷却提到超时同量级。
+
+## WQ-63 [ ] 【高·返工 WQ-40】熔断两处计数缺陷：交替故障永不开、非 2xx 完全不计数
+
+①`AIGateway.java:207` 连接失败分支 `TIMEOUT_FAILS.set(0)`、`:216` 超时分支
+`CONNECT_FAILS.set(0)`——"连一次不上、超一次时"交替出现时两个计数器永远回不到阈值 3，
+熔断永不开。②`AIClient.java:227-231` 的非 2xx 返回 null 而非抛异常，`recordOutcome` 落到
+"两个计数器都清零"分支 → **端点持续 400/500 时永不熔断**，每次请求两发 HTTP。
+这条与 WQ-64 的 `response_format` 兼容风险叠加会很难看（端点全挂且看不出原因）。
+**修法**：两个计数器改为各自独立衰减（成功才清零，另一类失败不清）；非 2xx 计入独立的
+"端点错误"计数并同样能触发熔断。
+
+## WQ-64 [ ] 【中·返工 WQ-42】response_format 无降级路径，会让部分兼容端点整条 AI 全挂
+
+位置和 temperature=0.2 都对，但不支持 `response_format` 的"OpenAI 兼容"端点（旧版
+llama.cpp server、部分自建代理、一些国产兼容层）会 400 → `send()` 返回 null → 静默兜底，
+叠加 WQ-63 的"非 2xx 永不熔断"→ 每次请求白发两次 HTTP，玩家只看到一行 WARN。
+**修法**：400 且 body 提及 response_format/unsupported 时，去掉该字段重发一次，并把
+"本端点不支持结构化输出"记进内存开关（进程内不再重试该字段）。
+
+## WQ-65 [ ] 【中·返工 WQ-43】extractJson 顶层数组分支是死代码，且测试掩盖了缺陷
+
+`PhaseAIRecipeService.java:808-813`：`firstBalanced(text,'{','}')` 先执行，对
+`[{...},{...}]` 会命中数组内**第一个对象**并直接返回，第 ③ 行的 `{"proposals":...}` 包装
+永远走不到。结果不是解析失败而是**静默只保留第一个方案**（被 `:563-568` 的"兼容旧版单方案"
+分支收下），其余方案丢失无日志。新增的 GameTest 只断言"能抽出 JsonObject"，恰好被这条
+错误路径满足而通过——**测试掩盖了缺陷**。
+**另**：工单点名的"字段名大小写（"Proposals"）"未做（无大小写不敏感 helper）、对象尾逗号
+仍失败；实现取"第一个"完整片段而非工单要求的"最后一个"，模型前置寒暄带花括号时整体失败。
+**修法**：改为"优先取包含 proposals 键的完整对象"；补大小写不敏感字段读取；尾逗号修补或
+在工单里明确放弃；数组用例的断言改成校验 `proposals` 数组长度==2。
+（做对的部分勿动：`firstBalanced` 的字符串字面量与转义处理经逐字符核对正确，
+`{"name":"a{b}c"}` 不会算错；剥 `<think>` 用精确标签匹配不误伤正文尖括号；解析失败 WARN
++前 300 字已补。）
+
+## WQ-66 [ ] 【中·返工 WQ-39/44】prompt 仍约 19K 字符，超过刚设的 num_ctx 8192
+
+材料段确实从 ~114KB 降到 ~4.5KB（`MaterialRecall` 三组召回 24/12/48 上限，关键词不命中时
+按产物类型退回常用算子——**"我要一把剑"有米下锅，这点做对了**）。但静态说明书没削：
+头部+功能性指引+强度代价+规则+自由法术+动作定制+宽泛语义+效果材料 ≈8.3K 字符，加上
+`AnimationLibrary.promptSummary()` ≈3.5K（crossIndex 重复列出）、EffectGlossary ≈2K、
+候选材料 4.5K → **recommend 模式约 19K 字符、confirm 约 16K**，按 qwen 分词 10~13K token，
+仍超 8192。病根从"材料库淹没需求"变成"六段说明书淹没需求"。
+**修法**（与 WQ-44 的"另两条"是同一处改动，一起做）：①EF 动画库段按动作关键词命中才插；
+②自由法术段仅 `type==magic` 时插；③confirm 模式补砍【功能性需求指引】（工单点名的第三段，
+现仍在）；④功能性指引与 typeDescription 去重；⑤**补 prompt 长度日志**——验收第一条
+"日志确认 <8KB"目前无从执行；⑥补 few-shot 与独立【输出格式】段（工单④⑤未做，
+现有内联示例本身 JSON 合法，不污染输出，可保留）。
+
+## WQ-67 [ ] 【低·返工 WQ-39】召回三处边缘：白名单空池、confirm 当前材料缺席、UGC 材料被压低
+
+①`MaterialRecall.java:97` 补足组要求 `!functions().isEmpty()`——玩家勾选的材料若全是无算子
+概念物品，三组全空而 prompt 仍写"只能从下列材料中挑选"，缺"实在没有就取前 N 条"保底。
+②`recall()` 不接收 `currentMaterials`（`:337`），confirm 模式下 prompt 一边说"只能从下列挑"
+一边要 AI 评价可能不在列表里的材料——把当前材料强制并入候选。
+③`:168-169` 排序 `startsWith("qianxiang:")?0:1` + 名称短优先，而官方 phase_materials 样例
+恰是 `minecraft:heart_of_the_sea` 这类长 id 非 qianxiang 命名空间——**UGC 材料可见性被系统性
+压低**，"数据驱动材料 /reload 后 AI 立即可见"的保证在 prompt 层弱化成了"相关才可见"。
+修法：`PhaseMaterialRegistry.all()` 的材料无条件置顶保底（数量有界）。
+④与未修的 WQ-45 耦合：`wantedFunctions` 是裸 contains，"不要火的剑"会把 IGNITE 材料塞进
+标题为"核心效果材料（优先从这里挑）"的第一组——否定语义 bug 从兜底传染到了召回
+（WQ-45 若已修则此项自动消解，领单前先查）。
+
+**测试缺口提醒**：本批新增 3 个 GameTest，但召回测试用的是带效果关键词的需求（"会喷火的
+剑"），**没测无关键词退化路径**；数组用例断言不到位（见 WQ-65）；confirm 空槽兜底、
+超时熔断计数、字段名大小写三处新逻辑无测试。
+
+**遗留观察（非本批引入，c0fa031 遗留）**：`MaterialLibrary` 缓存两个洞——(a) 空→空时
+`Map.of()`/`Map.copyOf(empty)` 是同一 EMPTY_MAP 单例，纯 tag 改动的 /reload 不会让缓存失效；
+(b) `invalidateCache()`（`:68`）零调用方。另 `effectMaterialIndex()`（`:451-461`）每次构建
+prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治的问题同源。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
