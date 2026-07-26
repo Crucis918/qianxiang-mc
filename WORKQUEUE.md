@@ -499,6 +499,56 @@ type/tier/mode/白名单不会跨需求错配；parseSpellJson/parseMovesetJson 
 
 ---
 
+# 复核报告：侦察会话对修复提交的对抗性审查（2026-07-27 凌晨，审 8055448 与 6bdc4c4）
+
+**结单裁定**：
+- **WQ-10 ✅ 修复成立**——WorldlyContainer 参数语义正确、漏斗/投掷器/管道 capability/
+  quickMoveStack/THROW/SWAP 全部绕过路径逐一验证被堵；老存档产物残留可自愈；onTake 正常
+  取产物未破坏。放心保持 [x]。
+- **WQ-12 ✅ 修复成立**——onRemove 签名/顺序/无重复掉落/活塞不可达全对。`items.clear()`
+  顺带封死了"A 开界面 B 炸台"的抢跑窗口，**这行有双重职责，勿删**（建议加注释）。
+- **WQ-18 ✅ 代码正确**但验收 GameTest 未补（"AI 放两个铁锭占两个槽"）——补上即可结单。
+- **WQ-11 ⚠️ 需返工**，见 WQ-48。
+- **6bdc4c4 耐久链 ✅ 注册层正确**：与 getMaxDamage override 不冲突不双重生效、无除零、
+  无注册期崩溃、stacksTo(1) 副作用全查无碍。但暴露护甲线缺口，见 WQ-49。
+- 复核期间新落的 cc6f1ab/1b44305/dfa7641 仅抽查回归：WQ-10/11 修复未被冲掉；发现一处
+  语义问题记为 WQ-50。
+
+## WQ-48 [ ] 【中·返工】WQ-11 蓝图选料仍组件盲——会吃掉玩家高价值同款装备，且蓝图不可复现
+
+split(1) 搬原栈和限 36 格都改对了，但 `:99` 匹配仍是 `s.is(item)` 取背包**首个命中**：
+①玩家的经验修补附魔镐排在垃圾镐前面会被直接吃掉，无确认；②蓝图作者用白板附魔书存的
+方案，使用者拿修补附魔书去配，ForgeComposer 读真实栈 → 产物属性与蓝图预览不一致。
+**修法**：选料改为"最不值钱的同 id 匹配"（无附魔、无自定义名、耐久最低优先）；
+另补 WQ-11 验收点名的 GameTest（低耐久组件保留 + 护甲槽不被取用）。
+顺带：`:102` 中途失败不回滚——前几件材料已进台（不丢但体验差），失败时把已放材料退回背包更好。
+
+## WQ-49 [ ] 【中·玩法】护甲线"耐久靠材料"不成立——BASE_HIDE 不产 durability，皮甲恒定 150
+
+`AttributeScheme:238-256` 只有 BASE_METAL/WOOD/BONE 累加 durability，`case BASE_HIDE` 只给
+armor 和 powerScore。纯皮革组合锻出的四件护甲 durability==0 → override 回落固定 150，
+与材料档位完全无关。且这是**已生效的平衡变更**（此前护甲因缺组件永不磨损，现在 150 次碎）。
+**修法**：BASE_HIDE 分支补 durability 系数（建议按皮革基底 ~120 + 档位乘数走现有公式）；
+新增 GameTest 覆盖纯皮革护甲 durability 随档位变化。
+**附**：`DrawbackHandler` 的 frail 代价（每命中 hurtAndBreak）在耐久修复后**首次真正上线**，
+数值是在恒 no-op 路径上调的——实机冒烟一次 frail 武器的磨损速度是否合理。
+
+## WQ-50 [ ] 【低·语义】recordForge 3 秒限流误伤"3 秒内锻两件不同产物"
+
+1b44305 的限流在读产物属性**之前**就返回——快速手动锻造两件不同物品，第二件既不写相谱
+也不涨位格。若非 WQ-26 的预期取舍，应改为按产物 id 去重/合并计数，而不是纯时间窗拦截。
+
+## WQ-51 [ ] 【低·纵深】三个加固点（不阻塞任何结单）
+
+①`ForgeTableBlockEntity` 补覆写 `canPlaceItem(int,ItemStack)` 返回 `slot < MATERIAL_SLOTS`——
+当前无 capability 注册所以不可利用，但这是产物槽最后一个默认 true 的口子；
+②`ForgeTableMenu.removed()` 清产物槽后调一次 `updateCraftingState()`，避免方块滞留
+STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说明其防抢跑职责。
+另记：8055448 与 6bdc4c4 是同批拆分提交，前者包含依赖后者的测试（单独 checkout 8055448
+测试必红），bisect 时注意。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
