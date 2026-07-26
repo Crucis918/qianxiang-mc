@@ -677,5 +677,9 @@
   "qianxiang.moveset_editor.msg.invalid": "动作序列无效",
   "qianxiang.moveset_editor.msg.max": "最多 %s 段",
   "qianxiang.spell.ally_only": "§7此法术（%s）只对友方生效——法力已退还。§r",
-  "qianxiang.portal.anchor_failed": "§c警告：附近放不下回程锚点，请自行携带裂隙岩返回。§r"
+  "qianxiang.portal.anchor_failed": "§c警告：附近放不下回程锚点，请自行携带裂隙岩返回。§r",
+  "item.qianxiang.warden_core": "森罗之核",
+  "item.qianxiang.warden_core.lore": "守望之躯陨落时凝出的核，万象生机尽收其中——传奇之器唯赖此物。",
+  "advancement.qianxiang.forge_legendary.title": "以核铸相",
+  "advancement.qianxiang.forge_legendary.desc": "用森罗之核锻造出一件传奇相器"
 }

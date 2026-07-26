@@ -125,6 +125,14 @@ public final class QianxiangItems {
                             PhaseData.of(PhaseTier.LEGENDARY, Set.of(Phase.CHAOS, Phase.TRANSCEND),
                                     PhaseFunction.REVERSE))));
 
+    // 森罗之核 warden_core —— 森罗守望者的独占掉落，全游戏唯一来源（不可合成、商人不售）。
+    // 万象生机在守望之躯里凝出的核，是「传奇锻造」的唯一催化剂：加进任何配方都显著抬升产物。
+    // 相数据走 data/qianxiang/phase_materials/warden_core.json（LEGENDARY 档），
+    // 而非 Java 侧 PhaseData——让整合包作者也能按数据包调它。
+    public static final DeferredHolder<Item, Item> WARDEN_CORE =
+            ITEMS.register("warden_core", () -> new QianxiangMaterialItem(new Item.Properties()
+                    .rarity(Rarity.EPIC)));
+
     // 森罗守望者刷怪蛋（Boss，测试/地图作者用）
     public static final DeferredHolder<Item, Item> MYRIAD_WARDEN_SPAWN_EGG =
             ITEMS.register("myriad_warden_spawn_egg", () -> new SpawnEggItem(

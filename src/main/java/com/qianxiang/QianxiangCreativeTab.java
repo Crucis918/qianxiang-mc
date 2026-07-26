@@ -71,6 +71,8 @@ public final class QianxiangCreativeTab {
 
                         // —— 万象森罗维度 MVP ——
                         output.accept(QianxiangItems.MYRIAD_FRAGMENT.get());
+                        // —— Boss 独占：森罗之核（生存中唯一来源是讨伐守望者）——
+                        output.accept(QianxiangItems.WARDEN_CORE.get());
                         // —— 反转器材料 ——
                         output.accept(QianxiangItems.REVERSE_CORE.get());
                         output.accept(QianxiangBlocks.RIFT_STONE_ITEM.get());

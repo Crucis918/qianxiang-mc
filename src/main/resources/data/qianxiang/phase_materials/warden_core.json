@@ -1,0 +1,7 @@
+{
+  "item": "qianxiang:warden_core",
+  "tier": "legendary",
+  "phases": ["transcend", "chaos", "life"],
+  "functions": ["mana", "resistance", "strength"],
+  "effects": {"minecraft:regeneration": 2}
+}

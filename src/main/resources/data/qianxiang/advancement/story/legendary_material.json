@@ -2,7 +2,7 @@
   "parent": "qianxiang:story/kill_warden",
   "display": {
     "icon": {
-      "id": "qianxiang:void_shard"
+      "id": "qianxiang:warden_core"
     },
     "title": {
       "translate": "advancement.qianxiang.legendary_material.title"
@@ -19,8 +19,7 @@
         "items": [
           {
             "items": [
-              "qianxiang:void_shard",
-              "qianxiang:reverse_core"
+              "qianxiang:warden_core"
             ]
           }
         ]

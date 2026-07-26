@@ -1,0 +1,25 @@
+{
+  "parent": "qianxiang:story/legendary_material",
+  "display": {
+    "icon": {
+      "id": "qianxiang:ember_blade"
+    },
+    "title": {
+      "translate": "advancement.qianxiang.forge_legendary.title"
+    },
+    "description": {
+      "translate": "advancement.qianxiang.forge_legendary.desc"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true
+  },
+  "rewards": {
+    "experience": 100
+  },
+  "criteria": {
+    "forged_with_core": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

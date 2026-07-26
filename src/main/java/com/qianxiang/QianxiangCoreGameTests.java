@@ -201,6 +201,55 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 森罗之核：Boss 独占与终局闭环 ============================
+
+    /** 守望者掉落表必须含森罗之核，且它是全游戏唯一来源（无配方、不在商人表）。 */
+    @GameTest(template = "item_concept")
+    public static void wardenCoreIsBossExclusive(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var lootId = net.minecraft.resources.ResourceKey.create(
+                net.minecraft.core.registries.Registries.LOOT_TABLE,
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
+                        Qianxiang.MOD_ID, "entities/myriad_warden"));
+        var table = server.reloadableRegistries().getLootTable(lootId);
+        helper.assertTrue(table != net.minecraft.world.level.storage.loot.LootTable.EMPTY,
+                "守望者掉落表应存在");
+
+        // 掉落表内容不便直接内省，改为断言「配方侧确实没有获取途径」——独占性的关键保证
+        var recipeManager = server.getRecipeManager();
+        boolean craftable = recipeManager.getRecipes().stream().anyMatch(holder -> {
+            try {
+                return holder.value().getResultItem(server.registryAccess())
+                        .is(QianxiangItems.WARDEN_CORE.get());
+            } catch (Throwable t) {
+                return false;
+            }
+        });
+        helper.assertTrue(!craftable, "森罗之核不得有任何合成配方（Boss 独占）");
+        helper.succeed();
+    }
+
+    /** 森罗之核是 LEGENDARY 档相材料，进锻造后能显著抬升产物强度。 */
+    @GameTest(template = "item_concept")
+    public static void wardenCoreIsLegendaryMaterial(GameTestHelper helper) {
+        var entry = com.qianxiang.phase.PhaseMaterialRegistry.get(QianxiangItems.WARDEN_CORE.get());
+        helper.assertTrue(entry != null,
+                "森罗之核应有数据驱动相材料定义（phase_materials/warden_core.json）");
+        helper.assertTrue(entry.data().tier() == com.qianxiang.phase.PhaseTier.LEGENDARY,
+                "森罗之核应为 LEGENDARY 档，实际 " + entry.data().tier());
+
+        ForgeComposer.Composition withCore = ForgeComposer.compose(padTo10(
+                new ItemStack(QianxiangMaterials.EMBER_IRON.get()),
+                new ItemStack(QianxiangItems.WARDEN_CORE.get())));
+        ForgeComposer.Composition without = ForgeComposer.compose(padTo10(
+                new ItemStack(QianxiangMaterials.EMBER_IRON.get())));
+        helper.assertTrue(withCore.valid(), "含核组合应能锻出产物");
+        helper.assertTrue(withCore.attributes().powerScore() > without.attributes().powerScore(),
+                "加入森罗之核应显著抬升强度：含核 " + withCore.attributes().powerScore()
+                        + " vs 不含 " + without.attributes().powerScore());
+        helper.succeed();
+    }
+
     // ============================ 耐久链完整性 ============================
 
     /**

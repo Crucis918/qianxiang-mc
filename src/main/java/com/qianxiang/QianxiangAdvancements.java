@@ -17,6 +17,8 @@ public final class QianxiangAdvancements {
     public static final String BLUEPRINT_SHARE = "story/blueprint_share";
     /** 第一次施放自由法术。 */
     public static final String FIRST_CAST = "story/first_cast";
+    /** 用森罗之核锻出传奇相器（进程终点）。 */
+    public static final String FORGE_LEGENDARY = "story/forge_legendary";
 
     private QianxiangAdvancements() {}
 

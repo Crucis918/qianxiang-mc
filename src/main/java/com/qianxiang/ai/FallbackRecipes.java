@@ -696,13 +696,24 @@ public final class FallbackRecipes {
         };
     }
 
+    /**
+     * 传奇档催化剂：材料库里有森罗之核就选它，否则退回裂隙精髓。
+     * <p>此前 8 处传奇档全部映射 rift_essence，传奇档毫无多样性，也让
+     * Boss 独占掉落在兜底路径上完全没有存在感。攻击向/法术向优先用核。
+     */
+    private static String legendaryCatalyst() {
+        return MaterialLibrary.exists("qianxiang:warden_core")
+                ? "qianxiang:warden_core"
+                : "qianxiang:rift_essence";
+    }
+
     private static String pickBaseByTier(String type, PhaseTier tier) {
         return switch (PhaseAIRecipeService.safeType(type)) {
             case "magic" -> switch (tier) {
                 case COMMON -> "qianxiang:glimmer_wood_sap";
                 case RARE -> "qianxiang:bloodroot";
                 case EPIC -> "qianxiang:dragon_bone";
-                case LEGENDARY -> "qianxiang:rift_essence";
+                case LEGENDARY -> legendaryCatalyst();
             };
             case "armor" -> switch (tier) {
                 case COMMON -> "qianxiang:shadowhide_patch";
@@ -720,7 +731,7 @@ public final class FallbackRecipes {
                 case COMMON -> "qianxiang:ember_iron";
                 case RARE -> "qianxiang:ember_iron";
                 case EPIC -> "qianxiang:dragon_bone";
-                case LEGENDARY -> "qianxiang:rift_essence";
+                case LEGENDARY -> legendaryCatalyst();
             };
         };
     }
@@ -740,7 +751,7 @@ public final class FallbackRecipes {
                 case COMMON -> "qianxiang:ember_crystal";
                 case RARE -> "qianxiang:bloodroot";
                 case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> "qianxiang:rift_essence";
+                case LEGENDARY -> legendaryCatalyst();
             };
             case "armor" -> switch (tier) {
                 case COMMON -> "qianxiang:shadowhide_patch";
@@ -758,7 +769,7 @@ public final class FallbackRecipes {
                 case COMMON -> "qianxiang:beast_fang";
                 case RARE -> "qianxiang:bloodroot";
                 case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> "qianxiang:rift_essence";
+                case LEGENDARY -> legendaryCatalyst();
             };
         };
     }

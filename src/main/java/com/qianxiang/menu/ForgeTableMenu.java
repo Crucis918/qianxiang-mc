@@ -154,6 +154,18 @@ public class ForgeTableMenu extends AbstractContainerMenu {
                     net.minecraft.sounds.SoundEvents.ANVIL_USE,
                     net.minecraft.sounds.SoundSource.BLOCKS, 0.7f, 1.1f);
         }
+        // 进程终点：材料里用了森罗之核（Boss 独占掉落）即达成「以核铸相」。
+        // 必须在扣料之前检测——扣完就看不到它了。
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            for (int i = 0; i < MATERIAL_SLOTS; i++) {
+                if (container.getItem(i).is(com.qianxiang.QianxiangItems.WARDEN_CORE.get())) {
+                    com.qianxiang.QianxiangAdvancements.grant(
+                            serverPlayer, com.qianxiang.QianxiangAdvancements.FORGE_LEGENDARY);
+                    break;
+                }
+            }
+        }
+
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
             ItemStack s = container.getItem(i);
             if (!s.isEmpty()) { s.shrink(1); container.setItem(i, s); }

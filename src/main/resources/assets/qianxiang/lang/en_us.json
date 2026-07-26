@@ -677,5 +677,9 @@
   "qianxiang.moveset_editor.msg.invalid": "Invalid combo sequence",
   "qianxiang.moveset_editor.msg.max": "At most %s segments",
   "qianxiang.spell.ally_only": "§7This spell (%s) only affects allies — mana refunded.§r",
-  "qianxiang.portal.anchor_failed": "§cWarning: no room for a return anchor nearby — carry Rift Stone to get back.§r"
+  "qianxiang.portal.anchor_failed": "§cWarning: no room for a return anchor nearby — carry Rift Stone to get back.§r",
+  "item.qianxiang.warden_core": "Warden Core",
+  "item.qianxiang.warden_core.lore": "The core left when the watching body falls, holding all myriad life — the sole key to legendary gear.",
+  "advancement.qianxiang.forge_legendary.title": "Forged of the Core",
+  "advancement.qianxiang.forge_legendary.desc": "Forge legendary gear using a Warden Core"
 }
