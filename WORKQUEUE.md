@@ -825,6 +825,99 @@ base 就是 RARE 档的 ember_iron）。
 
 ---
 
+# 第七批：客户端 GUI 交互链侦察（2026-07-27，首次系统覆盖 ForgeTableScreen）
+
+> 前六轮只顺带提过 GUI。本批聚焦锻造台主界面与 `ClientForgeTableAI` 的交互，一次出 12 项。
+> **另：lang 格式串已由侦察会话用脚本全量验过，零问题**（683 键中 49 个含格式串：中英占位符
+> 零不匹配、零处原版不支持的格式符——原版只认 `%s`/`%d`，`%f`/`%x` 会退化成显示原始模板、
+> 零处实参不足）。只有 `qianxiang.forge_table.msg.recommend` 与 `qianxiang.spell.custom`
+> 两个带格式串的死键（全库无引用），可删可留。**此项无需再侦察。**
+
+## WQ-73 [ ] 【高】「清空」按钮清不掉推荐卡片，且不撤销服务端已记的提案选择（已亲自核实）
+
+①`ForgeTableScreen:705-716` 的 `clearRequest()` 把 `lastAiResult=null` 后立刻
+`ClientForgeTableAI.setListener(...)`，而 `setListener`（`ClientForgeTableAI:47-52`）会
+**同步回放仍非 null 的 static `lastResult`**，把旧结果原样塞回、status 也改回 READY——
+卡片一帧都没消失。**修法**：`clearRequest()` 不重注册 listener（`init` 注册的那个从未被
+移除），或给 `setListener` 加 `replay` 开关。
+②同一函数从不发 `SpellJsonReportPayload.NONE`，服务端 `selectionByPlayer` 里的
+spellJson/customName 一直生效到关界面——玩家"清空"后手动改材料，产物仍带着已被清空的
+AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportProposalIndex(NONE)`。
+
+## WQ-74 [ ] 【高】AI 请求被服务端静默限流 → 状态条永久卡在「思考中」，只能关界面重开
+
+`ForgeTableAIHandler:46-49` 的 `PlayerRateLimiter` 命中时直接 `return`，不回包不提示；而
+客户端 `ForgeTableScreen:636` 已置 `status=PARSING`，`updateStatusFromSlots()` 第一行就
+`if (status==PARSING) return`，**且无任何客户端超时兜底**。触发：点「问 AI」后 3 秒内再点
+一次（或先「问 AI」再「确认」、连点两个反问 chip）。状态条永远显示"已等待 N.Ns"且一直涨，
+产物槽即使已出结果也不显示 COMPLETE。
+**修法**：客户端加 3s 本地冷却 + 按钮置灰；`updateStatusFlash` 里对
+`aiRequestStartMillis` 超过 AI 超时上限时强制退出 PARSING。（与 WQ-62 的 30 秒超时联动：
+超时提到 30s 后这个卡死窗口会更长更明显，两单建议一起做。）
+
+## WQ-75 [ ] 【高】连点两张方案卡 → 材料叠加而非替换，产物与卡片写的强度对不上
+
+`ForgeTableScreen:1424-1438` 的 `applyProposal` 只在"一个空槽都没有"时拒绝，服务端
+`AiPlaceMaterialsHandler:50-78` 的 `findMaterialSlot` 一路找空槽塞。点方案 A（3 个料）再点
+方案 B（4 个料）= 7 格大杂烩；而 `ForgeComposer` 按占用槽数计零件，**产出与卡片上的
+强度/摘要完全对不上，玩家会以为 AI 算错了**。点同一张两次同理。
+**修法**：`AiPlaceMaterialsPayload` 加 `replace` 标志，服务端先把现有材料退回背包再放。
+
+## WQ-76 [ ] 【高】请求无序号 + receive 无条件重置索引 → 产物法术与玩家点的卡片不符（已亲自核实）
+
+`ClientForgeTableAI:32-44` 全链路无 requestId/时间戳，`receive()` 一律覆盖 `lastResult`
+并**无条件 `reportProposalIndex(0)`**。触发：问 AI → 点第 3 张卡（已报索引 2 并放料）→
+改需求再问 AI → 新响应到达，服务端选择被改成新列表第 0 条，而材料槽里还是第 3 条的料。
+界面只有 hover 高亮、**没有"已选中"高亮**，玩家完全看不见这个错位。
+**修法**：`AiRequestPayload`/`AiResponsePayload` 加自增 seq，客户端丢弃落后响应；
+`receive()` 只在无有效选择时才报 0；顺手给选中卡片加边框高亮（本单最便宜的可见性改进）。
+
+## WQ-77 [ ] 【中】从子页面返回 / 改窗口大小 → 需求文本丢失、蓝图选中项被打回第 0 条
+
+`ForgeTableScreen:295-299,443`：`init()` 新建 `EditBox` 从不回填旧值（只有说明书模板路径经
+`pendingGuideText` 特判），且 `if (!clientBlueprints.isEmpty()) selectedBlueprint = 0;`。
+触发：输入长需求、选中第 5 条蓝图 → 进「材料筛选」勾几个 → 「完成」返回（`setScreen(parent)`
+触发 `init()`）→ 需求没了、接着点「使用蓝图」会用错蓝图。F11 全屏切换同样触发。
+**修法**：`init()` 开头存 `requestBox.getValue()` 末尾回填；`selectedBlueprint` 只在 `<0` 时置 0。
+
+## WQ-78 [ ] 【中】蓝图超过 8 条时选中项滚出可视区，仍可被误用
+
+`ForgeTableScreen:1490-1496,1579-1596`：`renderBlueprintPanel` 死画前
+`BLUEPRINT_MAX_VISIBLE=8` 条，而 `cycleBlueprint` 在全表取模——第 9 条起面板里没有任何一行
+高亮，玩家看不出当前选的是谁就点了「使用蓝图」。
+**修法**：加 `scrollOffset`，`cycleBlueprint` 后把 `selectedBlueprint` 夹进可视窗口再渲染。
+
+## WQ-79 [ ] 【中】静态缓存跨世界残留未登记 + 蓝图失败提示仍能刷屏
+
+①`ForgeTableScreen.HISTORY`（:277）与 `ClientMaterialFilter.UNCHECKED`（:62）都是 static
+且**没登记进 `ClientStateReset.resetAll()`**（该类注释本身就写了"任何新增静态客户端缓存都应
+在这里登记"）。后果：进新世界后历史面板显示上个世界的记录，更麻烦的是白名单仍在**悄悄裁剪
+新世界的 AI 可用材料**，玩家会以为 AI 不认识这些料。
+②`BlueprintServerHandler:33-45` 的 500ms 只是节流不是去重，材料无效时按住连点仍能
+2 条/秒往聊天栏刷 `blueprint.save.invalid`，10 秒 20 条。**修法**：改走 actionbar
+（`displayClientMessage(...,true)`）或"相同 key 5 秒内只发一次"。
+
+## WQ-80 [ ] 【低】渲染细节三项
+
+①`ForgeTableScreen:1273-1279` vs `1355-1364`：只有反问没有方案时（需求很模糊），
+`cards.empty` 文字与 chips 都画在 x=`leftPos+8`、y≈91，**完全重叠**，文字被 chip 底板压住
+——`proposals` 为空时 chips 换行或无条件加标题宽度偏移。
+②`:803,1470-1471`：`highlightInventoryTicks=60` 和 `statusFlashTicks` 在 `render()` 里
+**每帧递减**，144FPS 下 0.4 秒就没了——"响应到达闪绿/兜底闪黄"这个唯一的成功反馈基本
+一闪即逝。改用 `Util.getMillis()` 截止时刻，或挪到 `containerTick()`。
+（同类问题在 `ClientDamageNumbers` 已开过 WQ-24，可一并处理。）
+③`:1586,1640` 的 `substring(0,7)`/`substring(0,10)` 按 char 截断会劈开 emoji 代理对渲染成
+乱码——换 `font.plainSubstrByWidth(...)`，本文件其余截断点都已经用它了。
+
+**本批已核查无问题（勿重复侦察）**：`keyPressed` 输入框劫持逻辑正确（ESC 只失焦、E 键不误关
+容器）；需求长度链路安全（EditBox 限 80 « 上行包 1024，粘贴超长只被静默截断不会断线）；
+`onClose`/`removed` 时序完整（四个 switching 标志各消费一次即复位、两个 listener 成对清理、
+`ForgeTableMenu.removed` 清产物槽+清 AI 选择+更新状态三件齐全）；**提案索引的信任边界重构
+本身是干净的**（只带 int、越界即清、按玩家 UUID 分桶不串味，问题只在客户端何时报索引）；
+`updatePreview` 有组件指纹缓存不会每帧跑 ForgeComposer；卡片/面板溢出与点击热区一致。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
