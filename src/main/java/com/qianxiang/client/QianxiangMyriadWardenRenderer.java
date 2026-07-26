@@ -9,9 +9,9 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 
 /**
- * 森罗守望者渲染器 —— 复用原版 {@link ZombieRenderer}，放大 1.6 倍 + 潜影贝纹理调色。
+ * 森罗守望者渲染器 —— 复用原版 {@link ZombieRenderer}，放大 1.6 倍。
  * <p>
- * MVP 不新增纹理：用原版 shulker 纹理近似"生机凝聚的守望之躯"的青蓝色调。
+ * MVP 不新增纹理：用原版溺尸（drowned）纹理近似"生机凝聚的守望之躯"的青蓝色调。
  * 体型放大让它在人群里一眼可辨。
  */
 @OnlyIn(Dist.CLIENT)
