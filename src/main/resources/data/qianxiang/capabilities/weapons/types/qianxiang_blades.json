@@ -1,0 +1,15 @@
+{
+    "category": "tachi",
+    "collider": {
+        "number": 3,
+        "size": [0.4, 0.4, 0.95],
+        "center": [0.0, 0.0, -0.95]
+    },
+    "combos": {
+        "common": [
+            "epicfight:biped/combat/tachi_auto1",
+            "epicfight:biped/combat/tachi_auto2",
+            "epicfight:biped/combat/tachi_auto3"
+        ]
+    }
+}

@@ -1,0 +1,43 @@
+{
+  "carvers": {
+    "air": [],
+    "liquid": []
+  },
+  "features": [
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    ["qianxiang:void_ore"],
+    [],
+    [],
+    ["qianxiang:glimmer_tree", "qianxiang:wildlight_patch"],
+    []
+  ],
+  "creature_spawn_probability": 0.1,
+  "spawners": {
+    "monster": [],
+    "creature": [],
+    "ambient": [],
+    "axolotls": [],
+    "underground_water_creature": [],
+    "water_creature": [],
+    "water_ambient": [],
+    "misc": []
+  },
+  "spawn_costs": {},
+  "temperature": 0.8,
+  "downfall": 0.5,
+  "has_precipitation": true,
+  "precipitation": "rain",
+  "effects": {
+    "sky_color": 7907327,
+    "fog_color": 12638463,
+    "water_color": 4159204,
+    "water_fog_color": 329011,
+    "grass_color": 9551193,
+    "foliage_color": 7842607
+  }
+}

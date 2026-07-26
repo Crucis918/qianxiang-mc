@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/cube_column",
+  "textures": {
+    "side": "qianxiang:block/glimmer_log",
+    "end": "qianxiang:block/glimmer_log_top"
+  }
+}

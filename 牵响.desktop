@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=牵响 (Qianxiang)
+Comment=牵响 NeoForge 模组 — 点开即玩
+Exec=/home/zoumu/文档/MC experiment/qianxiang-mc/start.sh
+Icon=minecraft
+Terminal=false
+Type=Application
+Categories=Game;
+StartupNotify=true

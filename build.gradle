@@ -1,0 +1,150 @@
+plugins {
+    id 'idea'
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.115'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+// Epic Fight 走 Modrinth Maven，用 exclusiveContent 隔离只解析 maven.modrinth 组
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+                // Modrinth 多数 mod 不发布 .pom，需同时按 artifact 直查 jar，否则 rhino/kubejs 解析失败
+                metadataSources { mavenPom(); artifact() }
+            }
+        }
+        filter { includeGroup "maven.modrinth" }
+    }
+}
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    runs {
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+        data {
+            data()
+            programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    // Epic Fight（灵魂的战斗承载）
+    implementation "maven.modrinth:epic-fight:${project.epicfight_version}"
+
+    // 通用优化 mod（dev 环境运行时在场，不编译耦合）：提升 runClient 流畅度
+    // 版本均已按 Modrinth API 查实为 NeoForge 1.21.1 可用，且 maven jar 逐个 curl 验证 200
+    localRuntime "maven.modrinth:embeddium:1.0.15+mc1.21.1"        // 渲染优化（Sodium 的 NeoForge 移植）
+    localRuntime "maven.modrinth:lithium:mc1.21.1-0.15.4-neoforge" // 逻辑/TPS 优化
+    localRuntime "maven.modrinth:ferrite-core:7.0.3-neoforge"      // 内存优化
+    localRuntime "maven.modrinth:modernfix:5.27.20+mc1.21.1"       // 启动提速 + 内存占用优化
+    localRuntime "maven.modrinth:saturn:mc1.21.1-0.1.5"            // 内存泄漏修复 + GC 优化
+    // iris 不装：其 neoforge.mods.toml 声明与 embeddium 互斥且硬依赖 sodium 0.6（已下载 jar 核实）
+
+    // ⚠️ 以下 5 个 mod 的 Modrinth maven 坐标（slug:version）会误发 Fabric 版 jar
+    //    （同名 version_number 下 Fabric 文件为 primary，maven 无法区分加载器，已实测：
+    //     maven 拉到的 jar 内含 fabric.mod.json，NeoForge 启动时直接不识别、静默跳过）。
+    //    因此改为从 CDN 下载 NeoForge 专用文件放 libs/ 直引（jar 内已核实含 META-INF/neoforge.mods.toml）。
+    localRuntime files("libs/entityculling-neoforge-1.10.5-mc1.21.1.jar")          // 实体渲染剔除 1.10.5
+    localRuntime files("libs/SmoothBoot-NeoForge+1.21-1.0.0.jar")                  // 启动期线程调度优化 1.0.0
+    localRuntime files("libs/dynamic-fps-3.11.4+minecraft-1.21.0-neoforge.jar")    // 窗口失焦/后台降帧省电 3.11.4
+
+    // 客户端体验/战斗辅助 mod（运行时在场，不编译耦合）
+    localRuntime files("libs/firstperson-neoforge-2.7.2-mc1.21.1.jar")             // 第一人称可见自身身体模型 2.7.2
+    localRuntime files("libs/notenoughanimations-neoforge-1.12.4-mc1.21.1.jar")    // 第三人称动作补全 1.12.4
+    localRuntime files("libs/appleskin-neoforge-mc1.21-3.0.9.jar")                 // 饥饿/食物 HUD 优化（更好的饥饿显示）3.0.9
+    localRuntime files("libs/weaponmaster_ydm-1.21.1-neoforge-4.2.7.jar")          // 武器模型挂在角色身上显示（Weapon Master）4.2.7
+    // torohealth-continued 不装：其 1.4.0-beta 标注支持 1.21.1，但 jar 实为旧 Forge 格式
+    // （META-INF/mods.toml 且声明 minecraft [1.20.4] / neoforge [20.3.0,)），NeoForge 21.1 无法识别
+
+    // 整合包创作辅助 mod（运行时在场，不编译耦合）：KubeJS（JS 脚本加配方/标签/物品）+ Rhino（其 JS 引擎）
+    // 整合包作者可用 KubeJS 往 qianxiang:materials/* 等 tag 加物品，扩展「万物皆零件」
+    // ⚠️ 暂时注释：2101.7.2-build.368 / 2101.2.8-build.91 版本号在 Modrinth 不存在，runClient 解析失败。
+    //    待确认正确版本号后恢复（不影响本 mod 自身的编译/运行验证）。
+    // localRuntime "maven.modrinth:kubejs:2101.7.2-build.368"
+    // localRuntime "maven.modrinth:rhino:2101.2.8-build.91"
+}
+
+// 从 src/main/templates 生成 mods.toml，替换占位符
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description,
+            epicfight_modid        : epicfight_modid,
+            epicfight_version_range: epicfight_version_range
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

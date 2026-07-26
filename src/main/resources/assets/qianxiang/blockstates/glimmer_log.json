@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "axis=y": { "model": "qianxiang:block/glimmer_log" },
+    "axis=x": { "model": "qianxiang:block/glimmer_log", "x": 90, "y": 90 },
+    "axis=z": { "model": "qianxiang:block/glimmer_log", "x": 90 }
+  }
+}

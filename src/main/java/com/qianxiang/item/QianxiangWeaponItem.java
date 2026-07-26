@@ -1,0 +1,263 @@
+package com.qianxiang.item;
+
+import com.qianxiang.QianxiangDataComponents;
+import com.qianxiang.phase.ComposedAttributes;
+import com.qianxiang.spell.Spell;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.level.Level;
+
+import java.util.List;
+
+/**
+ * 相之武器——「材料即零件」的动态产物载体。
+ * <p>
+ * 它自己不带任何硬编码属性。攻击力 / 护甲 / 耐久 / 特殊效果等级，
+ * 全部来自合成时锻造台写入的 {@link ComposedAttributes}（存于
+ * {@code qianxiang:composed_attributes} 组件）。
+ * </p>
+ * <p>
+ * 这是「强度靠材料稀有度、不靠反噬」在物品层的兑现：
+ * 用更好的料 → 数值更高；换个便宜料 → 自动降档。换材料 = 调强度。
+ * </p>
+ * <ul>
+ *   <li>耐久：{@code ComposedAttributes.durability()}（override {@code getMaxDamage}）。</li>
+ *   <li>攻击力/护甲等：锻造台写入的 {@code ATTRIBUTE_MODIFIERS} 组件承载（见 {@link com.qianxiang.phase.AttributeScheme}）。</li>
+ *   <li>特殊效果（灼烧/吸血/反伤/迟缓/疗伤）：等级存在 ComposedAttributes，
+ *       由战斗事件钩子 / Epic Fight 技能读取并兑现。</li>
+ *   <li>外观变体：根据 {@code dominantEffect} / {@code appearanceKey} 发放彩色粒子、
+ *       决定是否附魔光泽，并在 tooltip 显示「相之形」。</li>
+ * </ul>
+ */
+public class QianxiangWeaponItem extends Item {
+    /** 无 ComposedAttributes 时的兜底耐久（如直接 /give 出来的空壳）。 */
+    public static final int DEFAULT_DURABILITY = 250;
+    /** 兜底可附魔性。 */
+    public static final int DEFAULT_ENCHANTABILITY = 14;
+
+    public QianxiangWeaponItem(Properties properties) {
+        super(properties);
+    }
+
+    @Override
+    public int getMaxDamage(ItemStack stack) {
+        ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        if (attr != null && attr.durability() > 0) {
+            return attr.durability();
+        }
+        return DEFAULT_DURABILITY;
+    }
+
+    @Override
+    public int getEnchantmentValue(ItemStack stack) {
+        ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        // 强度越高，越能承载附魔（用 powerScore 做软代理）。
+        if (attr != null) {
+            return DEFAULT_ENCHANTABILITY + (int) Math.min(10, attr.powerScore() / 3.0);
+        }
+        return DEFAULT_ENCHANTABILITY;
+    }
+
+    /**
+     * 易碎（frail）代价兑现：攻击命中后在正常耐久损耗之外，按 frail 等级额外扣耐久
+     * （本类继承自 Item，基类 hurtEnemy 本身不扣耐久，故这里只做「额外」部分）。
+     */
+    @Override
+    public boolean hurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+        com.qianxiang.combat.DrawbackHandler.applyFrailExtraDamage(stack, attacker, EquipmentSlot.MAINHAND);
+        return super.hurtEnemy(stack, target, attacker);
+    }
+
+    @Override
+    public boolean isEnchantable(ItemStack stack) {
+        return true;
+    }
+
+    /** 外观多样性：带强力特殊效果（≥2 级点燃/吸血/反伤/迟缓/治疗）、传奇级属性，
+     * 或有主导外观主题时自带附魔光泽。 */
+    @Override
+    public boolean isFoil(ItemStack stack) {
+        ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        if (attr != null) {
+            if (!"none".equals(attr.dominantEffect()) && !"plain".equals(attr.appearanceKey())) {
+                return true;
+            }
+            if (attr.igniteLevel() >= 2 || attr.lifestealLevel() >= 2 || attr.thornsLevel() >= 2
+                    || attr.slowLevel() >= 2 || attr.healLevel() >= 2 || attr.powerScore() >= 8.0) {
+                return true;
+            }
+        }
+        return super.isFoil(stack);
+    }
+
+    /** 手持时按外观主题释放彩色粒子，让材料组合在视觉上可辨识。 */
+    @Override
+    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
+        super.inventoryTick(stack, level, entity, slotId, isSelected);
+        if (level.isClientSide() || !isSelected) return;
+        if (!(entity instanceof Player player)) return;
+        if (level.getGameTime() % 6 != 0) return;
+
+        AppearanceProfile profile = AppearanceProfile.of(stack);
+        if (profile.particle == null) return;
+
+        double x = player.getX();
+        double y = player.getY() + player.getBbHeight() * 0.55;
+        double z = player.getZ();
+        double spread = 0.22;
+        ((ServerLevel) level).sendParticles(
+                profile.particle,
+                x, y, z, 1,
+                spread, spread, spread, 0.0);
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
+        ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        // 铭刻法术（相杖等法器）
+        ResourceLocation spellId = stack.get(QianxiangDataComponents.SPELL.get());
+        if (spellId != null) {
+            Spell spell = Spell.byId(spellId);
+            tooltip.add(Component.translatable("qianxiang.tooltip.spell",
+                    Component.translatable(spell.translationKey())).withStyle(ChatFormatting.LIGHT_PURPLE));
+        }
+        if (attr == null) {
+            return;
+        }
+        // 相之形：外观来源
+        AppearanceProfile profile = AppearanceProfile.of(stack);
+        tooltip.add(Component.translatable("qianxiang.tooltip.appearance",
+                        Component.translatable(profile.translationKey))
+                .withStyle(profile.tooltipColor));
+
+        // 强度总分——「概念期协商」的直观体现：这把器有多猛，一目了然。
+        tooltip.add(Component.translatable("qianxiang.tooltip.power_score",
+                String.format("%.1f", attr.powerScore())).withStyle(ChatFormatting.GOLD));
+
+        // 反转标志行：材料含逆相之核时提示「已反转」（伤害型效果极性倒转）
+        if (attr.isReversed()) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.reversed")
+                    .withStyle(ChatFormatting.LIGHT_PURPLE));
+        }
+
+        // 数值属性简报
+        if (attr.attackDamage() > 0) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.attack_damage",
+                    String.format("%.1f", attr.attackDamage())).withStyle(ChatFormatting.YELLOW));
+        }
+        if (attr.armor() > 0) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.armor",
+                    String.format("%.1f", attr.armor())).withStyle(ChatFormatting.GRAY));
+        }
+
+        // 特殊效果等级（来自材料的功能算子）
+        if (attr.igniteLevel() > 0) {
+            tooltip.add(specialLine("qianxiang.phasefn.ignite", attr.igniteLevel(), ChatFormatting.RED));
+        }
+        if (attr.lifestealLevel() > 0) {
+            tooltip.add(specialLine("qianxiang.phasefn.lifesteal", attr.lifestealLevel(), ChatFormatting.DARK_RED));
+        }
+        if (attr.thornsLevel() > 0) {
+            tooltip.add(specialLine("qianxiang.phasefn.reflect", attr.thornsLevel(), ChatFormatting.AQUA));
+        }
+        if (attr.slowLevel() > 0) {
+            tooltip.add(specialLine("qianxiang.phasefn.slow", attr.slowLevel(), ChatFormatting.BLUE));
+        }
+        if (attr.healLevel() > 0) {
+            tooltip.add(specialLine("qianxiang.phasefn.heal", attr.healLevel(), ChatFormatting.GREEN));
+        }
+
+        // 自由状态效果（grantedEffects，来自 qianxiang:materials/effect/* tag 材料）：攻击时施加给目标
+        for (var entry : attr.grantedEffects().entrySet()) {
+            if (entry.getValue() == null || entry.getValue() <= 0) continue;
+            tooltip.add(Component.translatable("qianxiang.tooltip.granted_effect",
+                    effectName(entry.getKey()), entry.getValue()).withStyle(ChatFormatting.DARK_PURPLE));
+        }
+
+        // 代价效果（DrawbackLevels）：红色警示行「代价：xxx ×N」
+        appendDrawbacks(attr, tooltip);
+    }
+
+    /**
+     * 把代价效果写成红色警示 tooltip 行（每个代价一行：「代价：易碎 ×1」）。
+     * 武器/防具/工具共用——三种产物都带 ComposedAttributes，代价都应可见。
+     */
+    static void appendDrawbacks(ComposedAttributes attr, List<Component> tooltip) {
+        if (attr == null) return;
+        ComposedAttributes.DrawbackLevels d = attr.drawbacks();
+        if (d == null || !d.anyPositive()) return;
+        appendDrawbackLine(tooltip, "qianxiang.drawback.frail", d.frail());
+        appendDrawbackLine(tooltip, "qianxiang.drawback.heavy", d.heavy());
+        appendDrawbackLine(tooltip, "qianxiang.drawback.draining", d.draining());
+        appendDrawbackLine(tooltip, "qianxiang.drawback.unstable", d.unstable());
+        appendDrawbackLine(tooltip, "qianxiang.drawback.cursed", d.cursed());
+    }
+
+    private static void appendDrawbackLine(List<Component> tooltip, String key, int level) {
+        if (level <= 0) return;
+        tooltip.add(Component.translatable("qianxiang.tooltip.drawback",
+                Component.translatable(key), level).withStyle(ChatFormatting.RED));
+    }
+
+    /** 效果 id → 显示名：注册表里有就用官方译名，否则退化为 path 原文。 */
+    static Component effectName(ResourceLocation effectId) {
+        return net.minecraft.core.registries.BuiltInRegistries.MOB_EFFECT.getHolder(effectId)
+                .<Component>map(h -> Component.translatable(h.value().getDescriptionId()))
+                .orElse(Component.literal(effectId.getPath()));
+    }
+
+    private static Component specialLine(String key, int level, ChatFormatting color) {
+        return Component.translatable(key).append(" ×" + level).withStyle(color);
+    }
+
+    /** 外观配置：把 appearanceKey 映射到粒子与 tooltip 颜色。 */
+    private enum AppearanceProfile {
+        PLAIN("qianxiang.appearance.plain", null, ChatFormatting.GRAY),
+        EMBER("qianxiang.appearance.ember", ParticleTypes.FLAME, ChatFormatting.RED),
+        BLOOD("qianxiang.appearance.blood", ParticleTypes.DAMAGE_INDICATOR, ChatFormatting.DARK_RED),
+        THORN("qianxiang.appearance.thorn", ParticleTypes.CRIT, ChatFormatting.GREEN),
+        SHADOW("qianxiang.appearance.shadow", ParticleTypes.SMOKE, ChatFormatting.DARK_GRAY),
+        LIFE("qianxiang.appearance.life", ParticleTypes.HAPPY_VILLAGER, ChatFormatting.GREEN),
+        ARCANE("qianxiang.appearance.arcane", ParticleTypes.WITCH, ChatFormatting.LIGHT_PURPLE),
+        BONE("qianxiang.appearance.bone", ParticleTypes.SMOKE, ChatFormatting.WHITE),
+        BULWARK("qianxiang.appearance.bulwark", ParticleTypes.ENCHANTED_HIT, ChatFormatting.AQUA);
+
+        final String translationKey;
+        final ParticleOptions particle;
+        final ChatFormatting tooltipColor;
+
+        AppearanceProfile(String translationKey, ParticleOptions particle, ChatFormatting tooltipColor) {
+            this.translationKey = translationKey;
+            this.particle = particle;
+            this.tooltipColor = tooltipColor;
+        }
+
+        static AppearanceProfile of(ItemStack stack) {
+            ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+            if (attr == null) return PLAIN;
+            String key = attr.appearanceKey();
+            return switch (key) {
+                case "ember" -> EMBER;
+                case "blood" -> BLOOD;
+                case "thorn" -> THORN;
+                case "shadow" -> SHADOW;
+                case "life" -> LIFE;
+                case "arcane" -> ARCANE;
+                case "bone" -> BONE;
+                case "bulwark" -> BULWARK;
+                default -> PLAIN;
+            };
+        }
+    }
+}

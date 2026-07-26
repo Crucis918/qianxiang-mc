@@ -1,0 +1,7 @@
+{ "replace": false, "values": [
+  "minecraft:flint",
+  "minecraft:quartz",
+  "minecraft:diamond",
+  "minecraft:netherite_scrap",
+  "minecraft:amethyst_shard"
+] }

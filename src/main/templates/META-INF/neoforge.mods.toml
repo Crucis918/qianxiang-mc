@@ -1,0 +1,36 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+issueTrackerURL = ""
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = '''
+${mod_description}
+'''
+
+[[dependencies.${mod_id}]]
+    modId = "neoforge"
+    type = "required"
+    versionRange = "${neo_version_range}"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.${mod_id}]]
+    modId = "minecraft"
+    type = "required"
+    versionRange = "${minecraft_version_range}"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.${mod_id}]]
+    modId = "${epicfight_modid}"
+    type = "required"
+    versionRange = "${epicfight_version_range}"
+    # BEFORE：让千相的 RegisterCapabilitiesEvent 监听先于 EF 执行，
+    # 动态特征→动作 provider 才能优先于 EF 的全物品静态 provider（NeoForge 按注册顺序取首个非 null）。
+    ordering = "BEFORE"
+    side = "BOTH"

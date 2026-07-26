@@ -1,0 +1,7 @@
+{ "replace": false, "values": [
+  "minecraft:oak_log",
+  "minecraft:stick",
+  "minecraft:oak_planks",
+  "#minecraft:logs",
+  "#minecraft:planks"
+] }

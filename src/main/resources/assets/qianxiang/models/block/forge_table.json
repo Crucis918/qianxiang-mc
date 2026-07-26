@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "qianxiang:block/forge_table",
+    "down": "qianxiang:block/forge_table",
+    "up": "qianxiang:block/forge_table",
+    "north": "qianxiang:block/forge_table",
+    "south": "qianxiang:block/forge_table",
+    "east": "qianxiang:block/forge_table",
+    "west": "qianxiang:block/forge_table"
+  }
+}

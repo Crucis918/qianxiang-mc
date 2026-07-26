@@ -1,0 +1,113 @@
+package com.qianxiang.network;
+
+import com.qianxiang.Qianxiang;
+import com.qianxiang.menu.ForgeTableMenu;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 服务端处理「把 AI 推荐材料放入锻造台材料槽」的请求。
+ */
+public final class AiPlaceMaterialsHandler {
+
+    private AiPlaceMaterialsHandler() {}
+
+    public static void handle(AiPlaceMaterialsPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            Player player = context.player();
+            if (player == null) return;
+
+            AbstractContainerMenu menu = player.containerMenu;
+            if (!(menu instanceof ForgeTableMenu forgeMenu)) {
+                Qianxiang.LOGGER.warn("[Qianxiang] 玩家发送 AI 放料请求时未打开锻造台菜单");
+                return;
+            }
+
+            List<Item> wanted = new ArrayList<>();
+            for (String name : payload.materialNames()) {
+                ResourceLocation id = ResourceLocation.tryParse(name);
+                if (id == null) continue;
+                Item item = BuiltInRegistries.ITEM.get(id);
+                if (item != null && BuiltInRegistries.ITEM.getKey(item).equals(id)) {
+                    wanted.add(item);
+                }
+            }
+
+            if (wanted.isEmpty()) {
+                player.displayClientMessage(Component.translatable("qianxiang.forge_table.msg.no_materials"), false);
+                return;
+            }
+
+            boolean anyPlaced = false;
+            for (Item item : wanted) {
+                int invSlot = findInInventory(player, item);
+                if (invSlot < 0) continue;
+
+                int materialSlot = findMaterialSlot(forgeMenu, item);
+                if (materialSlot < 0) {
+                    // 材料槽已满，提示背包高亮（由客户端自己画）
+                    player.displayClientMessage(Component.translatable("qianxiang.forge_table.msg.slots_full"), false);
+                    continue;
+                }
+
+                ItemStack invStack = player.getInventory().getItem(invSlot);
+                if (invStack.isEmpty()) continue;
+
+                ItemStack move = invStack.split(1);
+                ItemStack existing = forgeMenu.getContainer().getItem(materialSlot);
+                if (existing.isEmpty()) {
+                    forgeMenu.getContainer().setItem(materialSlot, move);
+                } else if (ItemStack.isSameItemSameComponents(existing, move)
+                        && existing.getCount() < existing.getMaxStackSize()) {
+                    existing.grow(1);
+                    forgeMenu.getContainer().setItem(materialSlot, existing);
+                } else {
+                    invStack.grow(1); // 不可堆叠，撤销
+                    continue;
+                }
+                anyPlaced = true;
+            }
+
+            if (anyPlaced) {
+                forgeMenu.slotsChanged(forgeMenu.getContainer());
+                forgeMenu.getContainer().setChanged();
+                player.getInventory().setChanged();
+            }
+        });
+    }
+
+    private static int findInInventory(Player player, Item item) {
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.is(item)) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * 找可放入指定物品的材料槽：优先空槽，其次可堆叠的同种物品槽。
+     * 若找不到返回 -1（材料槽已满）。
+     */
+    private static int findMaterialSlot(ForgeTableMenu menu, Item item) {
+        Integer empty = null;
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            ItemStack s = menu.getContainer().getItem(i);
+            if (s.isEmpty()) {
+                if (empty == null) empty = i;
+            } else if (s.is(item) && s.getCount() < s.getMaxStackSize()
+                    && ItemStack.isSameItemSameComponents(s, new ItemStack(item))) {
+                return i;
+            }
+        }
+        return empty == null ? -1 : empty;
+    }
+}

@@ -1,0 +1,5 @@
+{ "replace": false, "values": [
+  "minecraft:redstone",
+  "minecraft:lapis_lazuli",
+  "minecraft:ender_pearl"
+] }
