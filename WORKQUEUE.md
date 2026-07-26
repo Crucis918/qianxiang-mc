@@ -139,7 +139,7 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 
 # 第二批：bug 狩猎发现（2026-07-26 深夜，侦察代理实证核查过触发路径）
 
-## WQ-10 [~] 修理中 【高·刷物品】漏斗接锻造台 = 零成本无限锻造
+## WQ-10 [x] 完成(8055448) 【高·刷物品】漏斗接锻造台 = 零成本无限锻造
 
 产物槽（槽 10）是**真实容器槽**：`ForgeTableMenu.slotsChanged` 直接
 `container.setItem(RESULT_SLOT, composition.result())`，`removed()`（:260-263）只调 super
@@ -152,7 +152,7 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 `ForgeTableMenu.removed()` 清空 RESULT_SLOT（产物改纯预览、onTake 才实体化）。
 **验收**：GameTest：漏斗放锻造台下抽不到产物槽；关 GUI 后 BE 槽 10 为空。
 
-## WQ-11 [~] 修理中 【高·刷物品】蓝图放料"洗物品"：残耐久附魔装备变全新白板 + 可扒身上盔甲
+## WQ-11 [x] 完成(8055448) 【高·刷物品】蓝图放料"洗物品"：残耐久附魔装备变全新白板 + 可扒身上盔甲
 
 `ForgeTableMenu.applyBlueprint`（:92-109）找材料只比 `s.is(item)` 忽略组件，取用后放入的是
 `new ItemStack(item, 1)` **出厂新栈**；且扫描范围是 `playerInventory.getContainerSize()`=41，
@@ -164,7 +164,7 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 危害仅"拿走身上装备当零件"），一并限 36。
 **验收**：GameTest：低耐久物品走蓝图放料后组件保留；护甲槽物品不被取用。
 
-## WQ-12 [~] 修理中 【高·吞物品】挖掉锻造台吞掉全部 11 格内容
+## WQ-12 [x] 完成(8055448) 【高·吞物品】挖掉锻造台吞掉全部 11 格内容
 
 `ForgeTableBlock` 无 `onRemove` 覆写，破坏方块时 BE 连同物品直接销毁。
 **修法**：覆写 `onRemove`，`!state.is(newState.getBlock())` 时 `Containers.dropContents` 再 super。
@@ -213,7 +213,7 @@ y<=min+1 时兜底 y=100 不查是否闷在石头里；`getHeightmapPos` 未生�
 相谱（500 上限会被垃圾挤掉真历史），且 handler 无冷却可被刷。
 **修法**：`withEntry` 移进 ok 分支；handleUse/handleSave 加每玩家 ~10 tick 冷却。
 
-## WQ-18 [ ] 【低·一致性】AI 放料同种材料堆同一槽 → 零件数少于 AI 承诺
+## WQ-18 [x] 完成(8055448) 【低·一致性】AI 放料同种材料堆同一槽 → 零件数少于 AI 承诺
 
 `AiPlaceMaterialsHandler.findMaterialSlot`（:100-112）优先堆叠已有同种槽，而 compose 按槽计
 零件（数量无关）——AI 报 [铁锭,铁锭,煤] 实际只算 2 零件；蓝图路径却逐槽铺开，两路径不一致。
@@ -333,9 +333,77 @@ ClientSpellInput 加守卫、if→while。
 - GameTest 全部纯逻辑断言无随机/时序依赖，不会偶发红
 - PlayerSpellData copyOnDeath 已配，死亡数据不丢
 
+---
+
+# 第三批：修理会话侦察代理补充发现（2026-07-26 深夜，均已亲自打开源码复核）
+
+## WQ-30 [x] 完成(6bdc4c4) 【严重·系统性失效】产物注册缺 Properties.durability，整条耐久链是死代码
+
+`QianxiangItems` 全部 10 个产物只写了 `.rarity(...)`，栈上没有 MAX_DAMAGE/DAMAGE 组件 →
+`isDamageableItem()` 恒 false。后果：①三个 Item 子类的 `getMaxDamage(ItemStack)` override
+永不被消费，`ComposedAttributes.durability` 一整套计算白算；②`hurtAndBreak` 全程空转 →
+**frail（易碎）代价 100% 失效**、相锄/水壶永不磨损；③装备可 64 个一摞、无耐久条。
+**已修**：10 个产物补 `.durability(各子类 DEFAULT_DURABILITY)`，override 随即接管为动态耐久；
+新增 2 个 GameTest（全产物可损坏且 stacksTo=1、锻造耐久等于组合耐久）。
+**注**：`AttributeScheme` 那段"durability 由 override 提供"的 javadoc 此前由修理会话写下但
+漏了注册侧前提，已一并纠正。
+
+## WQ-31 [ ] 【严重·凭据泄露】服务端 apiKey 明文推送给每个进服玩家
+
+`network/AiConfigSyncHandler.java:52-60`（`onPlayerLogin` → `PacketDistributor.sendToPlayer`）
+经 `:64-68 currentPayload()` 把 `cfg.apiKey` 放进包；`AiConfigSyncPayload.java:37` 照发；
+客户端 `ClientAIConfigCache` 缓存后回填进 AI 设置界面输入框。
+**C2S 保存路径的 OP 校验（`:33-38`）是对的，读路径完全没有门控**——权限模型只做了一半。
+单人存档无害；专用服务器上服主的付费 Key 泄露给全服每一个人。
+**修法**：登录同步时把 apiKey 换成占位（如 `""` 或 `"********"`），仅在
+`hasPermissions(2) || isSingleplayerOwner` 时发真值；客户端界面对占位值不回填、
+保存时若仍是占位则不覆盖服务端已有 Key。
+**验收**：非 OP 玩家进服抓包无明文 Key；OP 打开界面仍能看到并修改真值。
+
+## WQ-32 [ ] 【高·客户端卡死】锻造台每帧 12 次全物品注册表扫描
+
+`client/ForgeTableScreen.java:572`（render 内）→ `:1307` → `:1448 resolveItemStack`
+→ `ai/MaterialLibrary.java:440 find()` → `:126 snapshot()`。`find()` 每次调用都重跑
+`snapshot()`，而 `snapshot()` **两遍**遍历 `BuiltInRegistries.ITEM`，第二遍对每个物品
+`new ItemStack(item)` + `ItemConceptResolver.resolve` + tag 查询，**无任何缓存**
+（其注释"命令路径，量小，可接受"已不成立）。
+拿到 AI 推荐后 3 张卡 × 4 材料图标 = 每帧 12 次全表扫描；整合包上万物品时客户端假死。
+同一热路径也在 `PhaseAIRecipeService:733,772` 与 `FallbackRecipes` 6 处。
+**修法**：`snapshot()` 加缓存（注册表冻结后内容不变，按 `PhaseMaterialRegistry` 版本号失效即可）；
+`find()` 改查预建 Map 而非线性扫描；`resolveItemStack` 结果在 Screen 里按提案缓存。
+**验收**：装整合包打开锻造台+AI 推荐，帧率无可感下降。
+
+## WQ-33 [ ] 【高·可打死服务端】AI 请求包无前置校验、无限流、执行器队列无界
+
+`ai/ForgeTableAIHandler.java:31-53`：`enqueueWork` 只用来设粒子状态，**AI 任务无条件
+`AI_EXECUTOR.submit`**——不校验玩家是否真的开着锻造台，无冷却；`:23` 的
+`newSingleThreadExecutor` 是无界 `LinkedBlockingQueue`。改过的客户端循环发
+`AiRequestPayload` 即可：每包 = 一次真实 LLM HTTP（烧服主 token）+ 一次全表扫描 + 队列堆积。
+`AIGateway` 缓存按 prompt 哈希，改一个字符即绕过；熔断只在连接失败时开，端点正常时不拦。
+**修法**：提交前校验 `containerMenu instanceof ForgeTableMenu`；每玩家冷却（如 3 秒）+
+队列深度上限（满则直接回兜底）；`AiRequestPayload` 的 collection/字符串 codec 补 maxSize
+（与 WQ-20 合并做）。
+
+## WQ-34 [ ] 【中】Boss 冲击波对无敌目标仍施加击退
+
+`entity/QianxiangMyriadWarden.java:159-162`（修理会话本人所写）：过滤器只排除自身/同类/
+裂隙蠹，`hurt()` 对创造与旁观模式玩家是空操作，但紧随其后的 `knockback()` **无条件执行**
+→ 旁观模式玩家会被 Boss 推着走。项目里法术 AOE 都有 `isAlly` 过滤
+（`SpellEffectEngine:317,348`），Boss 这里漏了同等严谨度。
+**修法**：过滤器加 `!(e instanceof Player p && (p.isSpectator() || p.isCreative()))`，
+或在 hurt 返回 false 时跳过击退。
+
+## 修理会话核查后判定为**误报**的项（勿再排查）
+- Boss 血条在实体死亡/卸载时"泄漏"：原版 `ChunkMap.TrackedEntity` 移除时会对每个跟踪玩家
+  调 `stopSeenByPlayer`，血条自动清理，写法与原版 Wither/末影龙一致。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）
+- WQ-10/11/12/18 锻造台三条刷/吞物品链与放料一致性（8055448，修理会话）
+- WQ-30 耐久链彻底失效（6bdc4c4，修理会话）
 - Boss 三技能、成就三支线、位格门控、锻造/传送门音效、NPC 补货落盘、分享码 productType
   归一（2f443f0..be66c1a，修理会话）
 - P0-3 调查（结论见 WQ-5，代码无需改动）
