@@ -36,4 +36,19 @@ public class ForgeTableBlock extends BaseEntityBlock {
         }
         return InteractionResult.SUCCESS;
     }
+
+    /**
+     * 破坏方块时把材料槽内容掉出来——否则 BE 连同 11 格物品一起销毁（吞物品）。
+     * <p>产物槽（{@link ForgeTableMenu#RESULT_SLOT}）是实时预览、非实体库存，
+     * 由 {@link ForgeTableBlockEntity#dropContentsOnRemove} 排除，避免"挖台子白得成品"。
+     */
+    @Override
+    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+        if (!state.is(newState.getBlock())) {
+            if (level.getBlockEntity(pos) instanceof ForgeTableBlockEntity be) {
+                be.dropContentsOnRemove(level, pos);
+            }
+        }
+        super.onRemove(state, level, pos, newState, movedByPiston);
+    }
 }

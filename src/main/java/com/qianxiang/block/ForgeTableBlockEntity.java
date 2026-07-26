@@ -11,9 +11,11 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.util.RandomSource;
+import net.minecraft.core.Direction;
 import net.minecraft.world.Container;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.MenuProvider;
+import net.minecraft.world.WorldlyContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -23,7 +25,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Vector3f;
 
-public class ForgeTableBlockEntity extends BlockEntity implements Container, MenuProvider {
+public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider {
     public static final int STATE_IDLE = 0;
     public static final int STATE_PARSING = 1;
     public static final int STATE_READY = 2;
@@ -215,6 +217,21 @@ public class ForgeTableBlockEntity extends BlockEntity implements Container, Men
         }
     }
 
+    /**
+     * 破坏方块时掉落材料槽内容（{@link ForgeTableBlock#onRemove} 调用）。
+     * <p><b>只掉 0-9 材料槽</b>：槽 10 是实时预览产物，材料尚未消耗，掉出去等于白送成品。
+     * 掉落后清空全部槽位，防 super.onRemove 之外的路径重复掉落。
+     */
+    public void dropContentsOnRemove(Level level, BlockPos pos) {
+        NonNullList<ItemStack> materialsOnly =
+                NonNullList.withSize(ForgeTableMenu.MATERIAL_SLOTS, ItemStack.EMPTY);
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            materialsOnly.set(i, items.get(i));
+        }
+        net.minecraft.world.Containers.dropContents(level, pos, materialsOnly);
+        items.clear();
+    }
+
     // ---- Container ----
     @Override public int getContainerSize() { return items.size(); }
     @Override public boolean isEmpty() { for (var s : items) if (!s.isEmpty()) return false; return true; }
@@ -225,10 +242,44 @@ public class ForgeTableBlockEntity extends BlockEntity implements Container, Men
     @Override public boolean stillValid(Player player) { return Container.stillValidBlockEntity(this, player); }
     @Override public void clearContent() { items.clear(); setChanged(); }
 
+    // ---- WorldlyContainer：自动化只能碰材料槽，产物槽对漏斗完全不可见 ----
+    // 否则「开一次 GUI 生成预览产物 → 关 GUI → 漏斗抽走材料再抽走产物」= 零成本无限锻造。
+
+    /** 只暴露 0-9 材料槽；产物槽（10）不在其中，漏斗既抽不到也塞不进。 */
+    private static final int[] MATERIAL_SLOT_INDICES =
+            java.util.stream.IntStream.range(0, ForgeTableMenu.MATERIAL_SLOTS).toArray();
+
+    @Override
+    public int[] getSlotsForFace(Direction side) {
+        return MATERIAL_SLOT_INDICES;
+    }
+
+    @Override
+    public boolean canPlaceItemThroughFace(int slot, ItemStack stack, @javax.annotation.Nullable Direction side) {
+        return slot < ForgeTableMenu.MATERIAL_SLOTS;
+    }
+
+    /**
+     * 自动化<b>只进不出</b>。
+     * <p>产物槽不可抽是防「零成本无限锻造」；材料槽同样不可抽，是防另一条脱钩利用：
+     * 界面开着时漏斗把传奇材料换成圆石，而 {@code slotsChanged} 只由菜单驱动、
+     * 不会重算，玩家就能用圆石领走此前生成的高级产物。
+     */
+    @Override
+    public boolean canTakeItemThroughFace(int slot, ItemStack stack, Direction side) {
+        return false;
+    }
+
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
-        ContainerHelper.saveAllItems(tag, items, registries);
+        // 产物槽是实时预览（材料未消耗），不落盘——否则重进存档后槽 10 白留一件成品。
+        // 拷贝一份把槽 10 清掉再存，不动内存中的实时预览。
+        NonNullList<ItemStack> persisted = NonNullList.withSize(items.size(), ItemStack.EMPTY);
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            persisted.set(i, items.get(i));
+        }
+        ContainerHelper.saveAllItems(tag, persisted, registries);
         tag.putInt("CraftingState", craftingState);
         // AI 输出暂存随方块实体持久化：重进存档后产物组合仍能复现 AI 法术/名称/动作定制。
         if (!lastSpellJson.isEmpty()) tag.putString("LastSpellJson", lastSpellJson);

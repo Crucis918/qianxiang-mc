@@ -2,6 +2,7 @@ package com.qianxiang;
 
 import com.qianxiang.blueprint.BlueprintData;
 import com.qianxiang.blueprint.BlueprintShareCodes;
+import com.qianxiang.menu.ForgeTableMenu;
 import com.qianxiang.phase.ForgeComposer;
 import com.qianxiang.spell.CustomSpell;
 import net.minecraft.gametest.framework.GameTest;
@@ -197,6 +198,99 @@ public final class QianxiangCoreGameTests {
                 // 正确行为
             }
         }
+        helper.succeed();
+    }
+
+    // ============================ 耐久链完整性 ============================
+
+    /**
+     * 产物必须是「可损坏物品」，否则整条耐久数学 + frail 代价全是死代码。
+     * <p>注册时缺 {@code Properties.durability(...)} → 栈上无 MAX_DAMAGE/DAMAGE 组件 →
+     * {@code isDamageableItem()} 为 false → {@code hurtAndBreak} 空转、
+     * {@code getMaxDamage} override 永不被消费、装备还能 64 个一摞。
+     */
+    @GameTest(template = "item_concept")
+    public static void productsAreDamageable(GameTestHelper helper) {
+        var products = List.of(
+                QianxiangItems.EMBER_BLADE.get(), QianxiangItems.BONE_BLADE.get(),
+                QianxiangItems.PHASE_STAFF.get(), QianxiangItems.PHASE_SHIELD.get(),
+                QianxiangItems.PHASE_HELMET.get(), QianxiangItems.PHASE_CHESTPLATE.get(),
+                QianxiangItems.PHASE_LEGGINGS.get(), QianxiangItems.PHASE_BOOTS.get(),
+                QianxiangItems.PHASE_HOE.get(), QianxiangItems.PHASE_WATERING_CAN.get());
+        for (var item : products) {
+            ItemStack stack = new ItemStack(item);
+            helper.assertTrue(stack.isDamageableItem(),
+                    item + " 必须可损坏（注册时缺 Properties.durability 会让耐久链全部空转）");
+            helper.assertTrue(stack.getMaxStackSize() == 1,
+                    item + " 装备类产物不应可堆叠，实际上限 " + stack.getMaxStackSize());
+        }
+        helper.succeed();
+    }
+
+    /** 锻造出的产物耐久应来自材料（ComposedAttributes.durability），而非注册时的占位值。 */
+    @GameTest(template = "item_concept")
+    public static void forgedDurabilityComesFromMaterials(GameTestHelper helper) {
+        ForgeComposer.Composition c = ForgeComposer.compose(padTo10(
+                new ItemStack(QianxiangMaterials.EMBER_IRON.get()),
+                new ItemStack(QianxiangItems.BEAST_FANG.get())));
+        helper.assertTrue(c.valid(), "烬铁+兽牙应能锻出产物");
+        int composed = c.attributes().durability();
+        helper.assertTrue(composed > 0, "组合属性应给出正耐久，实际 " + composed);
+        helper.assertTrue(c.result().getMaxDamage() == composed,
+                "产物最大耐久应等于组合耐久 " + composed + "，实际 " + c.result().getMaxDamage());
+        helper.succeed();
+    }
+
+    // ============================ 锻造台自动化边界（WQ-10/12） ============================
+
+    /** 产物槽对漏斗完全不可见：只暴露 0-9 材料槽，槽 10 禁抽禁塞。 */
+    @GameTest(template = "item_concept")
+    public static void forgeTableHidesResultSlotFromHoppers(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        for (net.minecraft.core.Direction side : net.minecraft.core.Direction.values()) {
+            int[] slots = be.getSlotsForFace(side);
+            helper.assertTrue(slots.length == ForgeTableMenu.MATERIAL_SLOTS,
+                    side + " 面应只暴露 " + ForgeTableMenu.MATERIAL_SLOTS + " 个材料槽，实际 " + slots.length);
+            for (int s : slots) {
+                helper.assertTrue(s != ForgeTableMenu.RESULT_SLOT, "产物槽不应出现在自动化可见槽位里");
+            }
+        }
+        ItemStack probe = new ItemStack(Items.STICK);
+        helper.assertTrue(!be.canTakeItemThroughFace(
+                        ForgeTableMenu.RESULT_SLOT, probe, net.minecraft.core.Direction.DOWN),
+                "漏斗不应能从产物槽抽走成品（否则零成本无限锻造）");
+        helper.assertTrue(!be.canTakeItemThroughFace(0, probe, net.minecraft.core.Direction.DOWN),
+                "漏斗也不应抽走材料（界面开着时换料会让产物与材料脱钩）");
+        helper.assertTrue(!be.canPlaceItemThroughFace(
+                        ForgeTableMenu.RESULT_SLOT, probe, net.minecraft.core.Direction.UP),
+                "漏斗不应能往产物槽塞东西");
+        helper.assertTrue(be.canPlaceItemThroughFace(0, probe, net.minecraft.core.Direction.UP),
+                "材料槽应允许自动化投入");
+        helper.succeed();
+    }
+
+    /** 破坏方块只掉材料槽，不掉尚未付出材料的预览产物。 */
+    @GameTest(template = "item_concept")
+    public static void forgeTableDropsMaterialsNotPreview(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(1, 1, 1));
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                pos, com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        be.setItem(0, new ItemStack(Items.LEATHER));
+        be.setItem(ForgeTableMenu.RESULT_SLOT, new ItemStack(QianxiangItems.PHASE_LEGGINGS.get()));
+
+        be.dropContentsOnRemove(level, pos);
+
+        var dropped = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                new net.minecraft.world.phys.AABB(pos).inflate(6.0));
+        boolean hasLeather = dropped.stream().anyMatch(e -> e.getItem().is(Items.LEATHER));
+        boolean hasProduct = dropped.stream()
+                .anyMatch(e -> e.getItem().is(QianxiangItems.PHASE_LEGGINGS.get()));
+        helper.assertTrue(hasLeather, "破坏锻造台应掉出材料槽内容");
+        helper.assertTrue(!hasProduct, "不应掉出预览产物（材料未消耗，掉了等于白送）");
+        dropped.forEach(net.minecraft.world.entity.Entity::discard);
         helper.succeed();
     }
 

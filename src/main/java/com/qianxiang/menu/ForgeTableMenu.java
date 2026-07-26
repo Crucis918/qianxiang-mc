@@ -89,8 +89,10 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             }
             if (placeSlot < 0) return false;
 
+            // 只扫主背包 36 格（0..INVENTORY_SIZE-1）——getContainerSize() 是 41，
+            // 会把身上穿的 4 件盔甲和副手也当材料扒走。
             int found = -1;
-            for (int i = 0; i < playerInventory.getContainerSize(); i++) {
+            for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
                 ItemStack s = playerInventory.getItem(i);
                 if (!s.isEmpty() && s.is(item)) {
                     found = i;
@@ -99,14 +101,10 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             }
             if (found < 0) return false;
 
-            ItemStack taken = playerInventory.getItem(found);
-            taken.shrink(1);
-            if (taken.isEmpty()) {
-                playerInventory.setItem(found, ItemStack.EMPTY);
-            } else {
-                playerInventory.setItem(found, taken);
-            }
-            container.setItem(placeSlot, new ItemStack(item, 1));
+            // 搬运原栈而非 new ItemStack(item, 1)：后者是出厂新品，
+            // 会把残耐久/附魔/自定义名洗成白板（等于免费修复+洗附魔）。
+            ItemStack moved = playerInventory.getItem(found).split(1);
+            container.setItem(placeSlot, moved);
         }
         // 蓝图中保存的 spellJson/movesetJson 一并重新应用（无对应 JSON 的旧蓝图则清除暂存，
         // 避免上一次 AI 响应的法术/动作串味到蓝图产物）。蓝图名作为自定义名恢复。
@@ -260,6 +258,9 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     @Override
     public void removed(Player player) {
         super.removed(player);
+        // 产物槽是实时预览，材料尚未消耗——关闭界面必须清掉，
+        // 否则它作为真实容器槽留在方块实体里，可被漏斗抽走（零成本无限锻造）。
+        this.container.setItem(RESULT_SLOT, ItemStack.EMPTY);
     }
 
     private int stillValidFailLogCooldown = 0;

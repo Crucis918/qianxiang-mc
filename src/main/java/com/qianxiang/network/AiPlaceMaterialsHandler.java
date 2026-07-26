@@ -85,8 +85,9 @@ public final class AiPlaceMaterialsHandler {
         });
     }
 
+    /** 只扫主背包 36 格：getContainerSize() 是 41，会把身上穿的盔甲/副手也当材料取走。 */
     private static int findInInventory(Player player, Item item) {
-        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
             ItemStack s = player.getInventory().getItem(i);
             if (!s.isEmpty() && s.is(item)) return i;
         }
@@ -98,16 +99,20 @@ public final class AiPlaceMaterialsHandler {
      * 若找不到返回 -1（材料槽已满）。
      */
     private static int findMaterialSlot(ForgeTableMenu menu, Item item) {
-        Integer empty = null;
+        // 必须真·优先空槽：ForgeComposer 按「占用的槽数」计零件，数量无关。
+        // 堆到同一槽的话，AI 承诺的 [铁锭,铁锭,煤] 实际只算 2 个零件，
+        // 与蓝图路径（逐槽铺开）结果不一致。
+        Integer stackable = null;
         for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
             ItemStack s = menu.getContainer().getItem(i);
             if (s.isEmpty()) {
-                if (empty == null) empty = i;
-            } else if (s.is(item) && s.getCount() < s.getMaxStackSize()
-                    && ItemStack.isSameItemSameComponents(s, new ItemStack(item))) {
                 return i;
             }
+            if (stackable == null && s.is(item) && s.getCount() < s.getMaxStackSize()
+                    && ItemStack.isSameItemSameComponents(s, new ItemStack(item))) {
+                stackable = i;
+            }
         }
-        return empty == null ? -1 : empty;
+        return stackable == null ? -1 : stackable;
     }
 }
