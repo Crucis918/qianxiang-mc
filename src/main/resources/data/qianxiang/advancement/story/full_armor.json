@@ -1,0 +1,21 @@
+{
+  "parent": "qianxiang:story/first_forge",
+  "display": {
+    "icon": {"id": "qianxiang:phase_chestplate"},
+    "title": {"translate": "advancement.qianxiang.full_armor.title"},
+    "description": {"translate": "advancement.qianxiang.full_armor.desc"},
+    "frame": "goal"
+  },
+  "rewards": {"experience": 50},
+  "criteria": {
+    "has_full_set": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [
+        {"items": ["qianxiang:phase_helmet"]},
+        {"items": ["qianxiang:phase_chestplate"]},
+        {"items": ["qianxiang:phase_leggings"]},
+        {"items": ["qianxiang:phase_boots"]}
+      ]}
+    }
+  }
+}

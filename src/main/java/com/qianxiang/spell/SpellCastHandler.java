@@ -128,6 +128,8 @@ public final class SpellCastHandler {
             serverPlayer.setData(QianxiangAttachments.PLAYER_SPELL_DATA, next);
         }
         sync(serverPlayer);
+        com.qianxiang.QianxiangAdvancements.grant(serverPlayer,
+                com.qianxiang.QianxiangAdvancements.FIRST_CAST);
         return true;
     }
 

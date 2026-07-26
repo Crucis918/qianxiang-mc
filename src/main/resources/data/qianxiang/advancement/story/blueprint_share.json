@@ -1,0 +1,13 @@
+{
+  "parent": "qianxiang:story/first_forge",
+  "display": {
+    "icon": {"id": "minecraft:writable_book"},
+    "title": {"translate": "advancement.qianxiang.blueprint_share.title"},
+    "description": {"translate": "advancement.qianxiang.blueprint_share.desc"},
+    "frame": "goal"
+  },
+  "rewards": {"experience": 50},
+  "criteria": {
+    "shared_blueprint": {"trigger": "minecraft:impossible"}
+  }
+}

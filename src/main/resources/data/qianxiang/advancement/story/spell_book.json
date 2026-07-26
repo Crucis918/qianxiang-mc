@@ -1,0 +1,16 @@
+{
+  "parent": "qianxiang:story/first_forge",
+  "display": {
+    "icon": {"id": "qianxiang:spell_book"},
+    "title": {"translate": "advancement.qianxiang.spell_book.title"},
+    "description": {"translate": "advancement.qianxiang.spell_book.desc"},
+    "frame": "task"
+  },
+  "rewards": {"experience": 25},
+  "criteria": {
+    "has_spell_book": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:spell_book"]}]}
+    }
+  }
+}

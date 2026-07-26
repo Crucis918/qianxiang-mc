@@ -1,0 +1,13 @@
+{
+  "parent": "qianxiang:story/spell_book",
+  "display": {
+    "icon": {"id": "qianxiang:phase_staff"},
+    "title": {"translate": "advancement.qianxiang.first_cast.title"},
+    "description": {"translate": "advancement.qianxiang.first_cast.desc"},
+    "frame": "task"
+  },
+  "rewards": {"experience": 25},
+  "criteria": {
+    "cast_spell": {"trigger": "minecraft:impossible"}
+  }
+}

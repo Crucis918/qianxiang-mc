@@ -140,6 +140,7 @@ public final class QianxiangBlueprintCommand {
         }
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§a【工坊】§r「" + data.name() + "」已发布到全服共享库！"), true);
+        com.qianxiang.QianxiangAdvancements.grant(player, com.qianxiang.QianxiangAdvancements.BLUEPRINT_SHARE);
         return 1;
     }
 
@@ -158,6 +159,7 @@ public final class QianxiangBlueprintCommand {
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§a【工坊】§r已取用「" + entry.data().name() + "」§7(by " + entry.author() + ")§r，入库为 #"
                         + (lib.blueprints().size() + 1)), false);
+        com.qianxiang.QianxiangAdvancements.grant(player, com.qianxiang.QianxiangAdvancements.BLUEPRINT_SHARE);
         return 1;
     }
 
@@ -224,6 +226,7 @@ public final class QianxiangBlueprintCommand {
                                 Component.literal("复制后发给朋友，对方用 /qianxiang blueprint import 粘贴导入"))));
         ctx.getSource().sendSuccess(() -> Component.literal("§6【蓝图分享】§r「" + data.name() + "」 ")
                 .append(clickable), false);
+        com.qianxiang.QianxiangAdvancements.grant(player, com.qianxiang.QianxiangAdvancements.BLUEPRINT_SHARE);
         return 1;
     }
 
@@ -257,6 +260,7 @@ public final class QianxiangBlueprintCommand {
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "§a【蓝图导入】§r「" + data.name() + "」已入库（#" + total + "）"
                         + (unknownCount > 0 ? " §e⚠ 含 " + unknownCount + " 个本环境不存在的材料§r" : "")), false);
+        com.qianxiang.QianxiangAdvancements.grant(player, com.qianxiang.QianxiangAdvancements.BLUEPRINT_SHARE);
         return 1;
     }
 

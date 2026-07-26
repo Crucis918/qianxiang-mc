@@ -1,15 +1,26 @@
 {
   "parent": "qianxiang:story/rift_essence",
   "display": {
-    "icon": {"id": "qianxiang:rift_stone"},
-    "title": {"translate": "advancement.qianxiang.enter_wilds.title"},
-    "description": {"translate": "advancement.qianxiang.enter_wilds.desc"},
+    "icon": {
+      "id": "qianxiang:rift_stone"
+    },
+    "title": {
+      "translate": "advancement.qianxiang.enter_wilds.title"
+    },
+    "description": {
+      "translate": "advancement.qianxiang.enter_wilds.desc"
+    },
     "frame": "goal"
   },
   "criteria": {
     "entered_wilds": {
       "trigger": "minecraft:changed_dimension",
-      "conditions": {"to": "qianxiang:myriad_wilds"}
+      "conditions": {
+        "to": "qianxiang:myriad_wilds"
+      }
     }
+  },
+  "rewards": {
+    "experience": 50
   }
 }
