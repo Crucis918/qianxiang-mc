@@ -12,7 +12,7 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 /**
  * 客户端接收 mana 同步包，写入本地玩家 Attachment 供 HUD 读取。
  */
-@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class ClientSpellData {
 
     private ClientSpellData() {}

@@ -197,8 +197,46 @@ public class ForgeTableMenu extends AbstractContainerMenu {
 
     @Override
     public ItemStack quickMoveStack(Player player, int index) {
-        // task 7 暂不支持 shift 快速移动，玩家手动拖拽
-        return ItemStack.EMPTY;
+        Slot slot = this.slots.get(index);
+        if (slot == null || !slot.hasItem()) return ItemStack.EMPTY;
+
+        int invStart = RESULT_SLOT + 1;      // 背包区起点（含快捷栏）
+        int invEnd = invStart + 36;
+
+        ItemStack stack = slot.getItem();
+        ItemStack moved = stack.copy();
+
+        if (index == RESULT_SLOT) {
+            // 结果 → 背包。搬完后用完整拷贝触发 onTake（消耗材料 + 相谱 + 学法术）；
+            // 原版 QUICK_MOVE 会循环调用本方法，材料够就连续锻造，背包满/材料尽自动停。
+            if (!moveItemStackTo(stack, invStart, invEnd, true)) return ItemStack.EMPTY;
+            slot.set(ItemStack.EMPTY);
+            slot.onTake(player, moved);
+            return moved;
+        }
+
+        if (index < MATERIAL_SLOTS) {
+            // 材料槽 → 背包
+            if (!moveItemStackTo(stack, invStart, invEnd, false)) return ItemStack.EMPTY;
+        } else {
+            // 背包 → 材料槽
+            if (!moveItemStackTo(stack, 0, MATERIAL_SLOTS, false)) return ItemStack.EMPTY;
+        }
+
+        if (stack.isEmpty()) slot.set(ItemStack.EMPTY);
+        else slot.setChanged();
+        if (stack.getCount() == moved.getCount()) return ItemStack.EMPTY;
+        slot.onTake(player, stack);
+        slotsChanged(this.container);
+        return moved;
+    }
+
+    @Override
+    public void clicked(int slotId, int button, net.minecraft.world.inventory.ClickType clickType, Player player) {
+        super.clicked(slotId, button, clickType, player);
+        // 方块实体容器不会像 TransientCraftingContainer 那样回调菜单，
+        // 手动拖拽/丢弃材料后必须主动重算结果槽（重算是幂等的，多调无害）。
+        slotsChanged(this.container);
     }
 
     @Override

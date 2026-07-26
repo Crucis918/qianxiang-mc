@@ -54,7 +54,7 @@ import java.util.Map;
  * 统筹者实测：装备千相武器用 EF 技能打怪时，看特效是否触发；若不触发，需额外挂 EF 的
  * {@code ProjectileHitEvent} 或 {@code AttackPhase} 钩子补一层。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class CombatEffectHandler {
 
     /** 吸血系数：每级回血 = 造成伤害 × level × 0.2。 */

@@ -11,7 +11,7 @@ import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 
 /** 客户端注册：Screen + 实体渲染器。隔离在 client 包，避免服务端加载 GUI/渲染类。 */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class ClientSetup {
     @SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {

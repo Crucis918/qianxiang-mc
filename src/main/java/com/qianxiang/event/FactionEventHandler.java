@@ -21,7 +21,7 @@ import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
  *   <li>NPC 交互/交易逻辑放在 {@link com.qianxiang.entity.QianxiangNPCBase#mobInteract} 中处理。</li>
  * </ul>
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class FactionEventHandler {
     private FactionEventHandler() {}
 

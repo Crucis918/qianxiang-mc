@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"item": "minecraft:bone_block"},
+    {"item": "minecraft:bone_block"},
+    {"item": "minecraft:dragon_breath"}
+  ],
+  "result": {"id": "qianxiang:dragon_bone", "count": 1}
+}

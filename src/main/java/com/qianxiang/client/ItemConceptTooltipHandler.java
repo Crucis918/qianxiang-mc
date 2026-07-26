@@ -32,7 +32,7 @@ import java.util.Set;
  * 全部走 {@link ItemConceptResolver#resolve} 推导，与合成端口径一致。
  * 客户端事件，任何异常吞掉——绝不让 tooltip 渲染炸客户端。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME, value = Dist.CLIENT)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class ItemConceptTooltipHandler {
 
     private ItemConceptTooltipHandler() {}

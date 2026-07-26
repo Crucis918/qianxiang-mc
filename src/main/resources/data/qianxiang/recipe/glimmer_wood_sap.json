@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"tag": "minecraft:logs"},
+    {"item": "minecraft:slime_ball"}
+  ],
+  "result": {"id": "qianxiang:glimmer_wood_sap", "count": 1}
+}

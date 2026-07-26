@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"item": "qianxiang:void_shard"},
+    {"item": "minecraft:ender_pearl"}
+  ],
+  "result": {"id": "qianxiang:rift_essence", "count": 2}
+}

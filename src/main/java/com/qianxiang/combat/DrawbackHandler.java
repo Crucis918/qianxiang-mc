@@ -38,7 +38,7 @@ import net.neoforged.neoforge.event.tick.PlayerTickEvent;
  * <h3>防御原则</h3>
  * 与 {@link CombatEffectHandler} 一致：全程 try-catch 吞异常 + 仅服务端执行。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class DrawbackHandler {
 
     /** 刷新间隔：每秒重算一次持有/穿戴的代价等级。 */

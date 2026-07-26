@@ -53,7 +53,7 @@ import java.util.Map;
  * 双保险，服务端绝不加载此类。</p>
  */
 @OnlyIn(Dist.CLIENT)
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class ClientDamageNumbers {
 
     /** 浮字存活 tick：约 1.5 秒。 */

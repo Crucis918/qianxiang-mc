@@ -196,6 +196,23 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
         return Component.translatableWithFallback("qianxiang.custom_spell.modifier." + modifier, modifier);
     }
 
+    /**
+     * 修饰词归一化：别名（历史 prompt 用过的 duration/empower 等）折算到引擎消费词，
+     * 白名单外的词丢弃（返回 null）。保证组件里存的修饰词一定被 {@code SpellEffectEngine} 认识。
+     */
+    public static String normalizeModifier(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String m = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        m = switch (m) {
+            case "duration", "lasting" -> "extended";
+            case "empower", "empowered", "overcharge" -> "amplified";
+            case "seeking" -> "homing";
+            case "pierce", "penetrating" -> "piercing";
+            default -> m;
+        };
+        return MODIFIERS.contains(m) ? m : null;
+    }
+
     // ============================ AI spellJson 解析 ============================
 
     /**
@@ -218,8 +235,8 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
             if (obj.has("modifiers") && obj.get("modifiers").isJsonArray()) {
                 for (JsonElement el : obj.getAsJsonArray("modifiers")) {
                     if (el.isJsonPrimitive()) {
-                        String m = el.getAsString();
-                        if (m != null && !m.isBlank()) modifiers.add(m.trim());
+                        String m = normalizeModifier(el.getAsString());
+                        if (m != null && !modifiers.contains(m)) modifiers.add(m);
                     }
                 }
             }

@@ -21,11 +21,14 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * 相谱数据来自 NeoForge Attachment {@link QianxiangAttachments#SAGA_DATA}（{@link SagaData}），
  * 由能力部维护。本命令只读、永不抛：getData 任何异常都降级为"相谱空白"提示。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangSagaCommand {
 
     /** 位格上限（MVP 雏形），与 SagaData 契约一致。 */
     private static final int POSITION_CAP = 100;
+
+    /** 每页条目数。 */
+    private static final int PAGE_SIZE = 10;
 
     private QianxiangSagaCommand() {}
 
@@ -34,12 +37,17 @@ public final class QianxiangSagaCommand {
         event.getDispatcher().register(
                 Commands.literal("qianxiang")
                         .then(Commands.literal("saga")
-                                .executes(QianxiangSagaCommand::handleSaga)));
-        Qianxiang.LOGGER.info("[Qianxiang] 相谱命令已注册：/qianxiang saga");
+                                .executes(ctx -> handleSaga(ctx, 1))
+                                .then(Commands.argument("page",
+                                                com.mojang.brigadier.arguments.IntegerArgumentType.integer(1))
+                                        .executes(ctx -> handleSaga(ctx,
+                                                com.mojang.brigadier.arguments.IntegerArgumentType
+                                                        .getInteger(ctx, "page"))))));
+        Qianxiang.LOGGER.info("[Qianxiang] 相谱命令已注册：/qianxiang saga [页码]");
     }
 
-    /** /qianxiang saga 的执行体。返回位格值作为命令结果。 */
-    private static int handleSaga(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    /** /qianxiang saga [page] 的执行体。最新条目在前，每页 {@value PAGE_SIZE} 条。返回位格值作为命令结果。 */
+    private static int handleSaga(CommandContext<CommandSourceStack> ctx, int page) throws CommandSyntaxException {
         CommandSourceStack src = ctx.getSource();
         net.minecraft.world.entity.player.Player player = src.getPlayerOrException();
 
@@ -61,14 +69,35 @@ public final class QianxiangSagaCommand {
         src.sendSuccess(() -> Component.literal(
                 "§6【相谱】§r 位格 §e" + position + "/" + POSITION_CAP + "§r"), false);
 
-        // —— 相谱正文 ——
+        // —— 相谱正文（最新在前，分页）——
         if (entries == null || entries.isEmpty()) {
             src.sendSuccess(() -> Component.literal("§7相谱空白，去锻造你的第一件器吧。§r"), false);
-        } else {
-            for (String entry : entries) {
-                String line = entry == null ? "" : entry;
-                src.sendSuccess(() -> Component.literal("§7- " + line + "§r"), false);
-            }
+            return position;
+        }
+
+        int total = entries.size();
+        int pages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
+        int current = Math.min(page, pages);
+        int from = (current - 1) * PAGE_SIZE;
+        int to = Math.min(from + PAGE_SIZE, total);
+
+        src.sendSuccess(() -> Component.literal(
+                "§7—— 第 §e" + current + "§7/§e" + pages + "§7 页（共 " + total + " 条明细）——§r"), false);
+        // entries 按时间正序存储，展示时最新在前
+        for (int i = 0; i < to - from; i++) {
+            String entry = entries.get(total - 1 - from - i);
+            String line = entry == null ? "" : entry;
+            src.sendSuccess(() -> Component.literal("§7- " + line + "§r"), false);
+        }
+        if (saga.forgotten() > 0) {
+            int faded = saga.forgotten();
+            src.sendSuccess(() -> Component.literal(
+                    "§8……更早的 " + faded + " 条铭刻已随岁月淡忘（总铭刻 " + saga.totalInscribed() + " 笔）。§r"), false);
+        }
+        if (current < pages) {
+            int nextPage = current + 1;
+            src.sendSuccess(() -> Component.literal(
+                    "§8输入 /qianxiang saga " + nextPage + " 查看更早的记录。§r"), false);
         }
 
         return position;

@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"item": "qianxiang:myriad_fragment"},
+    {"item": "qianxiang:myriad_fragment"},
+    {"item": "qianxiang:myriad_fragment"},
+    {"item": "qianxiang:myriad_fragment"}
+  ],
+  "result": {"id": "qianxiang:rift_essence", "count": 1}
+}

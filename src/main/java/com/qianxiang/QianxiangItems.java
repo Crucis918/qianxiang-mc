@@ -94,9 +94,15 @@ public final class QianxiangItems {
                     .component(QianxiangDataComponents.SPELLBOOK.get(),
                             com.qianxiang.spell.SpellBookData.withDefaults())));
 
-    // 森罗残片：万象森罗维度掉落的专属材料，用于后续锻造扩展
+    // 森罗残片 myriad_fragment —— 万象森罗掉落的专属材料（微光树叶概率掉落），
+    // 万象生机凝成的残片：MANA（法力）+ GROWTH（生长）；稀有；混沌+生命。
+    // 4 片可合 1 裂隙精髓（见 recipe/rift_essence_from_myriad_fragments.json）。
     public static final DeferredHolder<Item, Item> MYRIAD_FRAGMENT =
-            ITEMS.register("myriad_fragment", () -> new Item(new Item.Properties().rarity(Rarity.RARE)));
+            ITEMS.register("myriad_fragment", () -> new QianxiangMaterialItem(new Item.Properties()
+                    .rarity(Rarity.RARE)
+                    .component(QianxiangDataComponents.PHASE_DATA.get(),
+                            PhaseData.of(PhaseTier.RARE, Set.of(Phase.CHAOS, Phase.LIFE),
+                                    PhaseFunction.MANA, PhaseFunction.GROWTH))));
 
     // 逆相之核 reverse_core —— 反转器：传奇稀有度材料，自身零数值贡献（机制开关）。
     // 只要它在材料槽，产物所有概念倒转含义：防具携带效果由「接触反伤」变「抗性/免疫」，

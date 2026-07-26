@@ -31,3 +31,7 @@ crash-reports/
 # Python
 __pycache__/
 *.pyc
+
+# Claude/ai-runtime 本地证据与会话索引（运行时生成，不进仓库）
+.ai/
+.claude/

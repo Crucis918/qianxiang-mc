@@ -23,7 +23,7 @@ import java.util.Set;
  * 在主世界执行会传送到「万象森罗」；在万象森罗执行会返回主世界。
  * 目标位置取当前 x/z 坐标对应的地表高度，找不到地表则回退到 y=100。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangDimCommand {
 
     private QianxiangDimCommand() {}

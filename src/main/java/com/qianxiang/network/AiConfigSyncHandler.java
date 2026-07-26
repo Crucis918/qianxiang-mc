@@ -19,7 +19,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * </ul>
  * 配置只存服务端 config 目录；单机 = 整合服务端，本地生效。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class AiConfigSyncHandler {
 
     private AiConfigSyncHandler() {}

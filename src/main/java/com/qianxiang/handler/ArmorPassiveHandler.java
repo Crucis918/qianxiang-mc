@@ -49,7 +49,7 @@ import java.util.Map;
  * 全程 try-catch 吞异常 + 仅服务端执行（{@code !level.isClientSide()}），
  * 绝不让穿戴效果拖垮玩家 tick。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class ArmorPassiveHandler {
 
     /** 刷新间隔：每秒重算一次全身效果等级。 */

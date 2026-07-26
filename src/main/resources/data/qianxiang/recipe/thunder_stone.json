@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"item": "minecraft:lightning_rod"},
+    {"item": "minecraft:redstone_block"},
+    {"item": "minecraft:gold_ingot"},
+    {"item": "minecraft:gold_ingot"}
+  ],
+  "result": {"id": "qianxiang:thunder_stone", "count": 1}
+}

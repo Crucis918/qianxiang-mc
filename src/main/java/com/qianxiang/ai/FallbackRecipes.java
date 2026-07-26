@@ -512,8 +512,8 @@ public final class FallbackRecipes {
             List<String> modifiers = new ArrayList<>();
             if (matchesAny(want, "追踪", "制导", "homing", "seeking")) modifiers.add("homing");
             if (matchesAny(want, "穿透", "贯穿", "pierc", "penetrat")) modifiers.add("piercing");
-            if (matchesAny(want, "持续", "延续", "duration", "lasting")) modifiers.add("duration");
-            if (matchesAny(want, "强化", "增强", "empower", "amplif", "overcharge")) modifiers.add("empower");
+            if (matchesAny(want, "持续", "延续", "duration", "lasting", "extended")) modifiers.add("extended");
+            if (matchesAny(want, "强化", "增强", "empower", "amplif", "overcharge")) modifiers.add("amplified");
             if (matchesAny(want, "连锁", "链式", "链", "chain")) modifiers.add("chain");
 
             // ---- 形式（选一，按优先级）----
@@ -591,7 +591,7 @@ public final class FallbackRecipes {
                     default -> "damage";
                 };
             }
-            double power = modifiers.contains("empower") ? 2.0 : 1.0;
+            double power = modifiers.contains("amplified") ? 2.0 : 1.0;
             return new SpellSpec(element, form, effect, List.copyOf(modifiers), power, List.copyOf(materials));
         } catch (Throwable t) {
             return null; // 解析失败 = 无法术，绝不拖垮 fallback

@@ -1,0 +1,9 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {"item": "minecraft:leather"},
+    {"item": "minecraft:ink_sac"}
+  ],
+  "result": {"id": "qianxiang:shadowhide_patch", "count": 1}
+}

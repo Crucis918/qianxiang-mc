@@ -16,7 +16,7 @@ import net.neoforged.neoforge.event.tick.PlayerTickEvent;
  *   <li>玩家登录/重生时把 mana 同步给客户端。</li>
  * </ul>
  */
-@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID)
 public final class SpellTickHandler {
 
     private SpellTickHandler() {}

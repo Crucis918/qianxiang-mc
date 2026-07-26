@@ -47,7 +47,7 @@ import java.util.Map;
  * <h3>防御原则</h3>
  * 全程 try-catch 吞异常 + 服务端判 {@code !level.isClientSide()}，绝不让战斗部崩溃拖垮对局。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class ArmorEffectHandler {
 
     /** 反伤魔法伤害系数：每级 1.5（与武器进攻形态反伤一致）。 */

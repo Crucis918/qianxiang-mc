@@ -27,7 +27,7 @@ import java.util.List;
  * <p>
  * 自注册：靠 {@link EventBusSubscriber} 挂 GAME 总线，<b>不修改任何现有文件</b>。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangKitCommand {
 
     /** 每种材料发放数量。 */
@@ -62,17 +62,17 @@ public final class QianxiangKitCommand {
         return kits.size();
     }
 
-    /** 组装测试包：1 锻造台 + 10 材料各 4 + 3 武器各 1。 */
+    /** 组装测试包：功能方块 + 全部 18 种材料各 4 + 武器/防具/工具/法术书 + 刷怪蛋 + 维度方块。 */
     private static List<ItemStack> buildKit() {
         List<ItemStack> list = new ArrayList<>();
 
         // 锻造台（相之凝结台）×1
         list.add(new ItemStack(QianxiangBlocks.FORGE_TABLE_ITEM.get()));
 
-        // 万象森罗传送门框 ×4（方便测试）
+        // 万象森罗传送门框 ×16（方便测试）
         list.add(new ItemStack(QianxiangBlocks.RIFT_STONE_ITEM.get(), 16));
 
-        // 10 种材料各 4 个（8 在 QianxiangMaterials，2 在 QianxiangItems）
+        // 全部材料各 4 个（15 在 QianxiangMaterials，4 在 QianxiangItems）
         list.add(new ItemStack(QianxiangMaterials.GLIMMER_WOOD_SAP.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangMaterials.SHADOWHIDE_PATCH.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangMaterials.EMBER_IRON.get(), MATERIAL_COUNT));
@@ -81,13 +81,42 @@ public final class QianxiangKitCommand {
         list.add(new ItemStack(QianxiangMaterials.SALAMANDER_GLAND.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangMaterials.DRAGON_BONE.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.FROST_CRYSTAL.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.THUNDER_STONE.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.VENOM_GLAND.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.SHADOW_DUST.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.HOLY_SHARD.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.NATURE_BREATH.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangMaterials.VOID_SHARD.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), MATERIAL_COUNT));
         list.add(new ItemStack(QianxiangItems.BEAST_FANG.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangItems.MYRIAD_FRAGMENT.get(), MATERIAL_COUNT));
+        list.add(new ItemStack(QianxiangItems.REVERSE_CORE.get(), MATERIAL_COUNT));
 
-        // 3 把武器各 1（方便对比属性差异）
+        // 武器 4 + 防具 5 + 工具 2 各 1（方便对比属性差异）
         list.add(new ItemStack(QianxiangItems.EMBER_BLADE.get()));
         list.add(new ItemStack(QianxiangItems.PHASE_STAFF.get()));
         list.add(new ItemStack(QianxiangItems.BONE_BLADE.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_SHIELD.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_HELMET.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_CHESTPLATE.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_LEGGINGS.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_BOOTS.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_HOE.get()));
+        list.add(new ItemStack(QianxiangItems.PHASE_WATERING_CAN.get()));
+
+        // 法术书（带 3 个入门预置法术）
+        list.add(new ItemStack(QianxiangItems.SPELL_BOOK.get()));
+
+        // NPC 刷怪蛋（流浪相师 / 深渊商人）
+        list.add(new ItemStack(QianxiangItems.WANDERING_SAGE_SPAWN_EGG.get()));
+        list.add(new ItemStack(QianxiangItems.ABYSS_MERCHANT_SPAWN_EGG.get()));
+
+        // 维度装饰/资源方块（微光原木、微光树叶、野光草、虚空矿石）
+        list.add(new ItemStack(QianxiangBlocks.GLIMMER_LOG_ITEM.get(), 8));
+        list.add(new ItemStack(QianxiangBlocks.GLIMMER_LEAVES_ITEM.get(), 8));
+        list.add(new ItemStack(QianxiangBlocks.WILDLIGHT_GRASS_ITEM.get(), 8));
+        list.add(new ItemStack(QianxiangBlocks.VOID_ORE_ITEM.get(), 8));
 
         return list;
     }

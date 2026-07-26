@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": ["IAI", "SCS", "SSS"],
+  "key": {
+    "I": {"item": "minecraft:iron_ingot"},
+    "A": {"item": "minecraft:amethyst_shard"},
+    "C": {"item": "minecraft:crafting_table"},
+    "S": {"item": "minecraft:stone"}
+  },
+  "result": {"id": "qianxiang:forge_table", "count": 1}
+}

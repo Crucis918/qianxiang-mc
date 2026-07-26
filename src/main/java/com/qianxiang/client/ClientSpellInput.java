@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 /**
  * 客户端按键监听：当玩家按下法术键时，发包通知服务端施法。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME, value = Dist.CLIENT)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class ClientSpellInput {
 
     private ClientSpellInput() {}

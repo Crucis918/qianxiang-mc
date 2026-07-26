@@ -13,7 +13,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 /**
  * 在 HUD 左上角显示当前 mana："法力：cur / max"。
  */
-@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME, value = Dist.CLIENT)
+@EventBusSubscriber(modid = com.qianxiang.Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class SpellHudRenderer {
 
     private SpellHudRenderer() {}

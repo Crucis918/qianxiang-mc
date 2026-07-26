@@ -12,7 +12,7 @@ import org.lwjgl.glfw.GLFW;
 /**
  * 注册千相客户端按键：V 键施放当前手持法器的法术。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class SpellKeybinds {
 
     public static final KeyMapping CAST_SPELL = new KeyMapping(
