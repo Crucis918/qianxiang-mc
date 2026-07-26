@@ -66,6 +66,15 @@ public final class ClientDamageNumbers {
     /** entityId → 该实体身上正在漂浮的伤害数字列表。主线程访问，无需同步。 */
     private static final Map<Integer, List<DamageNumber>> ACTIVE = new HashMap<>();
 
+    /**
+     * 切换世界/断线时清空。
+     * <p>表按 entityId 索引，而 entityId 在新世界会被重新分配——
+     * 不清的话旧条目会挂到新世界的其他实体上，冒出「幽灵伤害数字」。
+     */
+    public static void clearAll() {
+        ACTIVE.clear();
+    }
+
     private ClientDamageNumbers() {}
 
     /** 收到网络包：塞一个新浮字。在客户端主线程（enqueueWork）被调用。 */
@@ -113,14 +122,18 @@ public final class ClientDamageNumbers {
 
         Camera camera = event.getCamera();
         Vec3 camPos = camera.getPosition();
-        // getGameTimeDeltaPartialTick(true) = 渲染插值因子（0~1），用作浮字存活推进 + entity 插值。
+        // 两个量必须分开用，此前混为一谈：
+        //  - partialTick（插值因子 0~1）：只能用于实体位置插值；
+        //  - frameDelta（真实帧间 tick 数）：用于推进浮字寿命。
+        // 原实现用插值因子累加年龄 → 每帧平均 +0.5 且与帧率无关地随机，
+        // 结果浮字寿命和帧率成反比：30FPS 活约 2 秒、144FPS 只剩 0.42 秒、240FPS 0.25 秒。
         float partialTick = event.getPartialTick().getGameTimeDeltaPartialTick(true);
+        float frameDelta = event.getPartialTick().getRealtimeDeltaTicks();
         Font font = mc.font;
         MultiBufferSource.BufferSource bufferSource = mc.renderBuffers().bufferSource();
         PoseStack pose = event.getPoseStack();
 
-        // 推进所有浮字的存活时间（用 partialTick 让动画在低帧率下也平滑）。
-        // 这里用 1 帧 ≈ 1 tick 的近似（渲染每帧调用），配合 LIFE_TICKS=30 视觉上 ≈ 1.5 秒。
+        // 推进所有浮字的存活时间：用真实帧间 tick 数，任何帧率下寿命都是 LIFE_TICKS/20 秒。
         Iterator<Map.Entry<Integer, List<DamageNumber>>> entryIt = ACTIVE.entrySet().iterator();
         while (entryIt.hasNext()) {
             Map.Entry<Integer, List<DamageNumber>> entry = entryIt.next();
@@ -131,7 +144,7 @@ public final class ClientDamageNumbers {
             Iterator<DamageNumber> it = list.iterator();
             while (it.hasNext()) {
                 DamageNumber dn = it.next();
-                dn.age += partialTick;
+                dn.age += frameDelta;
                 if (dn.age >= LIFE_TICKS) {
                     it.remove();
                     continue;

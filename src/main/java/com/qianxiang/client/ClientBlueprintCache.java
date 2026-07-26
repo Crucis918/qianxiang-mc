@@ -17,6 +17,12 @@ public final class ClientBlueprintCache {
     private static volatile List<BlueprintData> blueprints = List.of();
     private static Consumer<List<BlueprintData>> onSync = null;
 
+    /** 切换世界/断线时清空：蓝图库是按存档存的，跨世界回放会误导玩家。 */
+    public static void clear() {
+        blueprints = List.of();
+        onSync = null;
+    }
+
     private ClientBlueprintCache() {}
 
     public static void receive(BlueprintSyncPayload payload) {

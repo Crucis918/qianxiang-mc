@@ -152,9 +152,22 @@ public final class SpellCastHandler {
         return true;
     }
 
-    /** 把当前 mana 同步给指定玩家。 */
+    /** 把当前 mana 与最长剩余冷却同步给指定玩家。 */
     public static void sync(ServerPlayer player) {
         PlayerSpellData data = player.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
-        PacketDistributor.sendToPlayer(player, new SpellDataSyncPayload(data.currentMana(), data.maxMana()));
+        PacketDistributor.sendToPlayer(player, new SpellDataSyncPayload(
+                data.currentMana(), data.maxMana(), longestCooldown(data)));
+    }
+
+    /**
+     * 当前最长的剩余冷却 tick（无冷却返回 0）。
+     * <p>HUD 只画一根冷却条，取最长的那个即可表达「还不能连放」。
+     */
+    public static int longestCooldown(PlayerSpellData data) {
+        int max = 0;
+        for (int remaining : data.cooldowns().values()) {
+            if (remaining > max) max = remaining;
+        }
+        return max;
     }
 }

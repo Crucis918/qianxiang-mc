@@ -55,6 +55,16 @@ public final class ClientForgeTableAI {
         onResult = null;
     }
 
+    /**
+     * 切换世界/断线时的彻底重置：连同缓存的 AI 结果一并丢弃。
+     * <p>只清 listener 不够——{@code setListener} 会立刻回放 {@code lastResult}，
+     * 于是新世界的锻造台会显示上一个世界的推荐，点「应用」还会把它提交给新服务端。
+     */
+    public static void resetForWorldChange() {
+        onResult = null;
+        lastResult = null;
+    }
+
     /** 读取最近一次结果（screen 每帧用）。 */
     public static AiResult getLastResult() {
         return lastResult;

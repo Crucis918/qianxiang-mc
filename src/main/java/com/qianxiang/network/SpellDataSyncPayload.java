@@ -10,9 +10,11 @@ import net.minecraft.resources.ResourceLocation;
 /**
  * 服务端→客户端：同步玩家 mana 数据（用于 HUD 显示）。
  * <p>
- * MVP 只同步当前/最大 mana；已学法术与冷却留在服务端计算。
+ * 同步当前/最大 mana 与「最长剩余冷却 tick」（HUD 冷却条用）。
+ * 已学法术列表仍留在服务端。
  */
-public record SpellDataSyncPayload(int currentMana, int maxMana) implements CustomPacketPayload {
+public record SpellDataSyncPayload(int currentMana, int maxMana, int cooldownTicks)
+        implements CustomPacketPayload {
 
     public static final Type<SpellDataSyncPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "spell_data_sync"));
@@ -21,6 +23,7 @@ public record SpellDataSyncPayload(int currentMana, int maxMana) implements Cust
             StreamCodec.composite(
                     ByteBufCodecs.VAR_INT, SpellDataSyncPayload::currentMana,
                     ByteBufCodecs.VAR_INT, SpellDataSyncPayload::maxMana,
+                    ByteBufCodecs.VAR_INT, SpellDataSyncPayload::cooldownTicks,
                     SpellDataSyncPayload::new);
 
     @Override

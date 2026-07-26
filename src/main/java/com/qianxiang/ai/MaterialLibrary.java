@@ -45,6 +45,61 @@ public final class MaterialLibrary {
 
     private MaterialLibrary() {}
 
+    // ======================= 快照缓存 =======================
+    // snapshot() 会两遍遍历整个物品注册表，第二遍还对每个物品 new ItemStack + 跑
+    // ItemConceptResolver.resolve + tag 查询。它原本只在命令路径被调用（注释也这么写），
+    // 但如今出现在锻造台每帧渲染路径（每卡片每材料图标一次 find()）与 AI 请求路径上，
+    // 整合包上万物品时客户端直接假死。
+    //
+    // 内容何时变化：物品注册表运行期冻结不变；唯一变量是数据驱动相材料表
+    // （PhaseMaterialRegistry，/reload 或登录同步时整表替换）与 tag 绑定。
+    // 因此以「PhaseMaterialRegistry 当前表的身份」作为缓存版本键：表换了引用即失效。
+
+    private static volatile Object cachedRegistryIdentity;
+    private static volatile List<MaterialEntry> cachedSnapshot;
+    private static volatile Map<String, MaterialEntry> cachedIndex;
+
+    /** 缓存失效判据：数据驱动相材料表换了引用（/reload、客户端整表同步）。 */
+    private static Object currentIdentity() {
+        return com.qianxiang.phase.PhaseMaterialRegistry.all();
+    }
+
+    /** 主动作废缓存（数据包重载后调用；正常情况下 identity 比较已能自动失效）。 */
+    public static void invalidateCache() {
+        cachedRegistryIdentity = null;
+        cachedSnapshot = null;
+        cachedIndex = null;
+    }
+
+    /** 缓存版的全量快照——外部只读，切勿修改返回的列表。 */
+    private static List<MaterialEntry> cachedEntries() {
+        Object identity = currentIdentity();
+        List<MaterialEntry> snap = cachedSnapshot;
+        if (snap != null && cachedRegistryIdentity == identity) {
+            return snap;
+        }
+        synchronized (MaterialLibrary.class) {
+            if (cachedSnapshot != null && cachedRegistryIdentity == identity) {
+                return cachedSnapshot;
+            }
+            List<MaterialEntry> fresh = List.copyOf(snapshotUncached());
+            Map<String, MaterialEntry> index = new java.util.HashMap<>(fresh.size() * 2);
+            for (MaterialEntry e : fresh) {
+                index.put(e.registryName().toLowerCase(java.util.Locale.ROOT), e);
+                // 容错索引：AI 可能只给短名 "ember_iron"（不带 namespace）
+                int colon = e.registryName().indexOf(':');
+                if (colon >= 0) {
+                    index.putIfAbsent(
+                            e.registryName().substring(colon + 1).toLowerCase(java.util.Locale.ROOT), e);
+                }
+            }
+            cachedSnapshot = fresh;
+            cachedIndex = Map.copyOf(index);
+            cachedRegistryIdentity = identity;
+            return fresh;
+        }
+    }
+
     /** 一条材料的 AI 视图。registryName 形如 "qianxiang:ember_iron" 或 "minecraft:iron_ingot"。 */
     public record MaterialEntry(
             String registryName,
@@ -121,9 +176,10 @@ public final class MaterialLibrary {
      * ①带 {@code qianxiang:phase_data} 的自定义相材料；
      * ②带任意 {@code qianxiang:materials/<function>} tag 的原版/数据包物品。
      * <p>
-     * 命令执行时调用——此时注册表早已冻结，{@link BuiltInRegistries#ITEM} 可安全迭代。
+     * <b>本方法结果被缓存</b>（见 {@link #cachedEntries()}）——它会两遍遍历整个物品注册表，
+     * 直接调用的代价在整合包环境下是不可接受的。外部一律用 {@link #snapshot()}。
      */
-    public static List<MaterialEntry> snapshot() {
+    private static List<MaterialEntry> snapshotUncached() {
         List<MaterialEntry> out = new ArrayList<>();
         Set<ResourceLocation> seen = new HashSet<>();
 
@@ -436,16 +492,23 @@ public final class MaterialLibrary {
         return find(registryName).isPresent();
     }
 
-    /** 按名字查 entry；找不到返回 empty。调用方应总是在信任 LLM 输出前用它校验。 */
+    /** 全量快照（走缓存，只读）。 */
+    public static List<MaterialEntry> snapshot() {
+        return cachedEntries();
+    }
+
+    /**
+     * 按名字查 entry；找不到返回 empty。调用方应总是在信任 LLM 输出前用它校验。
+     * <p>走预建索引 O(1)，不再每次线性扫描并重建全表快照。
+     * 支持带命名空间的全名与不带命名空间的短名（AI 常只给后者）。
+     */
     public static Optional<MaterialEntry> find(String registryName) {
         if (registryName == null || registryName.isBlank()) return Optional.empty();
-        String normalized = registryName.trim();
-        for (MaterialEntry e : snapshot()) {        // 命令路径，量小，可接受
-            if (e.registryName().equalsIgnoreCase(normalized)) return Optional.of(e);
-            // 容错：AI 可能只给短名 "ember_iron"，不带 namespace
-            if (e.registryName().endsWith(":" + normalized)) return Optional.of(e);
-        }
-        return Optional.empty();
+        cachedEntries();   // 确保索引已构建
+        Map<String, MaterialEntry> index = cachedIndex;
+        if (index == null) return Optional.empty();
+        return Optional.ofNullable(
+                index.get(registryName.trim().toLowerCase(java.util.Locale.ROOT)));
     }
 
     private static String phasesCn(Set<Phase> phases) {
