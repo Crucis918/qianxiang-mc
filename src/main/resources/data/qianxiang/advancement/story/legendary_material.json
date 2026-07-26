@@ -1,0 +1,15 @@
+{
+  "parent": "qianxiang:story/kill_warden",
+  "display": {
+    "icon": {"id": "qianxiang:void_shard"},
+    "title": {"translate": "advancement.qianxiang.legendary_material.title"},
+    "description": {"translate": "advancement.qianxiang.legendary_material.desc"},
+    "frame": "challenge"
+  },
+  "criteria": {
+    "has_legendary": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:void_shard", "qianxiang:reverse_core"]}]}
+    }
+  }
+}

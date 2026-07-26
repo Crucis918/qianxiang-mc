@@ -1,0 +1,16 @@
+{
+  "parent": "qianxiang:story/enter_wilds",
+  "display": {
+    "icon": {"id": "qianxiang:myriad_warden_spawn_egg"},
+    "title": {"translate": "advancement.qianxiang.kill_warden.title"},
+    "description": {"translate": "advancement.qianxiang.kill_warden.desc"},
+    "frame": "challenge"
+  },
+  "rewards": {"experience": 100},
+  "criteria": {
+    "killed_warden": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": {"entity": {"type": "qianxiang:myriad_warden"}}
+    }
+  }
+}

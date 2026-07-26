@@ -135,9 +135,17 @@ public abstract class QianxiangNPCBase extends Villager {
         }
     }
 
-    /** 声望 → 折扣百分比，clamp 到 ±{@value MAX_DISCOUNT_PCT}。正 = 打折，负 = 加价。 */
-    private static int discountPercent(PlayerFactionData data) {
-        return Math.clamp(data.reputation(), -MAX_DISCOUNT_PCT, MAX_DISCOUNT_PCT);
+    /**
+     * 烙印偏好加成（百分比，正 = 额外打折）。子类覆盖以表达价值观：
+     * 相师厌恶屠杀，深渊商人欣赏屠夫。默认无偏好。
+     */
+    protected int brandBias(PlayerFactionData data) {
+        return 0;
+    }
+
+    /** 声望 + 烙印偏好 → 折扣百分比，clamp 到 ±{@value MAX_DISCOUNT_PCT}。正 = 打折，负 = 加价。 */
+    private int discountPercent(PlayerFactionData data) {
+        return Math.clamp(data.reputation() + brandBias(data), -MAX_DISCOUNT_PCT, MAX_DISCOUNT_PCT);
     }
 
     /** 把声望折扣写进每条 offer 的 specialPriceDiff（负值 = 降价）。 */

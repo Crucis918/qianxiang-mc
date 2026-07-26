@@ -1,0 +1,15 @@
+{
+  "parent": "qianxiang:story/first_forge",
+  "display": {
+    "icon": {"id": "qianxiang:rift_essence"},
+    "title": {"translate": "advancement.qianxiang.rift_essence.title"},
+    "description": {"translate": "advancement.qianxiang.rift_essence.desc"},
+    "frame": "task"
+  },
+  "criteria": {
+    "has_rift_essence": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:rift_essence"]}]}
+    }
+  }
+}

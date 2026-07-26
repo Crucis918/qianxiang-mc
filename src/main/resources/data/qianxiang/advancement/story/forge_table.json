@@ -1,0 +1,15 @@
+{
+  "parent": "qianxiang:story/root",
+  "display": {
+    "icon": {"id": "qianxiang:forge_table"},
+    "title": {"translate": "advancement.qianxiang.forge_table.title"},
+    "description": {"translate": "advancement.qianxiang.forge_table.desc"},
+    "frame": "task"
+  },
+  "criteria": {
+    "has_forge_table": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:forge_table"]}]}
+    }
+  }
+}

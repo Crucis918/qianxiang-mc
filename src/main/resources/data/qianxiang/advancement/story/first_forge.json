@@ -1,0 +1,20 @@
+{
+  "parent": "qianxiang:story/forge_table",
+  "display": {
+    "icon": {"id": "qianxiang:ember_blade"},
+    "title": {"translate": "advancement.qianxiang.first_forge.title"},
+    "description": {"translate": "advancement.qianxiang.first_forge.desc"},
+    "frame": "goal"
+  },
+  "criteria": {
+    "has_forged_weapon": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": [
+        "qianxiang:ember_blade", "qianxiang:bone_blade", "qianxiang:phase_staff",
+        "qianxiang:phase_shield", "qianxiang:phase_helmet", "qianxiang:phase_chestplate",
+        "qianxiang:phase_leggings", "qianxiang:phase_boots", "qianxiang:phase_hoe",
+        "qianxiang:phase_watering_can", "qianxiang:spell_book"
+      ]}]}
+    }
+  }
+}

@@ -46,6 +46,16 @@ public class QianxiangWanderingSage extends QianxiangNPCBase {
                 new ItemStack(Items.EMERALD, 12), 8, 5, 0.05F));
     }
 
+    /** 相师厌恶杀戮：屠杀烙印占优的玩家加价 10%，外交烙印享额外 5% 折扣。 */
+    @Override
+    protected int brandBias(com.qianxiang.cap.PlayerFactionData data) {
+        return switch (data.getDominantBrand()) {
+            case "slaughter" -> -10;
+            case "diplomacy" -> 5;
+            default -> 0;
+        };
+    }
+
     @Override
     protected String getDialogPrefix() {
         return "qianxiang.npc.wandering_sage";

@@ -1,0 +1,17 @@
+{
+  "display": {
+    "icon": {"id": "qianxiang:ember_crystal"},
+    "title": {"translate": "advancement.qianxiang.root.title"},
+    "description": {"translate": "advancement.qianxiang.root.desc"},
+    "frame": "task",
+    "background": "minecraft:textures/block/deepslate.png",
+    "show_toast": false,
+    "announce_to_chat": false
+  },
+  "criteria": {
+    "has_any_material": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:ember_crystal", "qianxiang:beast_fang", "qianxiang:glimmer_wood_sap"]}]}
+    }
+  }
+}

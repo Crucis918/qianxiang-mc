@@ -46,6 +46,12 @@ public class QianxiangAbyssMerchant extends QianxiangNPCBase {
                 new ItemStack(Items.EMERALD, 10), 8, 5, 0.05F));
     }
 
+    /** 深渊欣赏强者：屠杀烙印占优的玩家享额外 8% 折扣——与相师价值观相反。 */
+    @Override
+    protected int brandBias(com.qianxiang.cap.PlayerFactionData data) {
+        return "slaughter".equals(data.getDominantBrand()) ? 8 : 0;
+    }
+
     @Override
     protected String getDialogPrefix() {
         return "qianxiang.npc.abyss_merchant";
