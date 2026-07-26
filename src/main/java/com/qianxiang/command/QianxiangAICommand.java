@@ -24,10 +24,18 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
  * 估强度 powerScore + 一句话说明反馈给玩家。所有异常都被 PhaseAIRecipeService 吞掉，
  * 命令绝不会因 Ollama 缺失而崩——最多走关键词基础配方。
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.GAME)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangAICommand {
 
     private QianxiangAICommand() {}
+
+    /** AI 命令共用的后台单线程执行器：HTTP 调用不落在服务器主线程上。 */
+    private static final java.util.concurrent.ExecutorService EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qianxiang-ai-command");
+                t.setDaemon(true);
+                return t;
+            });
 
     @SubscribeEvent
     public static void register(RegisterCommandsEvent event) {
@@ -35,28 +43,58 @@ public final class QianxiangAICommand {
                 Commands.literal("qianxiang")
                         .then(Commands.literal("ask")
                                 .then(Commands.argument("want", StringArgumentType.greedyString())
-                                        .executes(QianxiangAICommand::handleAsk))));
-        Qianxiang.LOGGER.info("[Qianxiang] AI 配方命令已注册：/qianxiang ask <想要什么>");
+                                        .executes(QianxiangAICommand::handleAsk)))
+                        .then(Commands.literal("ai")
+                                .then(Commands.literal("status")
+                                        .executes(QianxiangAICommand::handleStatus))
+                                .then(Commands.literal("clearcache")
+                                        .executes(QianxiangAICommand::handleClearCache))));
+        Qianxiang.LOGGER.info("[Qianxiang] AI 命令已注册：/qianxiang ask <想要什么>；/qianxiang ai status|clearcache");
     }
 
-    /** /qianxiang ask 的执行体。返回入选材料个数作为命令结果。 */
+    /** /qianxiang ai status —— AI 网关状态（provider/模型/计数，不含 apiKey）。 */
+    private static int handleStatus(CommandContext<CommandSourceStack> ctx) {
+        for (String line : com.qianxiang.ai.AIGateway.statusSummary().split("\\R")) {
+            ctx.getSource().sendSuccess(() -> Component.literal("§7" + line + "§r"), false);
+        }
+        return 1;
+    }
+
+    /** /qianxiang ai clearcache —— 清空 AI 响应缓存（换模型/调 prompt 后用）。 */
+    private static int handleClearCache(CommandContext<CommandSourceStack> ctx) {
+        int n = com.qianxiang.ai.AIGateway.clearCache();
+        ctx.getSource().sendSuccess(() -> Component.literal("§a已清空 AI 响应缓存（" + n + " 条）。§r"), false);
+        return n;
+    }
+
+    /**
+     * /qianxiang ask 的执行体。HTTP 调用移到后台线程（避免卡服务器主线程），
+     * 回包经主线程发送。命令立即返回 1（已受理）。
+     */
     private static int handleAsk(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack src = ctx.getSource();
         String want = StringArgumentType.getString(ctx, "want");
+        var server = src.getServer();
 
-        // PhaseAIRecipeService.ask 永不抛；这里再包一层防御
-        RecipeProposal proposal;
-        try {
-            proposal = PhaseAIRecipeService.ask(want);
-        } catch (Throwable t) {
-            Qianxiang.LOGGER.error("[Qianxiang] /qianxiang ask 意外异常", t);
-            src.sendFailure(Component.literal("AI 配方大脑出错，请稍后再试。"));
-            return 0;
-        }
+        EXECUTOR.submit(() -> {
+            RecipeProposal proposal;
+            try {
+                proposal = PhaseAIRecipeService.ask(want); // 永不抛；再包一层防御
+            } catch (Throwable t) {
+                Qianxiang.LOGGER.error("[Qianxiang] /qianxiang ask 意外异常", t);
+                server.execute(() -> src.sendFailure(Component.literal("AI 配方大脑出错，请稍后再试。")));
+                return;
+            }
+            server.execute(() -> reply(src, want, proposal));
+        });
+        return 1;
+    }
 
+    /** 在服务器主线程把结果打给玩家。 */
+    private static void reply(CommandSourceStack src, String want, RecipeProposal proposal) {
         if (proposal == null || proposal.materialNames().isEmpty()) {
             src.sendFailure(Component.literal("未能生成材料清单（材料库为空或全部无效）。"));
-            return 0;
+            return;
         }
 
         // —— 反馈：逐行把材料清单打给玩家 ——
@@ -87,7 +125,5 @@ public final class QianxiangAICommand {
                     : Component.literal(summary);
             return Component.literal("§7").append(summaryComp).append("§r");
         }, false);
-
-        return proposal.materialNames().size();
     }
 }

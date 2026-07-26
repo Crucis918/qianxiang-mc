@@ -56,6 +56,9 @@ public final class PhaseFunctionResolver {
         // ① 自定义相材料：PhaseData component
         var pd = stack.get(QianxiangDataComponents.PHASE_DATA.get());
         if (pd != null && !pd.functions().isEmpty()) return pd.functions();
+        // ①.5 数据包定义（phase_materials/*.json）——UGC 材料
+        var dataPd = PhaseMaterialRegistry.phaseData(stack.getItem());
+        if (dataPd != null && !dataPd.functions().isEmpty()) return dataPd.functions();
         // ② 原版物品 / 任何物品：查功能 tag
         Set<PhaseFunction> set = EnumSet.noneOf(PhaseFunction.class);
         Item item = stack.getItem();
@@ -63,6 +66,18 @@ public final class PhaseFunctionResolver {
             if (item.builtInRegistryHolder().is(tag(f))) set.add(f);
         }
         return set;
+    }
+
+    /**
+     * 该物品的「有效 PhaseData」：PhaseData component 优先，
+     * 否则数据包定义（{@link PhaseMaterialRegistry}），都没有返回 null。
+     * 供合成/概念解析统一取显式相数据。
+     */
+    public static PhaseData effectivePhaseData(ItemStack stack) {
+        if (stack.isEmpty()) return null;
+        var pd = stack.get(QianxiangDataComponents.PHASE_DATA.get());
+        if (pd != null) return pd;
+        return PhaseMaterialRegistry.phaseData(stack.getItem());
     }
 
     /**
@@ -79,7 +94,7 @@ public final class PhaseFunctionResolver {
      */
     public static PhaseTier resolveTier(ItemStack stack) {
         if (stack.isEmpty()) return PhaseTier.COMMON;
-        var pd = stack.get(QianxiangDataComponents.PHASE_DATA.get());
+        var pd = effectivePhaseData(stack);
         if (pd != null && pd.tier() != null) return pd.tier();
         return PhaseTier.COMMON;
     }

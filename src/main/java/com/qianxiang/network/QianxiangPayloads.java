@@ -34,7 +34,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  * </ul>
  * <p>这里只注册 + 转发：真正画字在 {@link ClientDamageNumbers}。</p>
  */
-@EventBusSubscriber(modid = Qianxiang.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+@EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangPayloads {
 
     private QianxiangPayloads() {}
@@ -107,6 +107,14 @@ public final class QianxiangPayloads {
         // 客户端→服务端：连击编辑器应用编排好的动作序列（写结果槽产物/主手武器的 CUSTOM_MOVESET）。
         registrar.playToServer(MovesetApplyPayload.TYPE, MovesetApplyPayload.STREAM_CODEC,
                 (payload, context) -> MovesetApplyHandler.handle(payload, context));
+
+        // 服务端→客户端：数据驱动相材料整表同步（登录 / reload 时推送）。
+        registrar.playToClient(PhaseMaterialSyncPayload.TYPE, PhaseMaterialSyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.phase.PhaseMaterialRegistry.setSynced(payload.entries());
+                    }
+                }));
 
         // AI 服务配置：双向包。C2S=保存配置到服务端 config/qianxiang-ai.json；
         // S2C=登录推送/保存回执，客户端缓存供「AI 设置」界面回填。

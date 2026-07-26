@@ -138,6 +138,14 @@ public final class MaterialLibrary {
             out.add(buildFromPhaseData(id, pd));
         }
 
+        // ①.5 数据包定义材料（phase_materials/*.json）：与 Java 注册材料同等待遇，
+        //     带真实 [TIER] 标注进 AI 材料库——UGC 材料不被当成 COMMON 低估。
+        for (var e : com.qianxiang.phase.PhaseMaterialRegistry.all().entrySet()) {
+            if (seen.contains(e.getKey())) continue;
+            seen.add(e.getKey());
+            out.add(buildFromPhaseData(e.getKey(), e.getValue().data()));
+        }
+
         // ② 原版/Tag 零件 + 全物品推导：PhaseData/tag 之外的物品交给
         //    ItemConceptResolver 推导概念（食物/装备/矿物/植物/大地…兜底「凡物」）。
         //    万物皆零件——AI 材料库 = 全物品。

@@ -1,0 +1,7 @@
+{
+  "item": "minecraft:nether_star",
+  "tier": "legendary",
+  "phases": ["order", "transcend"],
+  "functions": ["mana", "strength", "regeneration"],
+  "effects": {"minecraft:regeneration": 3}
+}

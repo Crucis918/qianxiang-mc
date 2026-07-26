@@ -55,9 +55,9 @@ public final class PhaseAIRecipeService {
     /** 效果：伤害/治疗/增益/减益/功能。 */
     static final Set<String> SPELL_EFFECTS = Set.of(
             "damage", "heal", "buff", "debuff", "utility");
-    /** 修饰：追踪/穿透/持续/强化/连锁。 */
+    /** 修饰：追踪/穿透/持续/强化/连锁。与 {@link com.qianxiang.spell.CustomSpell#MODIFIERS}、引擎消费词一致。 */
     static final Set<String> SPELL_MODIFIERS = Set.of(
-            "homing", "piercing", "duration", "empower", "chain");
+            "homing", "piercing", "extended", "amplified", "chain");
 
     // ===================== 动作定制（EF 连击）契约 =====================
 
@@ -204,7 +204,7 @@ public final class PhaseAIRecipeService {
             }
 
             String systemPrompt = buildSystemPrompt(lib, playerWant, type, tier, mats, m, allowed != null);
-            var aiOpt = AIClient.chat(playerWant, systemPrompt);
+            var aiOpt = AIGateway.chat(playerWant, systemPrompt);
             if (aiOpt.isEmpty()) {
                 return "confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
@@ -393,7 +393,7 @@ public final class PhaseAIRecipeService {
         sb.append("holy 神圣 / blood 鲜血 / ender 末影 / arcane 奥术。\n");
         sb.append("- 形式 form（选一）：projectile 投射 / self 自身 / aoe 范围 / beam 光束 / touch 触击。\n");
         sb.append("- 效果 effect（选一）：damage 伤害 / heal 治疗 / buff 增益 / debuff 减益 / utility 功能。\n");
-        sb.append("- 修饰 modifiers（可多选，可空）：homing 追踪 / piercing 穿透 / duration 持续 / empower 强化 / chain 连锁。\n");
+        sb.append("- 修饰 modifiers（可多选，可空）：homing 追踪 / piercing 穿透 / extended 持续 / amplified 强化 / chain 连锁。\n");
         sb.append("- power：1~10 的数，按目标档位与描述强度给（普通1~3、稀有3~5、史诗5~8、传奇8~10）。\n");
         sb.append("示例：「追踪火球」={\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"homing\"],\"power\":2}；");
         sb.append("「范围治疗」={\"element\":\"nature\",\"form\":\"aoe\",\"effect\":\"heal\",\"modifiers\":[],\"power\":2}；");

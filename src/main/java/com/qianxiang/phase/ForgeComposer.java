@@ -226,6 +226,8 @@ public final class ForgeComposer {
             if (spellBook) {
                 out.set(QianxiangDataComponents.SPELLBOOK.get(), new SpellBookData(List.of(spell), 0));
             } else {
+                // 移除步骤 6 写入的旧 SPELL 组件——否则旧施法路径会盖住 AI 法术
+                out.remove(QianxiangDataComponents.SPELL.get());
                 out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), spell);
             }
         } catch (Throwable t) {
@@ -436,7 +438,7 @@ public final class ForgeComposer {
         var set = EnumSet.noneOf(Phase.class);
         for (ItemStack stack : materialStacks) {
             if (stack == null || stack.isEmpty()) continue;
-            PhaseData pd = stack.get(QianxiangDataComponents.PHASE_DATA.get());
+            PhaseData pd = PhaseFunctionResolver.effectivePhaseData(stack);
             if (pd != null && pd.phases() != null) {
                 set.addAll(pd.phases());
             } else {

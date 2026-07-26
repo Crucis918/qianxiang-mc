@@ -1,0 +1,7 @@
+{
+  "item": "minecraft:heart_of_the_sea",
+  "tier": "epic",
+  "phases": ["abyss", "knowledge"],
+  "functions": ["water_breath", "mana"],
+  "effects": {"minecraft:conduit_power": 2}
+}

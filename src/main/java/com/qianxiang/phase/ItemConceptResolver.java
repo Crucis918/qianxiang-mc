@@ -163,8 +163,8 @@ public final class ItemConceptResolver {
         if (stack == null || stack.isEmpty()) {
             return new ItemConcept(Set.of(), Set.of(), Map.of(), CONCEPT_COMMON);
         }
-        // ① 已有 PhaseData / 功能 tag / 效果 tag → 用现有结果
-        var pd = stack.get(QianxiangDataComponents.PHASE_DATA.get());
+        // ① 已有 PhaseData（component 或数据包定义）/ 功能 tag / 效果 tag → 用现有结果
+        var pd = PhaseFunctionResolver.effectivePhaseData(stack);
         Set<PhaseFunction> functions = PhaseFunctionResolver.getExplicit(stack);
         Map<ResourceLocation, Integer> effects =
                 EffectMaterialResolver.get(stack, PhaseFunctionResolver.resolveTier(stack));

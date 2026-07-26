@@ -19,7 +19,9 @@ import java.util.Map;
  * <p>
  * tag path 的 {@code <effect_path>} 段对应 MobEffect 的 registry path（原版效果即
  * {@code minecraft:<effect_path>}，如 wither/invisibility/conduit_power）。
- * tag 是数据驱动的，整合包作者可用 KubeJS / datapack 给任何物品挂任意原版状态效果，
+ * <b>模组效果</b>用子目录形式 {@code materials/effect/<namespace>/<path>}（tag path 不允许
+ * {@code ':'} 但允许 {@code '/'}），如 {@code qianxiang:materials/effect/farmersdelight/comfort}。
+ * tag 是数据驱动的，整合包作者可用 KubeJS / datapack 给任何物品挂任意状态效果，
  * 无需改代码。未注册的效果 id 会在施加时被安全跳过。
  */
 public final class EffectMaterialResolver {
@@ -47,6 +49,11 @@ public final class EffectMaterialResolver {
         if (stack == null || stack.isEmpty()) return Map.of();
         int level = (tier == null ? PhaseTier.COMMON : tier).ordinal() + 1;
         Map<ResourceLocation, Integer> out = null;
+        // 数据包定义的自由效果（phase_materials/*.json 的 effects 字段，显式等级）
+        Map<ResourceLocation, Integer> declared = PhaseMaterialRegistry.effects(stack.getItem());
+        if (!declared.isEmpty()) {
+            out = new HashMap<>(declared);
+        }
         var it = stack.getTags().iterator();
         while (it.hasNext()) {
             ResourceLocation loc = it.next().location();
@@ -54,10 +61,21 @@ public final class EffectMaterialResolver {
             String path = loc.getPath();
             if (!path.startsWith(TAG_PREFIX)) continue;
             String effectPath = path.substring(TAG_PREFIX.length());
-            // tag path 不能含 ':'，modded 效果以 <namespace>_<path> 形式暂不支持，仅原版命名空间。
-            if (effectPath.isEmpty() || !ResourceLocation.isValidPath(effectPath)) continue;
+            if (effectPath.isEmpty()) continue;
+            // 无 '/' = 原版效果（minecraft:<path>）；含 '/' = 模组效果（<namespace>/<path>）。
+            ResourceLocation effectId;
+            int slash = effectPath.indexOf('/');
+            if (slash > 0 && slash < effectPath.length() - 1) {
+                effectId = ResourceLocation.tryBuild(
+                        effectPath.substring(0, slash), effectPath.substring(slash + 1));
+            } else if (slash < 0 && ResourceLocation.isValidPath(effectPath)) {
+                effectId = ResourceLocation.withDefaultNamespace(effectPath);
+            } else {
+                effectId = null;
+            }
+            if (effectId == null) continue;
             if (out == null) out = new HashMap<>();
-            out.merge(ResourceLocation.withDefaultNamespace(effectPath), level, Math::max);
+            out.merge(effectId, level, Math::max);
         }
         return out == null ? Map.of() : out;
     }
