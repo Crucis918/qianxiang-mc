@@ -34,10 +34,15 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
 
     private static final int COMPLETE_DURATION = 30;
 
+    /** PARSING 超时：AI 最长等 5 秒 + 余量，超过即认定回包丢失，自动复位。 */
+    private static final int PARSING_TIMEOUT_TICKS = 400;
+
     private final NonNullList<ItemStack> items = NonNullList.withSize(11, ItemStack.EMPTY); // 0-9 材料槽, 10 结果槽
 
     private int craftingState = STATE_IDLE;
     private int completeTicks = 0;
+    /** PARSING 状态已持续的 tick，用于超时兜底（不落盘）。 */
+    private int parsingTicks = 0;
 
     // 最近一次 AI 响应的输出暂存（服务端）：AI 自由法术描述 + 自定义名 + EF 动作定制。
     // 由 SpellJsonReportPayload（C2S）写入，ForgeTableMenu.slotsChanged 组合产物时消费。
@@ -144,6 +149,19 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             if (completeTicks <= 0) {
                 updateCraftingState();
             }
+            return;
+        }
+        // PARSING 的复位此前完全依赖「AI 回包时玩家仍开着这个菜单」——
+        // 玩家中途关 GUI 或下线，回包直接 return，方块就永久停在 PARSING
+        // （粒子长明，且状态还会落盘，重进存档依旧）。这里加一道超时兜底。
+        if (craftingState == STATE_PARSING) {
+            parsingTicks++;
+            if (parsingTicks > PARSING_TIMEOUT_TICKS) {
+                parsingTicks = 0;
+                updateCraftingState();
+            }
+        } else {
+            parsingTicks = 0;
         }
     }
 
@@ -292,6 +310,11 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         super.loadAdditional(tag, registries);
         ContainerHelper.loadAllItems(tag, items, registries);
         craftingState = tag.getInt("CraftingState");
+        // 落盘的 PARSING 一律归一为 IDLE：那次 AI 请求早已随上次会话消失，
+        // 不归一的话重开存档会看到一台永远在「解析中」的锻造台。
+        if (craftingState == STATE_PARSING) {
+            craftingState = STATE_IDLE;
+        }
         // 旧存档无这两个键，getString 缺省返回空串，天然兼容。
         lastSpellJson = tag.getString("LastSpellJson");
         lastCustomName = tag.getString("LastCustomName");
