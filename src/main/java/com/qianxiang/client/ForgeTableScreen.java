@@ -446,8 +446,6 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
     @Override
     public void onClose() {
-        com.qianxiang.Qianxiang.LOGGER.info("[Qianxiang] ForgeTableScreen.onClose 被调用（GUI 关闭）",
-                new Throwable("[Qianxiang] GUI 关闭调用栈"));
         ClientForgeTableAI.clearListener();
         ClientBlueprintCache.clearListener();
         super.onClose();

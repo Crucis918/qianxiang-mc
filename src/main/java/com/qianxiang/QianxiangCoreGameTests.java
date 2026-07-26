@@ -60,6 +60,26 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    /** 白名单外的 element 必须导致整条 spellJson 被拒（恶意客户端回传的防线）。 */
+    @GameTest(template = "item_concept")
+    public static void spellJsonRejectsUnknownElement(GameTestHelper helper) {
+        CustomSpell spell = CustomSpell.fromSpellJson(
+                "{\"element\":\"doom\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":3}", 1);
+        helper.assertTrue(spell == null, "白名单外的 element 应导致整条 spellJson 被拒");
+        helper.succeed();
+    }
+
+    /** 越界 power 必须被夹到上限，manaCost 随之保持正数（防溢出绕过法力检查）。 */
+    @GameTest(template = "item_concept")
+    public static void spellJsonClampsOversizedPower(GameTestHelper helper) {
+        CustomSpell spell = CustomSpell.fromSpellJson(
+                "{\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":999}", 1);
+        helper.assertTrue(spell != null, "结构合法的 spellJson 不应解析失败");
+        helper.assertTrue(spell.power() == 10, "power=999 应被夹到 10，实际 " + spell.power());
+        helper.assertTrue(spell.manaCost() > 0, "manaCost 应为正数，实际 " + spell.manaCost());
+        helper.succeed();
+    }
+
     // ============================ 锻造组合 ============================
 
     /** 烬铁（BASE_METAL+IGNITE）应锻出产物且带 ComposedAttributes。 */
@@ -76,16 +96,16 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
-    /** 皮革（BASE_HIDE）+ 兔子脚（JUMP_BOOST）应锻出相胫——四件套可配齐的回归锁。 */
+    /** 皮革（BASE_HIDE）+ 恶魂之泪（REGENERATION）应锻出相胫——四件套可配齐的回归锁。 */
     @GameTest(template = "item_concept")
     public static void forgeComposesLeggings(GameTestHelper helper) {
         List<ItemStack> materials = padTo10(
                 new ItemStack(Items.LEATHER),
-                new ItemStack(Items.RABBIT_FOOT));
+                new ItemStack(Items.GHAST_TEAR));
         ForgeComposer.Composition c = ForgeComposer.compose(materials);
-        helper.assertTrue(c.valid(), "皮革+兔子脚应能组合出产物");
+        helper.assertTrue(c.valid(), "皮革+恶魂之泪应能组合出产物");
         helper.assertTrue(c.result().is(QianxiangItems.PHASE_LEGGINGS.get()),
-                "BASE_HIDE+JUMP_BOOST 应锻出相胫，实际 " + c.result());
+                "BASE_HIDE+REGENERATION 应锻出相胫，实际 " + c.result());
         helper.succeed();
     }
 

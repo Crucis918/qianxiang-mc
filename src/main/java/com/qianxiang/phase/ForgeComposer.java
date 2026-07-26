@@ -268,17 +268,17 @@ public final class ForgeComposer {
      * 按材料功能并集选产物原型——「自定义功能」的广度兑现。
      * <ul>
      *   <li>含 MANA + 武器基底 → {@link QianxiangItems#PHASE_STAFF} 相杖（法系）</li>
-     *   <li>含 BASE_HIDE + NIGHT_VISION → {@link QianxiangItems#PHASE_HELMET} 相盔（夜视头盔）</li>
-     *   <li>含 BASE_HIDE + RESISTANCE → {@link QianxiangItems#PHASE_CHESTPLATE} 相甲（坚韧胸甲）</li>
-     *   <li>含 BASE_HIDE + JUMP_BOOST → {@link QianxiangItems#PHASE_LEGGINGS} 相胫（跃升护腿）</li>
-     *   <li>含 BASE_HIDE + SPEED_BOOST → {@link QianxiangItems#PHASE_BOOTS} 相靴（疾行之靴）</li>
-     *   <li>纯 BASE_HIDE/DEFENSE 或反伤 → {@link QianxiangItems#PHASE_SHIELD} 相盾（保持现有）</li>
+     *   <li>含 BASE_HIDE + NIGHT_VISION/WATER_BREATH → {@link QianxiangItems#PHASE_HELMET} 相盔（头部感知类）</li>
+     *   <li>含 BASE_HIDE + RESISTANCE/FIRE_RESIST → {@link QianxiangItems#PHASE_CHESTPLATE} 相甲（躯干抗性类）</li>
+     *   <li>含 BASE_HIDE + REGENERATION/DEFENSE → {@link QianxiangItems#PHASE_LEGGINGS} 相胫（体干续航/防御类）</li>
+     *   <li>含 BASE_HIDE + SPEED_BOOST/JUMP_BOOST → {@link QianxiangItems#PHASE_BOOTS} 相靴（腿脚机动类）</li>
+     *   <li>纯 BASE_HIDE（无以上穿戴算子）或反伤 → {@link QianxiangItems#PHASE_SHIELD} 相盾（保持现有）</li>
      *   <li>含 AREA_HARVEST → {@link QianxiangItems#PHASE_HOE} 相锄（广域耕作工具）</li>
      *   <li>含 GROWTH → {@link QianxiangItems#PHASE_WATERING_CAN} 相之水壶（范围催熟工具）</li>
      *   <li>含 BASE_BONE → {@link QianxiangItems#BONE_BLADE} 骨刃（锋锐）</li>
      *   <li>否则（金属/木质基底）→ {@link QianxiangItems#EMBER_BLADE} 灼烧之刃</li>
      * </ul>
-     * 优先级：MANA 杖 > 防具（盔 > 甲 > 胫 > 靴 > 盾）> 骨刃 > 武器特征（攻击向算子）> 工具（锄 > 水壶）> 金属刃。
+     * 优先级：MANA 杖 > 防具（盔 > 甲 > 胫 > 靴 > 盾；同槽位内按上表行内顺序）> 骨刃 > 武器特征（攻击向算子）> 工具（锄 > 水壶）> 金属刃。
      * 同一材料组合产出固定原型；换材料 = 换属性（强度靠材料）。
      * <p>
      * 无 BASE_*（无相骨架）时走独立兜底分支：MANA→相杖；GROWTH→水壶；AREA_HARVEST→相锄；
@@ -294,11 +294,16 @@ public final class ForgeComposer {
             return QianxiangItems.EMBER_BLADE;
         }
         if (union.contains(PhaseFunction.BASE_HIDE)) {
-            // —— 防具分支：皮制基底 + 穿戴效果算子 → 对应护甲件；纯皮制/防御 → 相盾 ——
-            if (union.contains(PhaseFunction.NIGHT_VISION)) return QianxiangItems.PHASE_HELMET;
-            if (union.contains(PhaseFunction.RESISTANCE)) return QianxiangItems.PHASE_CHESTPLATE;
-            if (union.contains(PhaseFunction.JUMP_BOOST)) return QianxiangItems.PHASE_LEGGINGS;
-            if (union.contains(PhaseFunction.SPEED_BOOST)) return QianxiangItems.PHASE_BOOTS;
+            // —— 防具分支：皮制基底 + 穿戴效果算子 → 对应护甲件；无穿戴算子的纯皮制 → 相盾 ——
+            //    槽位判定固定按「盔 > 甲 > 胫 > 靴」顺序，多算子并存时取先命中槽位（结果确定且稳定）。
+            if (union.contains(PhaseFunction.NIGHT_VISION)
+                    || union.contains(PhaseFunction.WATER_BREATH)) return QianxiangItems.PHASE_HELMET;
+            if (union.contains(PhaseFunction.RESISTANCE)
+                    || union.contains(PhaseFunction.FIRE_RESIST)) return QianxiangItems.PHASE_CHESTPLATE;
+            if (union.contains(PhaseFunction.REGENERATION)
+                    || union.contains(PhaseFunction.DEFENSE)) return QianxiangItems.PHASE_LEGGINGS;
+            if (union.contains(PhaseFunction.SPEED_BOOST)
+                    || union.contains(PhaseFunction.JUMP_BOOST)) return QianxiangItems.PHASE_BOOTS;
             return QianxiangItems.PHASE_SHIELD;
         }
         if (union.contains(PhaseFunction.REFLECT)) return QianxiangItems.PHASE_SHIELD;

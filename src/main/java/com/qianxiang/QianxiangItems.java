@@ -50,26 +50,26 @@ public final class QianxiangItems {
     public static final DeferredHolder<Item, Item> BONE_BLADE =
             ITEMS.register("bone_blade", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相盾 phase_shield —— 「皮制/金属基底 + 防御/反伤」组合的防具载体（动态属性）。
+    // 相盾 phase_shield —— 「纯皮制基底（无穿戴效果算子）或反伤(REFLECT)」组合的防具载体（动态属性）。
     public static final DeferredHolder<Item, Item> PHASE_SHIELD =
             ITEMS.register("phase_shield", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相盔 phase_helmet —— 「皮制基底 + 夜视(NIGHT_VISION)」组合的头盔载体（动态属性，强度靠材料）。
+    // 相盔 phase_helmet —— 「皮制基底 + 夜视(NIGHT_VISION)/水肺(WATER_BREATH)」组合的头盔载体（动态属性，强度靠材料）。
     public static final DeferredHolder<Item, Item> PHASE_HELMET =
             ITEMS.register("phase_helmet", () -> new QianxiangArmorItem(ArmorItem.Type.HELMET,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相甲 phase_chestplate —— 「皮制基底 + 抗性(RESISTANCE)」组合的胸甲载体（动态属性）。
+    // 相甲 phase_chestplate —— 「皮制基底 + 抗性(RESISTANCE)/抗火(FIRE_RESIST)」组合的胸甲载体（动态属性）。
     public static final DeferredHolder<Item, Item> PHASE_CHESTPLATE =
             ITEMS.register("phase_chestplate", () -> new QianxiangArmorItem(ArmorItem.Type.CHESTPLATE,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相胫 phase_leggings —— 护腿载体（动态属性；BASE_HIDE + JUMP_BOOST 锻出，如皮革+兔子脚）。
+    // 相胫 phase_leggings —— 「皮制基底 + 再生(REGENERATION)/防御(DEFENSE)」组合的护腿载体（动态属性，如皮革+恶魂之泪）。
     public static final DeferredHolder<Item, Item> PHASE_LEGGINGS =
             ITEMS.register("phase_leggings", () -> new QianxiangArmorItem(ArmorItem.Type.LEGGINGS,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));
 
-    // 相靴 phase_boots —— 「皮制基底 + 迅捷(SPEED_BOOST)」组合的靴子载体（动态属性）。
+    // 相靴 phase_boots —— 「皮制基底 + 迅捷(SPEED_BOOST)/跃升(JUMP_BOOST)」组合的靴子载体（动态属性，如皮革+兔子脚）。
     public static final DeferredHolder<Item, Item> PHASE_BOOTS =
             ITEMS.register("phase_boots", () -> new QianxiangArmorItem(ArmorItem.Type.BOOTS,
                     new Item.Properties().rarity(Rarity.UNCOMMON)));

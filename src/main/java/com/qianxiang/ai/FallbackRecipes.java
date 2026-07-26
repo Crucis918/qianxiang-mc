@@ -501,7 +501,7 @@ public final class FallbackRecipes {
     }
 
     /**
-     * 从玩家描述检测自由法术组合。词表见 {@link PhaseAIRecipeService#SPELL_ELEMENTS} 等。
+     * 从玩家描述检测自由法术组合。词表见 {@link com.qianxiang.spell.CustomSpell#ELEMENTS} 等。
      * 一个法术特征都没命中 → 返回 null（该需求不是法术描述）。永不抛异常。
      */
     static SpellSpec detectSpell(String want) {

@@ -10,6 +10,7 @@ import com.qianxiang.phase.AttributeScheme;
 import com.qianxiang.phase.EffectGlossary;
 import com.qianxiang.phase.PhaseFunction;
 import com.qianxiang.phase.PhaseTier;
+import com.qianxiang.spell.CustomSpell;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -43,21 +44,6 @@ import java.util.Set;
 public final class PhaseAIRecipeService {
 
     private PhaseAIRecipeService() {}
-
-    // ===================== 自由法术词表（与法术核心子代理 CustomSpell 契约一致） =====================
-
-    /** 元素：火焰/寒霜/雷电/自然/暗影/神圣/鲜血/末影/奥术。 */
-    static final Set<String> SPELL_ELEMENTS = Set.of(
-            "fire", "frost", "lightning", "nature", "shadow", "holy", "blood", "ender", "arcane");
-    /** 形式：投射/自身/范围/光束/触击。 */
-    static final Set<String> SPELL_FORMS = Set.of(
-            "projectile", "self", "aoe", "beam", "touch");
-    /** 效果：伤害/治疗/增益/减益/功能。 */
-    static final Set<String> SPELL_EFFECTS = Set.of(
-            "damage", "heal", "buff", "debuff", "utility");
-    /** 修饰：追踪/穿透/持续/强化/连锁。与 {@link com.qianxiang.spell.CustomSpell#MODIFIERS}、引擎消费词一致。 */
-    static final Set<String> SPELL_MODIFIERS = Set.of(
-            "homing", "piercing", "extended", "amplified", "chain");
 
     // ===================== 动作定制（EF 连击）契约 =====================
 
@@ -626,59 +612,40 @@ public final class PhaseAIRecipeService {
 
     /**
      * 解析并校验 LLM 输出的可选 spell 字段。
-     * <p>契约（与法术核心子代理 CustomSpell 一致）：{element, form, effect, modifiers, power}。
-     * element/form/effect 必须在词表内（form/effect 缺省给 projectile/damage），
-     * modifiers 过滤非法项，power 夹到 1~10。任何一步不合法 → 返回 ""（无法术），不抛异常。
+     * <p>本方法只负责宽容补默认值（LLM 常漏字段）：form/effect 缺失或越出词表时回填
+     * projectile/damage；element 不补——必须显式给出。之后统一交给
+     * {@link CustomSpell#fromSpellJson}（spellJson 的唯一校验入口）：element 必须在白名单内、
+     * modifiers 逐个过滤、power 夹到 1~10。任何一步不合法 → 返回 ""（无法术），不抛异常。
      */
     static String parseSpellJson(JsonObject proposalObj) {
         try {
             if (proposalObj == null || !proposalObj.has("spell") || !proposalObj.get("spell").isJsonObject()) {
                 return "";
             }
-            JsonObject spell = proposalObj.getAsJsonObject("spell");
+            JsonObject spell = proposalObj.getAsJsonObject("spell").deepCopy();
 
-            String element = spell.has("element") && spell.get("element").isJsonPrimitive()
-                    ? spell.get("element").getAsString().trim().toLowerCase(Locale.ROOT) : "";
-            if (!SPELL_ELEMENTS.contains(element)) {
-                Qianxiang.LOGGER.warn("[Qianxiang] AI 输出了非法法术元素，已丢弃 spell：{}", element);
+            String form = spell.has("form") && spell.get("form").isJsonPrimitive()
+                    ? spell.get("form").getAsString().trim().toLowerCase(Locale.ROOT) : "";
+            if (!CustomSpell.FORMS.contains(form)) spell.addProperty("form", "projectile");
+
+            String effect = spell.has("effect") && spell.get("effect").isJsonPrimitive()
+                    ? spell.get("effect").getAsString().trim().toLowerCase(Locale.ROOT) : "";
+            if (!CustomSpell.EFFECTS.contains(effect)) spell.addProperty("effect", "damage");
+
+            CustomSpell parsed = CustomSpell.fromSpellJson(spell.toString(), 1);
+            if (parsed == null) {
+                Qianxiang.LOGGER.warn("[Qianxiang] AI 输出了非法 spell 字段，已丢弃：{}", spell);
                 return "";
             }
 
-            String form = spell.has("form") && spell.get("form").isJsonPrimitive()
-                    ? spell.get("form").getAsString().trim().toLowerCase(Locale.ROOT) : "projectile";
-            if (!SPELL_FORMS.contains(form)) form = "projectile";
-
-            String effect = spell.has("effect") && spell.get("effect").isJsonPrimitive()
-                    ? spell.get("effect").getAsString().trim().toLowerCase(Locale.ROOT) : "damage";
-            if (!SPELL_EFFECTS.contains(effect)) effect = "damage";
-
-            List<String> modifiers = new ArrayList<>();
-            if (spell.has("modifiers") && spell.get("modifiers").isJsonArray()) {
-                for (JsonElement el : spell.getAsJsonArray("modifiers")) {
-                    if (!el.isJsonPrimitive()) continue;
-                    String mod = el.getAsString().trim().toLowerCase(Locale.ROOT);
-                    if (SPELL_MODIFIERS.contains(mod) && !modifiers.contains(mod)) {
-                        modifiers.add(mod);
-                    }
-                }
-            }
-
-            double power = 1.0;
-            if (spell.has("power") && spell.get("power").isJsonPrimitive()) {
-                try {
-                    power = spell.get("power").getAsDouble();
-                } catch (Exception ignored) {}
-            }
-            power = Math.clamp(power, 1.0, 10.0);
-
             JsonObject normalized = new JsonObject();
-            normalized.addProperty("element", element);
-            normalized.addProperty("form", form);
-            normalized.addProperty("effect", effect);
+            normalized.addProperty("element", parsed.element());
+            normalized.addProperty("form", parsed.form());
+            normalized.addProperty("effect", parsed.effect());
             var modArr = new com.google.gson.JsonArray();
-            for (String m : modifiers) modArr.add(m);
+            for (String m : parsed.modifiers()) modArr.add(m);
             normalized.add("modifiers", modArr);
-            normalized.addProperty("power", power);
+            normalized.addProperty("power", parsed.power());
             return normalized.toString();
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 解析 spell 字段失败，已忽略：{}", t.getMessage());

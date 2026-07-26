@@ -360,6 +360,52 @@ public final class ItemConceptGameTests {
         helper.succeed();
     }
 
+    // ============ 防具槽位仲裁（P0-8）：BASE_HIDE + 穿戴算子 → 对应护甲件 ============
+
+    /** 皮革（BASE_HIDE）+ 河豚（WATER_BREATH）→ 相盔（头盔组：夜视/水肺）。 */
+    @GameTest(template = "item_concept")
+    public static void waterBreathForgesHelmet(GameTestHelper helper) {
+        var c = ForgeComposer.compose(List.of(
+                new ItemStack(Items.LEATHER), new ItemStack(Items.PUFFERFISH)));
+        helper.assertTrue(c.valid(), "皮革+河豚应可锻造");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_HELMET.get()),
+                "BASE_HIDE+WATER_BREATH 应锻出相盔，实际 " + c.result().getItem());
+        helper.succeed();
+    }
+
+    /** 皮革（BASE_HIDE）+ 岩浆膏（FIRE_RESIST）→ 相甲（胸甲组：抗性/抗火）。 */
+    @GameTest(template = "item_concept")
+    public static void fireResistForgesChestplate(GameTestHelper helper) {
+        var c = ForgeComposer.compose(List.of(
+                new ItemStack(Items.LEATHER), new ItemStack(Items.MAGMA_CREAM)));
+        helper.assertTrue(c.valid(), "皮革+岩浆膏应可锻造");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_CHESTPLATE.get()),
+                "BASE_HIDE+FIRE_RESIST 应锻出相甲，实际 " + c.result().getItem());
+        helper.succeed();
+    }
+
+    /** 皮革（BASE_HIDE）+ 恶魂之泪（REGENERATION）→ 相胫（护腿组：再生/防御——救活死物品）。 */
+    @GameTest(template = "item_concept")
+    public static void regenerationForgesLeggings(GameTestHelper helper) {
+        var c = ForgeComposer.compose(List.of(
+                new ItemStack(Items.LEATHER), new ItemStack(Items.GHAST_TEAR)));
+        helper.assertTrue(c.valid(), "皮革+恶魂之泪应可锻造");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_LEGGINGS.get()),
+                "BASE_HIDE+REGENERATION 应锻出相胫，实际 " + c.result().getItem());
+        helper.succeed();
+    }
+
+    /** 皮革（BASE_HIDE）+ 兔子脚（JUMP_BOOST）→ 相靴（靴子组：迅捷/跃升）。 */
+    @GameTest(template = "item_concept")
+    public static void jumpBoostForgesBoots(GameTestHelper helper) {
+        var c = ForgeComposer.compose(List.of(
+                new ItemStack(Items.LEATHER), new ItemStack(Items.RABBIT_FOOT)));
+        helper.assertTrue(c.valid(), "皮革+兔子脚应可锻造");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_BOOTS.get()),
+                "BASE_HIDE+JUMP_BOOST 应锻出相靴，实际 " + c.result().getItem());
+        helper.succeed();
+    }
+
     /** 武器属性写入验证：余烬石(灼烧)+雪球(冻伤)+铁锭(骨架) → 产物必须有 igniteLevel 和 frost。 */
     @GameTest(template = "item_concept")
     public static void weaponHasIgniteAndFrost(GameTestHelper helper) {

@@ -35,10 +35,13 @@ import java.util.Map;
  * <pre>{@code {"element":"fire","form":"projectile","effect":"damage",
  *   "modifiers":["piercing"],"power":3,"name":"炽焰之枪"}}</pre>
  * <ul>
- *   <li>{@code element/form/effect} 缺一不可，否则视为无效 spellJson（返回 null，调用方回退材料映射逻辑）。</li>
- *   <li>{@code power} 缺省为 1；最终 power = max(spellJson.power, 最高材料 tier.ordinal()+1)，由
- *       {@link #fromSpellJson(String, int)} 的 {@code minPower} 参数兑现。</li>
- *   <li>{@code name}（可选）不进入 CustomSpell，用 {@link #extractName(String)} 单独取，写给产物 CUSTOM_NAME。</li>
+ *   <li>{@code element/form/effect} 缺一不可，且必须落在 {@link #ELEMENTS}/{@link #FORMS}/{@link #EFFECTS}
+ *       白名单内，否则整条视为无效 spellJson（返回 null，调用方回退材料映射逻辑）。
+ *       spellJson 可能来自客户端回传（不可信），本方法是唯一校验入口。</li>
+ *   <li>{@code power} 缺省为 1；最终 power = clamp(max(spellJson.power, 最高材料 tier.ordinal()+1), 1, 10)，
+ *       下限由 {@link #fromSpellJson(String, int)} 的 {@code minPower} 参数兑现。</li>
+ *   <li>{@code name}（可选）不进入 CustomSpell，用 {@link #extractName(String)} 单独取（截断到
+ *       {@link #MAX_CUSTOM_NAME_LENGTH} 字符），写给产物 CUSTOM_NAME。</li>
  * </ul>
  */
 public record CustomSpell(ResourceLocation id, String element, String form, String effect,
@@ -154,6 +157,11 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
     public static final java.util.Set<String> MODIFIERS = java.util.Set.of(
             "homing", "piercing", "extended", "amplified", "chain");
 
+    /** power 上限：manaCost/伤害都随 power 线性放大，上限同时是数值天花板与防溢出闸门。 */
+    public static final int MAX_POWER = 10;
+    /** 自定义名长度上限（字符）。 */
+    public static final int MAX_CUSTOM_NAME_LENGTH = 40;
+
     private static CustomSpell register(CustomSpell spell) {
         REGISTRY.put(spell.id(), spell);
         return spell;
@@ -216,20 +224,27 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
     // ============================ AI spellJson 解析 ============================
 
     /**
-     * 把 AI 输出的 spellJson 解析为 {@link CustomSpell}。
+     * 把 AI 输出的 spellJson 解析为 {@link CustomSpell}——spellJson 的唯一校验入口。
+     * <p>
+     * spellJson 可能经客户端回传（不可信），故一律按恶意输入处理：
+     * element/form/effect 必须落在白名单内，否则整条拒绝；modifiers 逐个过白名单（非法丢弃）；
+     * power 夹到 [1, {@link #MAX_POWER}]（manaCost/伤害随 power 线性放大，不设上限会溢出）。
      *
      * @param spellJson AI 响应附带的法术描述 JSON（可空/可空白）
      * @param minPower  强度下限：最高材料 tier.ordinal()+1（契约：power 与材料档位联动）
-     * @return 解析结果；JSON 非法或缺 element/form/effect 时返回 null（调用方回退材料映射逻辑）
+     * @return 解析结果；JSON 非法、缺 element/form/effect 或任一越出白名单时返回 null（调用方回退材料映射逻辑）
      */
     public static CustomSpell fromSpellJson(String spellJson, int minPower) {
         JsonObject obj = parse(spellJson);
         if (obj == null) return null;
         try {
-            String element = optString(obj, "element");
-            String form = optString(obj, "form");
-            String effect = optString(obj, "effect");
+            String element = optString(obj, "element").toLowerCase(java.util.Locale.ROOT);
+            String form = optString(obj, "form").toLowerCase(java.util.Locale.ROOT);
+            String effect = optString(obj, "effect").toLowerCase(java.util.Locale.ROOT);
             if (element.isEmpty() || form.isEmpty() || effect.isEmpty()) return null;
+            if (!ELEMENTS.contains(element) || !FORMS.contains(form) || !EFFECTS.contains(effect)) {
+                return null;
+            }
 
             List<String> modifiers = new java.util.ArrayList<>();
             if (obj.has("modifiers") && obj.get("modifiers").isJsonArray()) {
@@ -249,8 +264,8 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
                     power = 1;
                 }
             }
-            // 契约：最终 power = max(spellJson.power, 最高材料 tier.ordinal()+1)
-            power = Math.max(power, Math.max(1, minPower));
+            // 契约：最终 power = clamp(max(spellJson.power, 最高材料 tier.ordinal()+1), 1, MAX_POWER)
+            power = net.minecraft.util.Mth.clamp(Math.max(power, minPower), 1, MAX_POWER);
 
             int manaCost = 10 + 5 * power;
             int cooldownTicks = 40 + 20 * power;
@@ -264,7 +279,8 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
     }
 
     /**
-     * 取 spellJson 里可选的 {@code name} 字段（AI 给产物起的自定义名）。
+     * 取 spellJson 里可选的 {@code name} 字段（AI 给产物起的自定义名），
+     * 经 {@link #sanitizeCustomName(String)} 消毒。
      *
      * @return 自定义名；没有或 JSON 非法时返回空串
      */
@@ -272,10 +288,20 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
         JsonObject obj = parse(spellJson);
         if (obj == null) return "";
         try {
-            return optString(obj, "name");
+            return sanitizeCustomName(optString(obj, "name"));
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    /**
+     * 自定义名消毒：去首尾空白并截断到 {@link #MAX_CUSTOM_NAME_LENGTH} 字符
+     * （名字可能经客户端回传，不设上限会把超长串写进产物 CUSTOM_NAME 组件）。
+     */
+    public static String sanitizeCustomName(String raw) {
+        if (raw == null) return "";
+        String name = raw.trim();
+        return name.length() <= MAX_CUSTOM_NAME_LENGTH ? name : name.substring(0, MAX_CUSTOM_NAME_LENGTH);
     }
 
     /** 容错解析：空串/非 JSON/非对象都返回 null，绝不抛异常。 */

@@ -57,6 +57,8 @@ public final class QianxiangAICommand {
         for (String line : com.qianxiang.ai.AIGateway.statusSummary().split("\\R")) {
             ctx.getSource().sendSuccess(() -> Component.literal("§7" + line + "§r"), false);
         }
+        String breaker = com.qianxiang.ai.AIGateway.breakerStatus();
+        ctx.getSource().sendSuccess(() -> Component.literal("§7" + breaker + "§r"), false);
         return 1;
     }
 

@@ -37,6 +37,17 @@ public final class AIClient {
             .connectTimeout(Duration.ofSeconds(2))
             .build();
 
+    /**
+     * 上一次 chat() 失败是否属于<b>连接类失败</b>（连接超时/拒绝/无路由/未知主机），按线程记录。
+     * 「AI 返回了内容但解析失败 / 非 2xx」不算连接类失败，该标记保持 false。
+     */
+    private static final ThreadLocal<Boolean> LAST_CONNECT_ISSUE = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /** 供 {@link AIGateway} 熔断判定用：仅在同线程、紧随一次失败的 {@link #chat} 之后调用才有意义。 */
+    static boolean lastFailureWasConnectionIssue() {
+        return LAST_CONNECT_ISSUE.get();
+    }
+
     private AIClient() {}
 
     /**
@@ -48,6 +59,7 @@ public final class AIClient {
      */
     public static Optional<String> chat(String userMessage, String systemPrompt) {
         AIConfig cfg = AIConfig.get();
+        LAST_CONNECT_ISSUE.set(Boolean.FALSE);
         try {
             if (cfg.isOpenAI()) {
                 return chatOpenAI(cfg, userMessage, systemPrompt);
@@ -55,10 +67,30 @@ public final class AIClient {
             return chatOllama(cfg, userMessage, systemPrompt);
         } catch (Exception e) {
             // 包含：ConnectException（服务未启动）、TimeoutException、JsonSyntaxException ...
+            LAST_CONNECT_ISSUE.set(isConnectionIssue(e));
             Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 调用失败，将退关键词配方：{}",
                     cfg.provider, e.getClass().getSimpleName() + ": " + e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * 是否是「端点根本连不上」这一类异常：连接超时（{@link java.net.http.HttpConnectTimeoutException}）、
+     * 连接拒绝/无路由（{@link java.net.ConnectException}/{@link java.net.NoRouteToHostException}）、
+     * 域名解析失败（{@link java.net.UnknownHostException}）。沿 cause 链递归判断
+     * （HttpClient 常把底层 socket 异常包一层 IOException）。
+     * <b>不含</b>普通请求超时 HttpTimeoutException——那说明连接已建立、只是模型慢。
+     */
+    private static boolean isConnectionIssue(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof java.net.http.HttpConnectTimeoutException
+                || e instanceof java.net.ConnectException
+                || e instanceof java.net.NoRouteToHostException
+                || e instanceof java.net.UnknownHostException) {
+            return true;
+        }
+        Throwable cause = e.getCause();
+        return cause != null && cause != e && isConnectionIssue(cause);
     }
 
     // ===================== Ollama 原生协议 =====================
