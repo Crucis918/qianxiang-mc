@@ -36,10 +36,15 @@ public final class AiConfigSyncHandler {
                             player.getGameProfile().getName());
                     return;
                 }
+                // 客户端界面对已有 Key 显示的是占位符（见 currentPayload）；原样回传占位符
+                // 表示「不改 Key」，此时保留服务端现有值，避免把真 Key 洗成字面量占位符。
+                String apiKey = MASKED_API_KEY.equals(payload.apiKey())
+                        ? AIConfig.get().apiKey
+                        : payload.apiKey();
                 AIConfig.applyAndSave(payload.provider(), payload.baseUrl(),
-                        payload.apiKey(), payload.model(), payload.timeoutSeconds());
+                        apiKey, payload.model(), payload.timeoutSeconds());
                 // 回发落盘后的实际生效值（含 sanitize 结果），客户端缓存作确认
-                context.reply(currentPayload());
+                context.reply(currentPayload(player));
             } catch (Throwable t) {
                 Qianxiang.LOGGER.warn("[Qianxiang] 保存 AI 配置失败：{}",
                         t.getClass().getSimpleName() + ": " + t.getMessage());
@@ -52,7 +57,7 @@ public final class AiConfigSyncHandler {
     public static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         try {
             if (event.getEntity() instanceof ServerPlayer player) {
-                PacketDistributor.sendToPlayer(player, currentPayload());
+                PacketDistributor.sendToPlayer(player, currentPayload(player));
             }
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] AI 配置登录同步失败：{}",
@@ -60,10 +65,33 @@ public final class AiConfigSyncHandler {
         }
     }
 
-    /** 当前服务端生效配置 → 同步包。 */
-    public static AiConfigSyncPayload currentPayload() {
+    /**
+     * 当前服务端生效配置 → 同步包。
+     * <p><b>apiKey 只发给有权改配置的人</b>（OP 2 级 / 单机存档主人）。
+     * 其余玩家收到 {@value #MASKED_API_KEY} 占位符——否则专用服务器上服主的付费
+     * API Key 会随登录包明文发给每一个进服玩家（抓包或直接看 AI 设置界面即可读到）。
+     * 写路径本就有权限校验，读路径此前完全没有，权限模型只做了一半。
+     */
+    public static AiConfigSyncPayload currentPayload(ServerPlayer viewer) {
         AIConfig cfg = AIConfig.get();
-        return new AiConfigSyncPayload(cfg.provider, cfg.baseUrl, cfg.apiKey,
+        return new AiConfigSyncPayload(cfg.provider, cfg.baseUrl,
+                canSeeApiKey(viewer) ? cfg.apiKey : maskedFor(cfg.apiKey),
                 cfg.model, cfg.timeoutSeconds);
     }
+
+    /** 只有 OP(2) 或单机存档主人能看到/修改真实 apiKey。 */
+    public static boolean canSeeApiKey(ServerPlayer player) {
+        if (player == null) return false;
+        return player.hasPermissions(2)
+                || (player.getServer() != null
+                        && player.getServer().isSingleplayerOwner(player.getGameProfile()));
+    }
+
+    /** 已设置 Key 时回占位符（让界面显示"已配置"），未设置时回空串。 */
+    private static String maskedFor(String realKey) {
+        return realKey == null || realKey.isEmpty() ? "" : MASKED_API_KEY;
+    }
+
+    /** apiKey 占位符：客户端原样回传即表示「不修改」。 */
+    public static final String MASKED_API_KEY = "********";
 }

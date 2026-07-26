@@ -22,7 +22,10 @@ public record BlueprintSavePayload(List<String> materials) implements CustomPack
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "blueprint_save"));
 
     public static final StreamCodec<FriendlyByteBuf, BlueprintSavePayload> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), BlueprintSavePayload::materials,
+            // 上限 = 锻造台槽数（服务端其实不读这个字段，从菜单直接取——但仍不给白送的解码开销）
+            ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8,
+                    com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS),
+            BlueprintSavePayload::materials,
             BlueprintSavePayload::new);
 
     @Override

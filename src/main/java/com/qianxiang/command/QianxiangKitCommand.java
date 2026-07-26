@@ -40,6 +40,9 @@ public final class QianxiangKitCommand {
         event.getDispatcher().register(
                 Commands.literal("qianxiang")
                         .then(Commands.literal("kit")
+                                // 作弊性测试命令：无限发放全套装备与 Boss 刷怪蛋，
+                                // 多人服必须限 OP（单机存档主人天然有 2 级权限，不受影响）。
+                                .requires(src -> src.hasPermission(2))
                                 .executes(QianxiangKitCommand::handleKit)));
         Qianxiang.LOGGER.info("[Qianxiang] 测试包命令已注册：/qianxiang kit");
     }

@@ -28,11 +28,30 @@ public final class ForgeTableAIHandler {
 
     private ForgeTableAIHandler() {}
 
-    public static void handle(AiRequestPayload payload, IPayloadContext context) {
-        // 主线程：先标记 parsing（粒子特效）
-        context.enqueueWork(() -> setBlockEntityState(context.player(), ForgeTableBlockEntity.STATE_PARSING));
+    /** 同一玩家两次 AI 请求的最小间隔（AI 调用昂贵，且队列无界）。 */
+    private static final long AI_REQUEST_COOLDOWN_MS = 3_000L;
 
-        // 后台线程：跑 AI（可能数秒），完成后回主线程回包
+    public static void handle(AiRequestPayload payload, IPayloadContext context) {
+        // 主线程：校验 + 限流 + 标记 parsing（粒子特效）。
+        // 校验必须在提交后台任务之前——此前无条件 submit，改造过的客户端不必打开
+        // 锻造台就能循环发包，每包一次真实 LLM HTTP + 一次全物品注册表扫描，
+        // 而执行器队列是无界的。
+        context.enqueueWork(() -> {
+            var player = context.player();
+            if (!(player.containerMenu instanceof com.qianxiang.menu.ForgeTableMenu)) {
+                return;
+            }
+            if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "ai_request", AI_REQUEST_COOLDOWN_MS)) {
+                return;
+            }
+            setBlockEntityState(player, ForgeTableBlockEntity.STATE_PARSING);
+            submitAiTask(payload, context);
+        });
+    }
+
+    /** 真正把 AI 任务丢进后台线程（已通过菜单校验与限流）。 */
+    private static void submitAiTask(AiRequestPayload payload, IPayloadContext context) {
         AI_EXECUTOR.submit(() -> {
             PhaseAIRecipeService.RecipeResult result;
             try {

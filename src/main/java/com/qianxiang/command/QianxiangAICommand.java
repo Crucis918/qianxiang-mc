@@ -29,6 +29,9 @@ public final class QianxiangAICommand {
 
     private QianxiangAICommand() {}
 
+    /** 非 OP 玩家两次 /qianxiang ask 的最小间隔。 */
+    private static final long ASK_COOLDOWN_MS = 5_000L;
+
     /** AI 命令共用的后台单线程执行器：HTTP 调用不落在服务器主线程上。 */
     private static final java.util.concurrent.ExecutorService EXECUTOR =
             java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
@@ -45,6 +48,8 @@ public final class QianxiangAICommand {
                                 .then(Commands.argument("want", StringArgumentType.greedyString())
                                         .executes(QianxiangAICommand::handleAsk)))
                         .then(Commands.literal("ai")
+                                // status 会暴露内网端点地址，clearcache 能逼请求真打付费端点——限 OP。
+                                .requires(src -> src.hasPermission(2))
                                 .then(Commands.literal("status")
                                         .executes(QianxiangAICommand::handleStatus))
                                 .then(Commands.literal("clearcache")
@@ -77,6 +82,15 @@ public final class QianxiangAICommand {
         CommandSourceStack src = ctx.getSource();
         String want = StringArgumentType.getString(ctx, "want");
         var server = src.getServer();
+
+        // 每次调用都是一次真实 LLM HTTP + 一次材料库扫描：非 OP 玩家限 5 秒一次，
+        // 否则宏脚本可以把服主的付费额度刷干、把单线程 AI 队列堵死。
+        if (!src.hasPermission(2)
+                && !com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                        src.getPlayer(), "ai_ask", ASK_COOLDOWN_MS)) {
+            src.sendFailure(Component.literal("§7问相太频繁了，稍等几秒再来。§r"));
+            return 0;
+        }
 
         EXECUTOR.submit(() -> {
             RecipeProposal proposal;

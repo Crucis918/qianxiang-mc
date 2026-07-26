@@ -33,6 +33,8 @@ public final class QianxiangDimCommand {
         event.getDispatcher().register(
                 Commands.literal("qianxiang")
                         .then(Commands.literal("dim")
+                                // 无条件跨维度，绕过位格门控与裂隙精髓消耗——限 OP。
+                                .requires(src -> src.hasPermission(2))
                                 .executes(QianxiangDimCommand::handleDim)));
         Qianxiang.LOGGER.info("[Qianxiang] 维度命令已注册：/qianxiang dim");
     }

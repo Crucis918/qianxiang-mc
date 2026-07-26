@@ -34,17 +34,33 @@ public record AiRequestPayload(String request, String targetType, String targetT
         this(request, targetType, targetTier, currentMaterials, mode, List.of());
     }
 
+    /** 玩家需求文本上限（会原样进 prompt）。 */
+    public static final int MAX_REQUEST_CHARS = 1024;
+    /** targetType/targetTier/mode 这类枚举式短字段上限。 */
+    public static final int MAX_SHORT_FIELD_CHARS = 64;
+    /** 单个物品 id 上限（namespace:path 远小于此）。 */
+    public static final int MAX_ITEM_ID_CHARS = 256;
+    /** 材料白名单上限（客户端筛选器产物，正常远小于此）。 */
+    public static final int MAX_ALLOWED_MATERIALS = 512;
+
     public static final Type<AiRequestPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "ai_request"));
 
     public static final StreamCodec<FriendlyByteBuf, AiRequestPayload> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.STRING_UTF8, AiRequestPayload::request,
-                    ByteBufCodecs.STRING_UTF8, AiRequestPayload::targetType,
-                    ByteBufCodecs.STRING_UTF8, AiRequestPayload::targetTier,
-                    ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), AiRequestPayload::currentMaterials,
-                    ByteBufCodecs.STRING_UTF8, AiRequestPayload::mode,
-                    ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), AiRequestPayload::allowedMaterials,
+                    // 全部字段限长：需求文本进 prompt 直发 LLM（注入+烧 token），
+                    // 材料列表每条都触发全注册表扫描，默认上限 32767/Integer.MAX_VALUE 太宽。
+                    ByteBufCodecs.stringUtf8(MAX_REQUEST_CHARS), AiRequestPayload::request,
+                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::targetType,
+                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::targetTier,
+                    ByteBufCodecs.collection(ArrayList::new,
+                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS),
+                            com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS),
+                    AiRequestPayload::currentMaterials,
+                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::mode,
+                    ByteBufCodecs.collection(ArrayList::new,
+                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS), MAX_ALLOWED_MATERIALS),
+                    AiRequestPayload::allowedMaterials,
                     AiRequestPayload::new);
 
     @Override

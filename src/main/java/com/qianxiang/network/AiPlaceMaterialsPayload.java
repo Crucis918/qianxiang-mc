@@ -28,7 +28,11 @@ public record AiPlaceMaterialsPayload(List<String> materialNames) implements Cus
 
     public static final StreamCodec<FriendlyByteBuf, AiPlaceMaterialsPayload> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), AiPlaceMaterialsPayload::materialNames,
+                    // 上限 = 锻造台槽数：不带 maxSize 的重载默认 Integer.MAX_VALUE，
+                    // 恶意包可塞上万条 id，每条都触发注册表查询 + 全背包扫描（主线程）。
+                    ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8,
+                            com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS),
+                    AiPlaceMaterialsPayload::materialNames,
                     AiPlaceMaterialsPayload::new);
 
     @Override

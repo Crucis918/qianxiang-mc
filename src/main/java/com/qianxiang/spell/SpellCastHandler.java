@@ -34,10 +34,29 @@ public final class SpellCastHandler {
 
     private SpellCastHandler() {}
 
+    /** 施法失败提示的最小间隔：每个被拒上行包回一个下行包，否则是 1:1 的流量放大面。 */
+    private static final long FAIL_NOTICE_COOLDOWN_MS = 1_000L;
+
+    /**
+     * 节流版 actionbar 提示。冷却/法力不足是玩家按住键就会连续触发的高频路径，
+     * 逐包回消息等于让改造过的客户端用最小成本让服务端对它单播海量数据。
+     */
+    private static void notifyThrottled(ServerPlayer player, String translationKey) {
+        if (com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                player, "spell_fail_notice", FAIL_NOTICE_COOLDOWN_MS)) {
+            player.displayClientMessage(Component.translatable(translationKey), true);
+        }
+    }
+
     public static void handle(CastSpellPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             Player player = context.player();
             if (!(player instanceof ServerPlayer serverPlayer)) {
+                return;
+            }
+            // 观战者/尸体不得施法：此前只判类型，观战模式按 V 照样能放
+            // （ender 元素还会 connection.teleport 把观战者传走），死亡瞬间同理。
+            if (!serverPlayer.isAlive() || serverPlayer.isSpectator()) {
                 return;
             }
 
@@ -66,11 +85,11 @@ public final class SpellCastHandler {
             PlayerSpellData data = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
 
             if (data.isOnCooldown(spellId)) {
-                serverPlayer.displayClientMessage(Component.translatable("qianxiang.spell.cooldown"), true);
+                notifyThrottled(serverPlayer, "qianxiang.spell.cooldown");
                 return;
             }
             if (data.currentMana() < spell.manaCost()) {
-                serverPlayer.displayClientMessage(Component.translatable("qianxiang.spell.no_mana"), true);
+                notifyThrottled(serverPlayer, "qianxiang.spell.no_mana");
                 return;
             }
 
@@ -106,11 +125,11 @@ public final class SpellCastHandler {
         PlayerSpellData data = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
 
         if (data.isOnCooldown(spell.id())) {
-            serverPlayer.displayClientMessage(Component.translatable("qianxiang.spell.cooldown"), true);
+            notifyThrottled(serverPlayer, "qianxiang.spell.cooldown");
             return false;
         }
         if (data.currentMana() < spell.manaCost()) {
-            serverPlayer.displayClientMessage(Component.translatable("qianxiang.spell.no_mana"), true);
+            notifyThrottled(serverPlayer, "qianxiang.spell.no_mana");
             return false;
         }
 
