@@ -1,6 +1,7 @@
 package com.qianxiang.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import com.qianxiang.Qianxiang;
 import com.qianxiang.QianxiangDataComponents;
 import com.qianxiang.phase.ComposedAttributes;
 import net.minecraft.client.Minecraft;
@@ -103,13 +104,48 @@ public final class DynamicWeaponTexture {
         try {
             ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
             if (attr == null) return null;
+
+            // key 计算本身不便宜（shapeFor 要 toLowerCase + 十余次 contains，
+            // colorKeyFor 要遍历 grantedEffects 并 toString 每个 key），
+            // 而本方法在每帧、每个可见物品栈上都会被调用（GUI 里 40 格 × 60FPS）。
+            // 按「物品 + 组件」做一层记忆化：同一把武器连续帧直接命中。
+            ComposedAttributes lastAttr = lastKeyAttr;
+            if (lastAttr == attr && lastKeyItem == stack.getItem() && lastKey != null) {
+                Variant cached = CACHE.get(lastKey);
+                if (cached != null) return cached == FAILED ? null : cached;
+            }
+
             String path = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
             VariantKey key = new VariantKey(shapeFor(stack, path, attr), colorKeyFor(attr), tierFor(attr));
-            return CACHE.computeIfAbsent(key, DynamicWeaponTexture::bake);
+            lastKeyAttr = attr;
+            lastKeyItem = stack.getItem();
+            lastKey = key;
+
+            Variant variant = CACHE.computeIfAbsent(key, k -> {
+                try {
+                    return bake(k);
+                } catch (Throwable t) {
+                    // 写入哨兵：bake 失败时若不留映射，computeIfAbsent 会每帧重试
+                    // （每次重绘 16×16 并尝试注册纹理），表现为持续卡顿且零日志。
+                    Qianxiang.LOGGER.warn("[Qianxiang] 动态武器变体烘焙失败，该变体改用静态纹理：{}（{}）",
+                            k.path(), t.toString());
+                    return FAILED;
+                }
+            });
+            return variant == FAILED ? null : variant;
         } catch (Throwable t) {
             return null;
         }
     }
+
+    /** bake 失败哨兵：占住 CACHE 的位置，阻止每帧重试。 */
+    private static final Variant FAILED =
+            new Variant(ResourceLocation.fromNamespaceAndPath("qianxiang", "failed_variant"), null, List.of());
+
+    // 单条记忆化（渲染是单线程的；即便偶发竞态也只是多算一次 key，无正确性问题）
+    private static ComposedAttributes lastKeyAttr;
+    private static net.minecraft.world.item.Item lastKeyItem;
+    private static VariantKey lastKey;
 
     // ============================ 变体烘焙 ============================
 

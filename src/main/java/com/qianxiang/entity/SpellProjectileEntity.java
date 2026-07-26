@@ -37,6 +37,12 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
     private static final double HOMING_RANGE = 10.0;
     private static final double HOMING_STEER = 0.12;
 
+    /** 追踪目标重选间隔（tick）：范围查询昂贵，追踪手感不需要每 tick 重算。 */
+    private static final int HOMING_RETARGET_INTERVAL = 4;
+
+    /** 缓存的追踪目标 entity id（-1 = 无）。不落盘：弹体寿命只有 160 tick。 */
+    private int cachedTargetId = -1;
+
     private String element = "arcane";
     private String effect = "damage";
     private float power = 1.0f;
@@ -102,14 +108,30 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
         if (speed < 1.0E-4) {
             return;
         }
-        List<LivingEntity> candidates = level().getEntitiesOfClass(LivingEntity.class,
-                getBoundingBox().inflate(HOMING_RANGE),
-                e -> e.isAlive() && e != getOwner() && !hitIds.contains(e.getId()));
-        if (candidates.isEmpty()) {
-            return;
+        // 目标选择每 HOMING_RETARGET_INTERVAL tick 做一次并缓存目标 id：
+        // 原实现每 tick 都做一次半径 10 的范围查询 + 排序，弹幕多时是可观的服务端开销，
+        // 而追踪效果并不需要每 tick 重选目标。
+        LivingEntity target = null;
+        if (cachedTargetId != -1 && tickCount % HOMING_RETARGET_INTERVAL != 0) {
+            if (level().getEntity(cachedTargetId) instanceof LivingEntity cached
+                    && cached.isAlive() && !hitIds.contains(cached.getId())
+                    && distanceToSqr(cached) <= HOMING_RANGE * HOMING_RANGE * 4) {
+                target = cached;
+            }
         }
-        candidates.sort(Comparator.comparingDouble(this::distanceToSqr));
-        Vec3 toTarget = candidates.get(0).getBoundingBox().getCenter().subtract(position()).normalize();
+        if (target == null) {
+            List<LivingEntity> candidates = level().getEntitiesOfClass(LivingEntity.class,
+                    getBoundingBox().inflate(HOMING_RANGE),
+                    e -> e.isAlive() && e != getOwner() && !hitIds.contains(e.getId()));
+            if (candidates.isEmpty()) {
+                cachedTargetId = -1;
+                return;
+            }
+            candidates.sort(Comparator.comparingDouble(this::distanceToSqr));
+            target = candidates.get(0);
+            cachedTargetId = target.getId();
+        }
+        Vec3 toTarget = target.getBoundingBox().getCenter().subtract(position()).normalize();
         Vec3 steered = motion.normalize().add(toTarget.scale(HOMING_STEER)).normalize().scale(speed);
         setDeltaMovement(steered);
     }

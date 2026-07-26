@@ -201,6 +201,46 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 锻造台重算短路的正确性（WQ-28） ============================
+
+    /**
+     * 指纹短路不得吞掉「材料没变但 AI 暂存变了」的重算。
+     * <p>SpellJsonReportHandler 与 applyBlueprint 都是先写 AI 暂存再调 slotsChanged，
+     * 若指纹只按材料算，这两条路径会被整个短路，AI 法术永远进不了产物。
+     */
+    @GameTest(template = "item_concept")
+    public static void forgeRecomputesWhenAiStateChanges(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        level.setBlockAndUpdate(pos, com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+
+        // 木骨架 + 法力 → 相杖（能承载 CUSTOM_SPELL 的产物）
+        be.setItem(0, new ItemStack(QianxiangMaterials.GLIMMER_WOOD_SAP.get()));
+        be.setItem(1, new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get()));
+        menu.slotsChanged(be);
+
+        // 材料保持不变，只改 AI 暂存 —— 必须触发重算并把法术写进产物
+        be.setLastAiSpell("{\"element\":\"frost\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":2}",
+                "霜牙");
+        menu.slotsChanged(be);
+
+        ItemStack result = be.getItem(ForgeTableMenu.RESULT_SLOT);
+        if (result.is(QianxiangItems.PHASE_STAFF.get())) {
+            var spell = result.get(QianxiangDataComponents.CUSTOM_SPELL.get());
+            helper.assertTrue(spell != null && "frost".equals(spell.element()),
+                    "AI 暂存变化后产物应带上新法术（指纹短路吞掉了重算），实际 "
+                            + (spell == null ? "无法术" : spell.element()));
+        }
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
     // ============================ 法术强度绑材料预算（WQ-1） ============================
 
     /** 普通材料 + 客户端/AI 报 power=10 → 必须被夹回普通档预算（4）。 */

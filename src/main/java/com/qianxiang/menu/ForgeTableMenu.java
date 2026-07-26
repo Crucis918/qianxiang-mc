@@ -38,6 +38,9 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连锻一次点击刷满位格。 */
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
 
+    /** 上次参与组合的材料指纹，用于跳过无谓的重算（见 slotsChanged）。 */
+    private int lastMaterialsFingerprint = Integer.MIN_VALUE;
+
     private final Container container;
     private final Inventory playerInventory;
 
@@ -131,6 +134,20 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
             materials.add(this.container.getItem(i));
         }
+
+        // 任意一次容器点击（含与材料无关的背包格）都会走到这里，而 compose 是
+        // 相当重的计算（解析每条材料 + 属性合成 + 外观/代价推导），还会 setItem
+        // 新产物栈触发一次同步。先按指纹短路：输入没变就不重算。
+        //
+        // 指纹必须同时覆盖「材料」与「AI 暂存」两部分：SpellJsonReportHandler 与
+        // applyBlueprint 都是先写 AI 暂存再调本方法，材料并未变化——只按材料算指纹
+        // 会把这两条路径整个短路掉，AI 法术/动作永远进不了预览。
+        int fingerprint = materialsFingerprint(materials) * 31 + aiStateFingerprint();
+        if (fingerprint == lastMaterialsFingerprint) {
+            return;
+        }
+        lastMaterialsFingerprint = fingerprint;
+
         ForgeComposer.Composition composition;
         if (this.container instanceof ForgeTableBlockEntity be) {
             composition = ForgeComposer.compose(materials, be.getLastSpellJson(), be.getLastCustomName(),
@@ -225,6 +242,32 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 记录相谱失败（不阻断合成）", t);
         }
+    }
+
+    /**
+     * 材料槽内容指纹：物品 + 数量 + 组件。
+     * <p>组件必须计入——同一物品带不同 ComposedAttributes 会锻出不同产物。
+     */
+    private static int materialsFingerprint(List<ItemStack> materials) {
+        int hash = 1;
+        for (ItemStack s : materials) {
+            hash = hash * 31 + (s.isEmpty()
+                    ? 0
+                    : System.identityHashCode(s.getItem()) * 31
+                            + s.getCount() * 7
+                            + s.getComponents().hashCode());
+        }
+        return hash;
+    }
+
+    /** 方块实体上暂存的 AI 输出的指纹（客户端 SimpleContainer 恒为 0）。 */
+    private int aiStateFingerprint() {
+        if (!(this.container instanceof ForgeTableBlockEntity be)) {
+            return 0;
+        }
+        return be.getLastSpellJson().hashCode() * 31
+                + be.getLastCustomName().hashCode() * 7
+                + be.getLastMovesetJson().hashCode();
     }
 
     private void addPlayerInventory(Inventory inv) {
