@@ -262,33 +262,6 @@ public final class MaterialLibrary {
         );
     }
 
-    private static MaterialEntry buildFromTags(ResourceLocation id, Set<PhaseFunction> functions,
-                                               Set<ResourceLocation> effectIds) {
-        String registryName = id.toString();
-        String shortName = id.getPath();
-        Set<Phase> phases = PhaseFunctionResolver.defaultPhases(functions);
-        // displayName 带功能概念描述，让 LLM 直接看懂「这材料是干什么的」，
-        // 形如 iron_ingot[COMMON]{秩序}|金属骨架|概念:金属骨架；带 effect tag 的追加「状态:凋零」等标注。
-        StringBuilder displayName = new StringBuilder(shortName)
-                .append("[COMMON]")
-                .append(phasesCn(phases))
-                .append("|").append(functionConcepts(functions));
-        String concept = itemConcept(id.getPath());
-        if (concept != null) {
-            displayName.append("|概念:").append(concept);
-        }
-        if (effectIds != null && !effectIds.isEmpty()) {
-            displayName.append("|状态:").append(effectConcepts(effectIds));
-        }
-        return new MaterialEntry(
-                registryName,
-                displayName.toString(),
-                PhaseTier.COMMON,
-                functions,
-                phases
-        );
-    }
-
     /**
      * 物品 → 概念本地化键 {@code qianxiang.concept.<path>}。
      * <p>万物皆零件：任何原版物品都有概念。本键与 lang 文件中的

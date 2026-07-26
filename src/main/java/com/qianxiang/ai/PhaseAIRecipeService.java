@@ -104,10 +104,15 @@ public final class PhaseAIRecipeService {
             return movesetJson != null && !movesetJson.isBlank();
         }
 
-        /** 便于判断本次结果是否来自关键词回退（summary 以基础配方前缀或 key 开头）。 */
+        /**
+         * 便于判断本次结果是否来自关键词回退（summary 以基础配方前缀或 key 开头）。
+         * <p>必须涵盖 confirm 模式的兜底前缀——漏掉它会让 confirm 兜底时状态灯仍是绿的，
+         * 玩家误以为看到的是 AI 的真实评价。
+         */
         public boolean isFallback() {
             return summary != null && (summary.startsWith("（基础配方）")
-                    || summary.startsWith("qianxiang.forge_table.summary.fallback"));
+                    || summary.startsWith("qianxiang.forge_table.summary.fallback")
+                    || summary.startsWith("qianxiang.forge_table.confirm.summary"));
         }
 
         /** 网络序列化：用于 {@link com.qianxiang.network.AiResponsePayload}。spellJson/movesetJson 放最后。 */
@@ -189,6 +194,12 @@ public final class PhaseAIRecipeService {
                         : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
             }
 
+            // confirm 模式的任务是「评价玩家已放的材料」——槽是空的就没什么可评价，
+            // 送去问 AI 只会得到一段重新推荐（还白烧一次 token）。
+            if ("confirm".equals(m) && (mats == null || mats.isEmpty())) {
+                return FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials);
+            }
+
             String systemPrompt = buildSystemPrompt(lib, playerWant, type, tier, mats, m, allowed != null);
             var aiOpt = AIGateway.chat(playerWant, systemPrompt);
             if (aiOpt.isEmpty()) {
@@ -197,9 +208,12 @@ public final class PhaseAIRecipeService {
                         : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
             }
 
-            String confirmMessage = extractConfirmMessage(aiOpt.get());
-            List<String> questions = extractQuestions(aiOpt.get());
-            List<RecipeProposal> proposals = parseProposals(aiOpt.get(), type);
+            // 只解析一次：此前 extractConfirmMessage / extractQuestions / parseProposals
+            // 各自跑一遍 extractJson + JsonParser，同一份回包被解析三次。
+            JsonObject root = parseAiRoot(aiOpt.get());
+            String confirmMessage = extractConfirmMessage(root);
+            List<String> questions = extractQuestions(root);
+            List<RecipeProposal> proposals = parseProposals(root, type);
             proposals = restrictToWhitelist(proposals, allowed);
             if (proposals.isEmpty()) {
                 return "confirm".equals(m)
@@ -290,6 +304,16 @@ public final class PhaseAIRecipeService {
         boolean isConfirm = "confirm".equalsIgnoreCase(mode);
         StringBuilder sb = new StringBuilder();
         sb.append("你是《千相》MC mod 的材料配方 AI。");
+        if (isConfirm) {
+            // confirm 模式的差异化信息必须放在最前：7B 级模型的注意力会被前面
+            // 大段推荐向内容稀释，把「当前材料」埋在末尾会让它答非所问、
+            // 变成又一次重新推荐。
+            sb.append("\n【本次任务】评价玩家已经放入的这组材料，不是重新推荐。\n");
+            sb.append("玩家当前已放入：")
+              .append(currentMaterials == null || currentMaterials.isEmpty()
+                      ? "（空）" : String.join("、", currentMaterials))
+              .append("\n");
+        }
         sb.append("玩家需求：").append(request == null ? "" : request).append("；");
         sb.append("目标产物类型：").append(typeDesc).append("；");
         sb.append("目标强度档位：").append(tierDesc).append("（高挡位应优先选高 tier 材料，低挡位优先低 tier）。\n\n");
@@ -342,8 +366,12 @@ public final class PhaseAIRecipeService {
         sb.append("但必须在 summary 中说明它将付出的代价，例如「这把武器很强但会带来迟缓」「吸血猛但吃着费力」。\n");
         appendFreeSpellSection(sb, targetType);
         appendMovesetSection(sb, targetType);
-        appendBroadRequestSection(sb);
-        appendEffectGlossarySection(sb);
+        if (!isConfirm) {
+            // 这三段都是「如何从零挑材料」的指引，对评价任务只是噪声，
+            // 砍掉能显著提高 confirm 模式的命中率（也省 token）。
+            appendBroadRequestSection(sb);
+            appendEffectGlossarySection(sb);
+        }
         sb.append("\n【规则】\n");
         if (isConfirm) {
             sb.append("当前玩家已放入材料：").append(String.join("、", currentMaterials)).append("。\n");
@@ -518,17 +546,8 @@ public final class PhaseAIRecipeService {
 
     // ===================== JSON 解析与真实性校验 =====================
 
-    private static List<RecipeProposal> parseProposals(String aiOutput, String targetType) {
-        String json = extractJson(aiOutput);
-        if (json == null) return List.of();
-
-        JsonObject obj;
-        try {
-            obj = JsonParser.parseString(json).getAsJsonObject();
-        } catch (Exception e) {
-            return List.of();
-        }
-
+    private static List<RecipeProposal> parseProposals(JsonObject obj, String targetType) {
+        if (obj == null) return List.of();
         List<RecipeProposal> result = new ArrayList<>();
         if (obj.has("proposals") && obj.get("proposals").isJsonArray()) {
             for (JsonElement el : obj.getAsJsonArray("proposals")) {
@@ -551,11 +570,9 @@ public final class PhaseAIRecipeService {
         return result;
     }
 
-    private static String extractConfirmMessage(String aiOutput) {
-        String json = extractJson(aiOutput);
-        if (json == null) return "";
+    private static String extractConfirmMessage(JsonObject obj) {
+        if (obj == null) return "";
         try {
-            JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
             if (obj.has("confirmMessage") && obj.get("confirmMessage").isJsonPrimitive()) {
                 return obj.get("confirmMessage").getAsString();
             }
@@ -567,11 +584,9 @@ public final class PhaseAIRecipeService {
      * 提取 AI 给的反问选项（顶层 {@code "questions"} 数组）。
      * 只保留非空、≤12 字的短词，最多 3 个；解析失败/无字段 → 空列表。永不抛异常。
      */
-    private static List<String> extractQuestions(String aiOutput) {
-        String json = extractJson(aiOutput);
-        if (json == null) return List.of();
+    private static List<String> extractQuestions(JsonObject obj) {
+        if (obj == null) return List.of();
         try {
-            JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
             if (!obj.has("questions") || !obj.get("questions").isJsonArray()) {
                 return List.of();
             }
@@ -745,6 +760,33 @@ public final class PhaseAIRecipeService {
      * </ul>
      * 策略：先剥围栏与 think 块，再用括号配平找<b>第一个完整</b>的对象/数组。
      */
+    /**
+     * 把 AI 原始回包解析成 JSON 对象；失败返回 null。
+     * <p>解析失败此前完全静默——玩家只看到状态灯变黄和「（基础配方）」，
+     * 服主翻日志也查不出模型到底吐了什么。这里补一条 WARN + 原文前 300 字。
+     */
+    private static JsonObject parseAiRoot(String aiOutput) {
+        String json = extractJson(aiOutput);
+        if (json == null) {
+            Qianxiang.LOGGER.warn("[Qianxiang] AI 回包里找不到可解析的 JSON，落兜底。原文前 300 字：{}",
+                    truncateForLog(aiOutput));
+            return null;
+        }
+        try {
+            return JsonParser.parseString(json).getAsJsonObject();
+        } catch (Exception e) {
+            Qianxiang.LOGGER.warn("[Qianxiang] AI 回包 JSON 解析失败（{}），落兜底。原文前 300 字：{}",
+                    e.getClass().getSimpleName(), truncateForLog(aiOutput));
+            return null;
+        }
+    }
+
+    private static String truncateForLog(String raw) {
+        if (raw == null) return "(null)";
+        String oneLine = raw.replaceAll("\\s+", " ").trim();
+        return oneLine.length() > 300 ? oneLine.substring(0, 300) + "…" : oneLine;
+    }
+
     /** 测试入口：暴露 JSON 抽取逻辑（真实回包的容错是本类最脆弱的一环）。 */
     public static String extractJsonForTest(String raw) {
         return extractJson(raw);
