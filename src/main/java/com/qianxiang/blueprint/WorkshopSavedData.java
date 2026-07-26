@@ -22,13 +22,16 @@ import java.util.List;
  * 好配方自然浮出。数据存主世界 {@link SavedData}（{@code data/qianxiang_workshop.dat}），
  * 随存档持久化。
  * <p>
- * 边界：容量上限 {@value MAX_ENTRIES}；发布者与 OP(2) 可下架；
+ * 边界：容量上限 {@value MAX_ENTRIES}，单作者上限 {@value MAX_PER_AUTHOR}；发布者与 OP(2) 可下架；
  * 同作者同名蓝图去重（重复发布覆盖旧条目并保留取用计数）。
  */
 public class WorkshopSavedData extends SavedData {
 
     /** 全服共享蓝图上限。 */
     public static final int MAX_ENTRIES = 200;
+
+    /** 单作者发布上限——防一人刷满全服画廊。 */
+    public static final int MAX_PER_AUTHOR = 20;
 
     private static final String STORAGE_NAME = "qianxiang_workshop";
 
@@ -104,6 +107,10 @@ public class WorkshopSavedData extends SavedData {
         }
         if (entries.size() >= MAX_ENTRIES) {
             return "工坊已满（" + MAX_ENTRIES + " 条），请先下架旧蓝图";
+        }
+        long mine = entries.stream().filter(e -> e.authorUuid().equals(authorUuid)).count();
+        if (mine >= MAX_PER_AUTHOR) {
+            return "你已发布 " + MAX_PER_AUTHOR + " 条（单人上限），请先下架一些旧蓝图";
         }
         entries.add(new PublishedEntry(blueprint, author, authorUuid, System.currentTimeMillis(), 0));
         setDirty();

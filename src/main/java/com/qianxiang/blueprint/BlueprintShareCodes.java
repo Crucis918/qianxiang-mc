@@ -102,7 +102,13 @@ public final class BlueprintShareCodes {
         String spellJson = truncate(d.spellJson());
         String movesetJson = truncate(d.movesetJson());
         double power = Double.isFinite(d.power()) ? Math.clamp(d.power(), 0.0, 10000.0) : 0.0;
-        String productType = d.productType() == null ? "weapon" : d.productType();
+        // productType 是闭集（见 BlueprintData.inferProductType），外来码给的任意串一律归一，
+        // 防止恶意码借这个无长度限制的字段撑爆存档
+        String productType = switch (d.productType() == null ? "" : d.productType()) {
+            case "armor" -> "armor";
+            case "tool" -> "tool";
+            default -> "weapon";
+        };
         return new BlueprintData(List.copyOf(materials), productType, power, name, spellJson, movesetJson);
     }
 
