@@ -35,6 +35,13 @@ public final class QianxiangEntities {
                     .clientTrackingRange(10)
                     .build(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "abyss_merchant").toString()));
 
+    /** 森罗守望者：万象森罗漫游 Boss（高属性 + Boss 血条 + 传奇材料掉落）。 */
+    public static final DeferredHolder<EntityType<?>, EntityType<QianxiangMyriadWarden>> MYRIAD_WARDEN =
+            ENTITIES.register("myriad_warden", () -> EntityType.Builder.of(QianxiangMyriadWarden::new, MobCategory.MONSTER)
+                    .sized(0.96F, 3.1F)
+                    .clientTrackingRange(10)
+                    .build(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "myriad_warden").toString()));
+
     /** 自由法术弹体：视觉靠服务端粒子，渲染器为空实现。 */
     public static final DeferredHolder<EntityType<?>, EntityType<SpellProjectileEntity>> SPELL_PROJECTILE =
             ENTITIES.register("spell_projectile", () -> EntityType.Builder.of(SpellProjectileEntity::new, MobCategory.MISC)

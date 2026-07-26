@@ -23,6 +23,7 @@ public final class ClientSetup {
         event.registerEntityRenderer(QianxiangEntities.WANDERING_SAGE.get(), QianxiangSageRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.ABYSS_MERCHANT.get(), QianxiangAbyssMerchantRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.SPELL_PROJECTILE.get(), SpellProjectileRenderer::new);
+        event.registerEntityRenderer(QianxiangEntities.MYRIAD_WARDEN.get(), QianxiangMyriadWardenRenderer::new);
     }
 
     /** 武器外貌即时生成：把动态产物的静态模型包上 DynamicWeaponModel（无组件时静态纹理兜底）。 */

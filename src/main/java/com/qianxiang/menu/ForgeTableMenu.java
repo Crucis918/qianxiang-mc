@@ -159,14 +159,27 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         }
     }
 
-    /** 如果产物铭刻了法术，让玩家学会它（不消耗，用于施法环/面板）。 */
+    /** 如果产物铭刻了法术，让玩家学会它（不消耗，用于施法环/面板）。覆盖三种载体：
+     *  相杖 CUSTOM_SPELL、法术书 SPELLBOOK（全部法术）、旧存档物品的 SPELL。 */
     private void learnSpellFromResult(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
-        ResourceLocation spellId = resultStack.get(QianxiangDataComponents.SPELL.get());
-        if (spellId == null) return;
         try {
+            java.util.List<ResourceLocation> ids = new java.util.ArrayList<>();
+            var custom = resultStack.get(QianxiangDataComponents.CUSTOM_SPELL.get());
+            if (custom != null) ids.add(custom.id());
+            var book = resultStack.get(QianxiangDataComponents.SPELLBOOK.get());
+            if (book != null) {
+                for (var s : book.spells()) ids.add(s.id());
+            }
+            ResourceLocation legacy = resultStack.get(QianxiangDataComponents.SPELL.get());
+            if (legacy != null) ids.add(legacy);
+            if (ids.isEmpty()) return;
+
             PlayerSpellData data = player.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
-            player.setData(QianxiangAttachments.PLAYER_SPELL_DATA, data.learn(spellId));
+            for (ResourceLocation id : ids) {
+                data = data.learn(id);
+            }
+            player.setData(QianxiangAttachments.PLAYER_SPELL_DATA, data);
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 记录已学法术失败（不阻断合成）", t);
         }

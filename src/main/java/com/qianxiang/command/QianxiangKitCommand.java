@@ -111,6 +111,7 @@ public final class QianxiangKitCommand {
         // NPC 刷怪蛋（流浪相师 / 深渊商人）
         list.add(new ItemStack(QianxiangItems.WANDERING_SAGE_SPAWN_EGG.get()));
         list.add(new ItemStack(QianxiangItems.ABYSS_MERCHANT_SPAWN_EGG.get()));
+        list.add(new ItemStack(QianxiangItems.MYRIAD_WARDEN_SPAWN_EGG.get()));
 
         // 维度装饰/资源方块（微光原木、微光树叶、野光草、虚空矿石）
         list.add(new ItemStack(QianxiangBlocks.GLIMMER_LOG_ITEM.get(), 8));

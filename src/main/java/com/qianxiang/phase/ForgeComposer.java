@@ -181,11 +181,12 @@ public final class ForgeComposer {
             AttributeScheme.applyModifiersToStack(out, attr);
         }
 
-        // 6. 法系产物（相杖）铭刻默认法术：有疗伤材料则写治疗术，有迟缓材料则写迟缓术，否则火球术。
+        // 6. 法系产物（相杖）铭刻默认法术：有疗伤材料则写治愈系，有迟缓材料则写霜冻系，否则火球。
+        //    统一走 CustomSpell（自由法术引擎）；旧 SPELL 组件只在旧存档物品上继续被读取。
         if (out.is(QianxiangItems.PHASE_STAFF.get())) {
-            Spell defaultSpell = attr.healLevel() > 0 ? Spell.HEAL
-                    : (attr.slowLevel() > 0 ? Spell.SLOW : Spell.FIREBALL);
-            out.set(QianxiangDataComponents.SPELL.get(), defaultSpell.id());
+            CustomSpell defaultSpell = attr.healLevel() > 0 ? CustomSpell.NATURE_HEAL
+                    : (attr.slowLevel() > 0 ? CustomSpell.FROST_NOVA : CustomSpell.FIREBALL);
+            out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), defaultSpell);
         }
 
         // 7. AI 输出驱动：最近一次 AI 响应带 spellJson 且产物为法系（相杖/法术书）→
@@ -226,9 +227,7 @@ public final class ForgeComposer {
             if (spellBook) {
                 out.set(QianxiangDataComponents.SPELLBOOK.get(), new SpellBookData(List.of(spell), 0));
             } else {
-                // 移除步骤 6 写入的旧 SPELL 组件——否则旧施法路径会盖住 AI 法术
-                out.remove(QianxiangDataComponents.SPELL.get());
-                out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), spell);
+                out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), spell); // 覆盖步骤 6 的默认法术
             }
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 应用 AI spellJson 失败（保留材料映射结果）", t);

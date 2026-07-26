@@ -115,6 +115,11 @@ public final class QianxiangItems {
                             PhaseData.of(PhaseTier.LEGENDARY, Set.of(Phase.CHAOS, Phase.TRANSCEND),
                                     PhaseFunction.REVERSE))));
 
+    // 森罗守望者刷怪蛋（Boss，测试/地图作者用）
+    public static final DeferredHolder<Item, Item> MYRIAD_WARDEN_SPAWN_EGG =
+            ITEMS.register("myriad_warden_spawn_egg", () -> new SpawnEggItem(
+                    QianxiangEntities.MYRIAD_WARDEN.get(), 0x2E8B57, 0x9FF0D0, new Item.Properties()));
+
     // 流浪相师刷怪蛋
     public static final DeferredHolder<Item, Item> WANDERING_SAGE_SPAWN_EGG =
             ITEMS.register("wandering_sage_spawn_egg", () -> new SpawnEggItem(

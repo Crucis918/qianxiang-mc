@@ -82,6 +82,7 @@ public final class QianxiangCreativeTab {
                         // —— NPC 刷怪蛋 ——
                         output.accept(QianxiangItems.WANDERING_SAGE_SPAWN_EGG.get());
                         output.accept(QianxiangItems.ABYSS_MERCHANT_SPAWN_EGG.get());
+                        output.accept(QianxiangItems.MYRIAD_WARDEN_SPAWN_EGG.get());
                     })
                     .build());
 

@@ -27,6 +27,7 @@ public final class QianxiangEntityAttributes {
         // 直接复用原版 Villager 属性，保持 Villager-like 行为一致
         event.put(QianxiangEntities.WANDERING_SAGE.get(), Villager.createAttributes().build());
         event.put(QianxiangEntities.ABYSS_MERCHANT.get(), Villager.createAttributes().build());
+        event.put(QianxiangEntities.MYRIAD_WARDEN.get(), QianxiangMyriadWarden.createAttributes().build());
     }
 
     @SubscribeEvent
@@ -35,6 +36,10 @@ public final class QianxiangEntityAttributes {
                 SpawnPlacementTypes.ON_GROUND, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 Mob::checkMobSpawnRules, RegisterSpawnPlacementsEvent.Operation.REPLACE);
         event.register(QianxiangEntities.ABYSS_MERCHANT.get(),
+                SpawnPlacementTypes.ON_GROUND, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                Mob::checkMobSpawnRules, RegisterSpawnPlacementsEvent.Operation.REPLACE);
+        // Boss：地表生成、不受光照限制（万象森罗昼夜都可能遭遇）
+        event.register(QianxiangEntities.MYRIAD_WARDEN.get(),
                 SpawnPlacementTypes.ON_GROUND, Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
                 Mob::checkMobSpawnRules, RegisterSpawnPlacementsEvent.Operation.REPLACE);
     }
