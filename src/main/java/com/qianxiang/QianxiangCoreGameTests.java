@@ -201,6 +201,46 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 兜底配方质量（WQ-45） ============================
+
+    /** 否定语义：「不要火的剑」不得塞火材料，但「抗火」是合法功能需求不能被误剥。 */
+    @GameTest(template = "item_concept")
+    public static void fallbackRespectsNegation(GameTestHelper helper) {
+        var noFire = com.qianxiang.ai.FallbackRecipes.keywordPicksForTest("不要火的剑");
+        helper.assertTrue(noFire.stream().noneMatch(m -> m.contains("ember")),
+                "「不要火」不应命中火材料，实际 " + noFire);
+
+        // 「抗火」含「火」字但是 FIRE_RESIST 功能需求，必须仍然命中
+        var fireResist = com.qianxiang.ai.FallbackRecipes.keywordPicksForTest("抗火的靴子");
+        helper.assertTrue(fireResist.contains("minecraft:magma_cream"),
+                "「抗火」是合法功能需求，应命中抗火材料，实际 " + fireResist);
+        helper.assertTrue(fireResist.stream().noneMatch(m -> m.contains("ember")),
+                "「抗火」不应同时塞进点燃系材料，实际 " + fireResist);
+        helper.succeed();
+    }
+
+    /** 雷电组此前整组缺失，thunder_stone 在所有兜底路径上都选不到。 */
+    @GameTest(template = "item_concept")
+    public static void fallbackCoversLightningAndModMaterials(GameTestHelper helper) {
+        var lightning = com.qianxiang.ai.FallbackRecipes.keywordPicksForTest("雷电之剑");
+        helper.assertTrue(lightning.contains("qianxiang:thunder_stone"),
+                "「雷电」应命中雷霆石，实际 " + lightning);
+
+        record Case(String want, String expected) {}
+        for (Case c : List.of(
+                new Case("寒冰法杖", "qianxiang:frost_crystal"),
+                new Case("隐身斗篷", "qianxiang:shadow_dust"),
+                new Case("圣光之刃", "qianxiang:holy_shard"),
+                new Case("自然之力", "qianxiang:nature_breath"),
+                new Case("虚空武器", "qianxiang:void_shard"),
+                new Case("剧毒匕首", "qianxiang:venom_gland"))) {
+            var picks = com.qianxiang.ai.FallbackRecipes.keywordPicksForTest(c.want());
+            helper.assertTrue(picks.contains(c.expected()),
+                    "「" + c.want() + "」应命中 " + c.expected() + "，实际 " + picks);
+        }
+        helper.succeed();
+    }
+
     // ============================ AI 链路健壮性（WQ-39/41/43） ============================
 
     /** 材料召回必须显著小于全库，且仍能覆盖需求关键词对应的材料。 */

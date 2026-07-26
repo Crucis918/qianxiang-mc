@@ -10,6 +10,7 @@ import com.qianxiang.phase.PhaseTier;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -289,10 +290,15 @@ public final class FallbackRecipes {
     }
 
     /** 从玩家输入提取关键词命中的材料集合。 */
+    /** 测试入口：关键词命中的材料集合（传原始输入，内部会 normalize）。 */
+    public static Set<String> keywordPicksForTest(String rawInput) {
+        return keywordPicks(normalize(rawInput));
+    }
+
     private static Set<String> keywordPicks(String want) {
         Set<String> picks = new LinkedHashSet<>();
 
-        if (matchesAny(want, "火", "灼", "烧", "燃", "fire", "burn", "ignite", "flame")) {
+        if (wantsIgnite(want)) {
             picks.add("qianxiang:ember_iron");
             picks.add("qianxiang:ember_crystal");
         }
@@ -332,10 +338,45 @@ public final class FallbackRecipes {
             addIfExists(picks, "minecraft:spider_eye");
             addIfExists(picks, "minecraft:pufferfish");
         }
-        if (matchesAny(want, "霜冻", "冰冻", "冻结", "冰", "frost", "freeze", "ice")) {
-            boolean any = addIfExists(picks, "minecraft:snowball");
-            any |= addIfExists(picks, "minecraft:ice");
-            if (!any) picks.add("qianxiang:shadowhide_patch"); // tag 未覆盖时退回迟缓材料
+        // 「寒」此前只在 suggestQuestions 里有、keywordPicks 没有，两表不同步
+        if (matchesAny(want, "霜冻", "冰冻", "冻结", "冰", "寒", "霜", "frost", "freeze", "ice")) {
+            picks.add("qianxiang:frost_crystal");   // 模组专属霜材料优先
+            addIfExists(picks, "minecraft:snowball");
+            addIfExists(picks, "minecraft:ice");
+        }
+        // 雷电整组此前完全缺失 —— thunder_stone 在所有兜底路径上都选不到
+        if (matchesAny(want, "雷", "闪电", "电", "雷霆", "lightning", "thunder", "storm", "shock")) {
+            picks.add("qianxiang:thunder_stone");
+        }
+        // 以下几组 prompt 里宣传过（凋零刀/隐身斗篷/幸运工具），AI 挂掉时却全落空
+        if (matchesAny(want, "凋零", "枯萎", "wither")) {
+            addIfExists(picks, "minecraft:wither_rose");
+        }
+        if (matchesAny(want, "隐身", "透明", "invisib", "stealth")) {
+            picks.add("qianxiang:shadow_dust");
+        }
+        if (matchesAny(want, "失明", "致盲", "黑暗", "blind", "darkness")) {
+            picks.add("qianxiang:shadow_dust");
+            addIfExists(picks, "minecraft:ink_sac");
+        }
+        if (matchesAny(want, "虚弱", "衰弱", "weak")) {
+            addIfExists(picks, "minecraft:fermented_spider_eye");
+        }
+        if (matchesAny(want, "幸运", "运气", "luck", "fortune")) {
+            addIfExists(picks, "minecraft:rabbit_foot");
+            addIfExists(picks, "minecraft:emerald");
+        }
+        if (matchesAny(want, "圣光", "神圣", "净化", "holy", "light", "divine")) {
+            picks.add("qianxiang:holy_shard");
+        }
+        if (matchesAny(want, "自然", "生机", "草木", "nature", "growth", "verdant")) {
+            picks.add("qianxiang:nature_breath");
+        }
+        if (matchesAny(want, "虚空", "空洞", "湮灭", "void", "abyss")) {
+            picks.add("qianxiang:void_shard");
+        }
+        if (matchesAny(want, "剧毒", "毒液", "venom")) {
+            picks.add("qianxiang:venom_gland");
         }
         if (matchesAny(want, "漂浮", "浮空", "levitation", "levitate", "float")) {
             addIfExists(picks, "minecraft:shulker_shell");
@@ -971,8 +1012,89 @@ public final class FallbackRecipes {
 
     // ===================== 通用工具 =====================
 
+    /**
+     * 归一化玩家输入：转小写并<b>剥掉被否定的效果词</b>。
+     * <p>
+     * 所有关键词匹配（{@link #matchesAny}）都是裸 {@code contains}，
+     * 于是「不要火的剑」会命中「火」并塞进一堆火材料——正好是玩家明确拒绝的东西。
+     * 这里在唯一的归一化入口处理，一处修复对全部关键词表生效。
+     * <p>
+     * 做法是<b>精确剥除</b>「否定词 + 紧随的已知效果词」这一对，而不是笼统地删掉
+     * 否定词后面 N 个字符：后者会把「不要火<b>的剑</b>」的产物形状一起吃掉，
+     * 导致整句无关键词命中、反而落到含火材料的默认武器组。
+     * <p>
+     * 另外「抗火/防御/抗性」在本模组是<b>合法功能需求</b>（FIRE_RESIST/DEFENSE/RESISTANCE），
+     * 不属于否定词，不参与剥除。
+     */
     private static String normalize(String s) {
-        return s == null ? "" : s.toLowerCase(Locale.ROOT);
+        if (s == null) return "";
+        String lower = s.toLowerCase(Locale.ROOT);
+        for (String negation : NEGATION_PREFIXES) {
+            int idx;
+            int from = 0;
+            while ((idx = lower.indexOf(negation, from)) >= 0) {
+                int after = idx + negation.length();
+                int consumed = matchEffectKeywordAt(lower, after);
+                if (consumed > 0) {
+                    // 连否定词带被否定的效果词一起挖掉，其余语境原样保留
+                    lower = lower.substring(0, idx) + " " + lower.substring(after + consumed);
+                    from = idx + 1;
+                } else {
+                    from = after;
+                }
+            }
+        }
+        return lower;
+    }
+
+    /** 从 pos 起能匹配到的最长已知效果词长度；匹配不到返回 0。 */
+    private static int matchEffectKeywordAt(String text, int pos) {
+        int skip = 0;
+        while (pos + skip < text.length() && Character.isWhitespace(text.charAt(pos + skip))) {
+            skip++;
+        }
+        int best = 0;
+        for (String kw : NEGATABLE_EFFECT_KEYWORDS) {
+            if (text.startsWith(kw, pos + skip) && kw.length() > best) {
+                best = kw.length();
+            }
+        }
+        return best == 0 ? 0 : skip + best;
+    }
+
+    /** 真正表达「我不想要」的前缀。注意不含「抗/防」——那在本模组是功能词。 */
+    private static final String[] NEGATION_PREFIXES = {
+            "不要", "不用", "不带", "不想要", "不需要", "别要", "别用", "没有",
+            "去掉", "去除", "排除", "免疫", "no ", "not ", "without ", "anti-", "anti "
+    };
+
+    /** 可被否定的效果词（与各关键词组同源；长词在前不影响，匹配时取最长）。 */
+    private static final String[] NEGATABLE_EFFECT_KEYWORDS = {
+            "火焰", "烈焰", "火", "灼", "烧", "燃",
+            "霜冻", "冰冻", "冻结", "寒霜", "冰", "寒", "霜",
+            "雷电", "闪电", "雷霆", "雷", "电",
+            "剧毒", "中毒", "毒",
+            "吸血", "治疗", "回血", "再生",
+            "迟缓", "减速", "夜视", "速度", "迅捷", "力量", "跳跃",
+            "漂浮", "浮空", "凋零", "隐身", "失明", "致盲", "虚弱", "诅咒",
+            "反伤", "荆棘", "催熟", "收割", "圣光", "神圣", "自然", "虚空",
+            "fire", "flame", "burn", "frost", "ice", "freeze",
+            "lightning", "thunder", "poison", "venom", "lifesteal",
+            "heal", "regen", "slow", "speed", "strength", "jump",
+            "levitation", "wither", "invisib", "blind", "weak", "curse",
+            "thorns", "harvest", "holy", "void"
+    };
+
+    /**
+     * 是否想要「点燃」效果。
+     * <p>必须排除「抗火/防火/耐火」语境：它们含「火」字但表达的是 FIRE_RESIST，
+     * 裸 contains 会让「抗火靴」同时被塞进烬铁与余烬石——正好是玩家想抵抗的东西。
+     */
+    private static boolean wantsIgnite(String want) {
+        if (matchesAny(want, "抗火", "防火", "耐火", "fire resist", "fire_resist", "fireproof")) {
+            return false;
+        }
+        return matchesAny(want, "火", "灼", "烧", "燃", "fire", "burn", "ignite", "flame");
     }
 
     private static boolean matchesAny(String text, String... keys) {
@@ -1014,7 +1136,7 @@ public final class FallbackRecipes {
         if (want.isBlank()) return List.of();
         List<KeywordHint> out = new ArrayList<>();
 
-        if (matchesAny(want, "火", "灼", "烧", "燃", "fire", "burn", "ignite", "flame")) {
+        if (wantsIgnite(want)) {
             out.add(new KeywordHint("qianxiang.phasefn.ignite",
                     List.of("qianxiang:ember_iron", "qianxiang:ember_crystal")));
         }

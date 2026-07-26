@@ -319,6 +319,9 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             materialsOnly.set(i, items.get(i));
         }
         net.minecraft.world.Containers.dropContents(level, pos, materialsOnly);
+        // 这行有双重职责，勿删：①防止 super.onRemove 之外的路径重复掉落；
+        // ②封死「A 开着界面、B 炸掉台子」的抢跑窗口——清空后 A 那边的
+        // slotsChanged 再算也是空组合，拿不到产物。
         items.clear();
     }
 
@@ -329,6 +332,17 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     @Override public ItemStack removeItem(int slot, int amount) { return ContainerHelper.removeItem(items, slot, amount); }
     @Override public ItemStack removeItemNoUpdate(int slot) { return ContainerHelper.takeItem(items, slot); }
     @Override public void setItem(int slot, ItemStack stack) { items.set(slot, stack); setChanged(); }
+    /**
+     * 产物槽不接受任何放入。
+     * <p>{@link Container} 的默认实现恒返回 true，是产物槽最后一个敞着的口子——
+     * 当前没有注册 item handler capability 所以外部利用不到，但任何一处
+     * （管道 mod、未来的 capability 暴露）都可能把它变成可利用面。
+     */
+    @Override
+    public boolean canPlaceItem(int slot, ItemStack stack) {
+        return slot < ForgeTableMenu.MATERIAL_SLOTS;
+    }
+
     @Override public boolean stillValid(Player player) { return Container.stillValidBlockEntity(this, player); }
     @Override public void clearContent() { items.clear(); setChanged(); }
 

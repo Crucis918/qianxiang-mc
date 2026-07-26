@@ -413,6 +413,9 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         // 顺带清掉该玩家在这台锻造台上的 AI 提案与选择（不落盘，随会话有效）
         if (this.container instanceof ForgeTableBlockEntity be) {
             be.clearPlayerAiState(player.getUUID());
+            // 产物槽刚被清空，状态必须跟着刷新——否则方块滞留 STATE_READY，
+            // 玩家关掉界面后还能看到「可锻造」的粒子在冒。
+            be.updateCraftingState();
         }
     }
 
