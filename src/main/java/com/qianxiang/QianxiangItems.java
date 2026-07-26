@@ -40,49 +40,59 @@ public final class QianxiangItems {
     // 用 QianxiangWeaponItem：属性不硬编码，全部来自合成时写入的 ComposedAttributes（强度靠材料）。
     // （task 9 接 Epic Fight 武器类型——见 docs/epic-fight-compat-brief.md，纯数据包即可挂武器模组）
     public static final DeferredHolder<Item, Item> EMBER_BLADE =
-            ITEMS.register("ember_blade", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
+            ITEMS.register("ember_blade", () -> new QianxiangWeaponItem(new Item.Properties()
+                    .rarity(Rarity.UNCOMMON).durability(QianxiangWeaponItem.DEFAULT_DURABILITY)));
 
     // 相杖 phase_staff —— 「木质/金属基底 + 法力」组合的法系武器载体（动态属性，强度靠材料）。
     public static final DeferredHolder<Item, Item> PHASE_STAFF =
-            ITEMS.register("phase_staff", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
+            ITEMS.register("phase_staff", () -> new QianxiangWeaponItem(new Item.Properties()
+                    .rarity(Rarity.UNCOMMON).durability(QianxiangWeaponItem.DEFAULT_DURABILITY)));
 
     // 骨刃 bone_blade —— 「骨制基底 + 锋锐」组合的锋锐武器载体（动态属性）。
     public static final DeferredHolder<Item, Item> BONE_BLADE =
-            ITEMS.register("bone_blade", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
+            ITEMS.register("bone_blade", () -> new QianxiangWeaponItem(new Item.Properties()
+                    .rarity(Rarity.UNCOMMON).durability(QianxiangWeaponItem.DEFAULT_DURABILITY)));
 
     // 相盾 phase_shield —— 「纯皮制基底（无穿戴效果算子）或反伤(REFLECT)」组合的防具载体（动态属性）。
     public static final DeferredHolder<Item, Item> PHASE_SHIELD =
-            ITEMS.register("phase_shield", () -> new QianxiangWeaponItem(new Item.Properties().rarity(Rarity.UNCOMMON)));
+            ITEMS.register("phase_shield", () -> new QianxiangWeaponItem(new Item.Properties()
+                    .rarity(Rarity.UNCOMMON).durability(QianxiangWeaponItem.DEFAULT_DURABILITY)));
 
     // 相盔 phase_helmet —— 「皮制基底 + 夜视(NIGHT_VISION)/水肺(WATER_BREATH)」组合的头盔载体（动态属性，强度靠材料）。
     public static final DeferredHolder<Item, Item> PHASE_HELMET =
             ITEMS.register("phase_helmet", () -> new QianxiangArmorItem(ArmorItem.Type.HELMET,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangArmorItem.DEFAULT_DURABILITY)));
 
     // 相甲 phase_chestplate —— 「皮制基底 + 抗性(RESISTANCE)/抗火(FIRE_RESIST)」组合的胸甲载体（动态属性）。
     public static final DeferredHolder<Item, Item> PHASE_CHESTPLATE =
             ITEMS.register("phase_chestplate", () -> new QianxiangArmorItem(ArmorItem.Type.CHESTPLATE,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangArmorItem.DEFAULT_DURABILITY)));
 
     // 相胫 phase_leggings —— 「皮制基底 + 再生(REGENERATION)/防御(DEFENSE)」组合的护腿载体（动态属性，如皮革+恶魂之泪）。
     public static final DeferredHolder<Item, Item> PHASE_LEGGINGS =
             ITEMS.register("phase_leggings", () -> new QianxiangArmorItem(ArmorItem.Type.LEGGINGS,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangArmorItem.DEFAULT_DURABILITY)));
 
     // 相靴 phase_boots —— 「皮制基底 + 迅捷(SPEED_BOOST)/跃升(JUMP_BOOST)」组合的靴子载体（动态属性，如皮革+兔子脚）。
     public static final DeferredHolder<Item, Item> PHASE_BOOTS =
             ITEMS.register("phase_boots", () -> new QianxiangArmorItem(ArmorItem.Type.BOOTS,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangArmorItem.DEFAULT_DURABILITY)));
 
     // 相锄 phase_hoe —— 「基底 + 广域耕作(AREA_HARVEST)」组合的广域耕地工具载体（动态属性，强度靠材料）。
     public static final DeferredHolder<Item, Item> PHASE_HOE =
             ITEMS.register("phase_hoe", () -> new QianxiangToolItem(QianxiangToolItem.Kind.HOE,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangToolItem.DEFAULT_DURABILITY)));
 
     // 相之水壶 phase_watering_can —— 「基底 + 催熟(GROWTH)」组合的范围催熟工具载体（动态属性）。
     public static final DeferredHolder<Item, Item> PHASE_WATERING_CAN =
             ITEMS.register("phase_watering_can", () -> new QianxiangToolItem(QianxiangToolItem.Kind.WATERING_CAN,
-                    new Item.Properties().rarity(Rarity.UNCOMMON)));
+                    new Item.Properties().rarity(Rarity.UNCOMMON)
+                            .durability(QianxiangToolItem.DEFAULT_DURABILITY)));
 
     // 千相法术书 spell_book —— 自由法术系统的施法载体：存法术列表+选中下标，
     // 右键施放、潜行+右键切换。默认带 3 个入门预置法术；锻造台（含裂隙精髓的魔法组合）
