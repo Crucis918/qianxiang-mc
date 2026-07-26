@@ -299,16 +299,29 @@ public final class PhaseAIRecipeService {
         } else {
             sb.append("【材料范围】玩家未限制材料范围，下列材料库中的全部材料均可使用。\n");
         }
-        sb.append("【材料库】（registryName 显示名：功能算子+档位+相性）\n");
-        sb.append("材料库现在是全物品库：任何原版物品都有概念与相性——土石草木皆可当辅料");
-        sb.append("（泥土=万物之基、石头=厚重、草木=生机），不要局限于高价值物品；");
-        sb.append("高档位需求仍以高 tier 材料为核心，普通物品适合当基底/填充/调相辅料。\n");
-        for (MaterialLibrary.MaterialEntry e : lib) {
-            sb.append("- ").append(e.registryName())
-              .append(" | ").append(e.displayName())
-              .append(" | functions=").append(e.functions())
-              .append(" | tier=").append(e.tier())
-              .append('\n');
+        // 材料库是「全物品库」（概念推导兜底让 1391 件原版物品全部入库，约 114KB）。
+        // 整段倾倒进 prompt ≈4 万 token —— Ollama 默认 num_ctx 只有 2048~4096，
+        // 新版直接 500、旧版静默截断，而被截掉的恰恰是排在后面的玩家需求本身。
+        // 改为检索式召回：按需求关键词 + 产物类型 + 目标档位挑 Top-48，分三组给出。
+        java.util.Set<String> allowedSet = null;
+        if (restricted) {
+            allowedSet = new java.util.HashSet<>();
+            for (MaterialLibrary.MaterialEntry e : lib) {
+                allowedSet.add(e.registryName());
+            }
+        }
+        var groups = MaterialRecall.recall(lib, request, targetType, tierFromString(targetTier), allowedSet);
+        sb.append("【候选材料】（已按你的需求筛选，registryName | 显示名 | 功能算子 | 档位）\n");
+        sb.append("只能从下列材料中挑选，registryName 必须原样照抄（含命名空间、全小写）。\n");
+        for (MaterialRecall.Group g : groups) {
+            sb.append("· ").append(g.title()).append('\n');
+            for (MaterialLibrary.MaterialEntry e : g.entries()) {
+                sb.append("  - ").append(e.registryName())
+                  .append(" | ").append(e.displayName())
+                  .append(" | ").append(e.functions())
+                  .append(" | ").append(e.tier())
+                  .append('\n');
+            }
         }
         sb.append("\n【功能性需求指引】\n");
         sb.append("材料库已扩展功能算子：POISON(中毒)/FROST(霜冻)/LEVITATION(漂浮)/STRENGTH(力量)/");
@@ -583,9 +596,12 @@ public final class PhaseAIRecipeService {
                 if (!el.isJsonPrimitive()) continue;
                 String name = el.getAsString();
                 if (name == null || name.isBlank()) continue;
-                String normalized = normalizeName(name.trim());
-                if (MaterialLibrary.exists(normalized)) {
-                    picks.add(normalized);
+                // 必须存库里的规范 registryName：AI 常给「Minecraft:Iron_Ingot」这类
+                // 大小写混合写法，原样存下去会一路传到客户端图标与放料的
+                // ResourceLocation.tryParse —— 而 MC 的 id 不接受大写，全返 null。
+                var entry = MaterialLibrary.find(normalizeName(name));
+                if (entry.isPresent()) {
+                    picks.add(entry.get().registryName());
                 } else {
                     Qianxiang.LOGGER.warn("[Qianxiang] AI 输出了不存在的材料，已剔除：{}", name);
                 }
@@ -716,19 +732,94 @@ public final class PhaseAIRecipeService {
         }
     }
 
-    /** LLM 有时会裹 markdown ```json ... ```，这里抽出最外层 { ... }。 */
-    private static String extractJson(String raw) {        if (raw == null || raw.isBlank()) return null;
-        int start = raw.indexOf('{');
-        int end = raw.lastIndexOf('}');
-        if (start < 0 || end <= start) return null;
-        return raw.substring(start, end + 1);
+    /**
+     * 从 LLM 原始回包里抽出可解析的 JSON 对象。
+     * <p>
+     * 实测必须处理的几类输入（原实现「首个 {{ 到末个 }}」对后四类全部失败）：
+     * <ul>
+     *   <li>markdown 围栏 <code>```json ... ```</code>；</li>
+     *   <li>推理模型（deepseek-r1 等）的 {@code <think>...</think>} 块——
+     *       块里常含花括号，会把起点定位到思考内容里；</li>
+     *   <li>回包末尾追加闲聊 → 末个 }} 不是 JSON 的结尾；</li>
+     *   <li>顶层是数组（模型直接给了 proposals 列表）→ 包一层再返回。</li>
+     * </ul>
+     * 策略：先剥围栏与 think 块，再用括号配平找<b>第一个完整</b>的对象/数组。
+     */
+    /** 测试入口：暴露 JSON 抽取逻辑（真实回包的容错是本类最脆弱的一环）。 */
+    public static String extractJsonForTest(String raw) {
+        return extractJson(raw);
     }
 
-    /** 容错：AI 可能漏 namespace，补上 qianxiang:。 */
+    private static String extractJson(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+
+        String text = raw;
+        // ① 剥 <think>...</think>（可能多段、可能未闭合）
+        text = text.replaceAll("(?s)<think>.*?</think>", " ");
+        int danglingThink = text.indexOf("<think>");
+        if (danglingThink >= 0) {
+            text = text.substring(0, danglingThink);
+        }
+        // ② 剥 markdown 围栏标记（内容保留）
+        text = text.replaceAll("```[a-zA-Z]*", " ");
+
+        String obj = firstBalanced(text, '{', '}');
+        if (obj != null) return obj;
+
+        // ③ 顶层数组：包一层成 {"proposals":[...]}
+        String arr = firstBalanced(text, '[', ']');
+        if (arr != null) return "{\"proposals\":" + arr + "}";
+        return null;
+    }
+
+    /**
+     * 括号配平地取出第一个完整片段（正确跳过字符串字面量与转义）。
+     * 找不到完整片段返回 null。
+     */
+    private static String firstBalanced(String text, char open, char close) {
+        int start = text.indexOf(open);
+        if (start < 0) return null;
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) continue;
+            if (c == open) {
+                depth++;
+            } else if (c == close) {
+                depth--;
+                if (depth == 0) {
+                    return text.substring(start, i + 1);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 规范化 AI 给出的材料名。
+     * <p>
+     * <b>不再</b>给无冒号的名字强加 {@code qianxiang:} 前缀——小模型省略 namespace 是
+     * 最高频的瑕疵，而「iron_ingot」被改成「qianxiang:iron_ingot」后永远匹配不上，
+     * {@link MaterialLibrary#find} 的短名容错反而成了死代码，整条方案被清空静默落兜底。
+     * 现在原样交给 find 做短名匹配，命中后取库里的规范 registryName。
+     */
     static String normalizeName(String name) {
         if (name == null) return "";
-        if (name.contains(":")) return name;
-        return "qianxiang:" + name;
+        return name.trim();
     }
 
     static double estimatePower(List<String> materialNames) {

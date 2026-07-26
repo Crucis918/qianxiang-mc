@@ -201,6 +201,77 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ AI 链路健壮性（WQ-39/41/43） ============================
+
+    /** 材料召回必须显著小于全库，且仍能覆盖需求关键词对应的材料。 */
+    @GameTest(template = "item_concept")
+    public static void materialRecallShrinksPrompt(GameTestHelper helper) {
+        var lib = com.qianxiang.ai.MaterialLibrary.snapshot();
+        helper.assertTrue(lib.size() > 100,
+                "材料库应包含大量物品（概念推导兜底），实际 " + lib.size());
+
+        var groups = com.qianxiang.ai.MaterialRecall.recall(
+                lib, "我要一把会喷火的剑", "weapon", com.qianxiang.phase.PhaseTier.RARE, null);
+        int total = groups.stream().mapToInt(g -> g.entries().size()).sum();
+        helper.assertTrue(total > 0, "召回结果不应为空");
+        helper.assertTrue(total <= com.qianxiang.ai.MaterialRecall.MAX_TOTAL,
+                "召回应受上限约束（防 prompt 爆窗），实际 " + total);
+        helper.assertTrue(total < lib.size() / 4,
+                "召回应显著小于全库：" + total + " vs 全库 " + lib.size());
+
+        boolean hasIgnite = groups.stream().flatMap(g -> g.entries().stream())
+                .anyMatch(e -> e.functions().contains(com.qianxiang.phase.PhaseFunction.IGNITE));
+        helper.assertTrue(hasIgnite, "「喷火」需求应召回带 IGNITE 算子的材料");
+        helper.succeed();
+    }
+
+    /** AI 给的裸名/大小写混合材料名必须能匹配上，并归一为规范 registryName。 */
+    @GameTest(template = "item_concept")
+    public static void aiMaterialNamesNormalizeToRegistryIds(GameTestHelper helper) {
+        // 裸名（小模型最常见的省略）
+        var bare = com.qianxiang.ai.MaterialLibrary.find("ember_iron");
+        helper.assertTrue(bare.isPresent(),
+                "裸名应能匹配（此前被强加 qianxiang: 前缀后反而永不命中）");
+        helper.assertTrue(bare.get().registryName().equals("qianxiang:ember_iron"),
+                "应归一为规范 id，实际 " + bare.get().registryName());
+
+        // 大小写混合（MC 的 id 不接受大写，原样传下去会让 tryParse 全返 null）
+        var mixed = com.qianxiang.ai.MaterialLibrary.find("Minecraft:Iron_Ingot");
+        helper.assertTrue(mixed.isPresent(), "大小写混合的全名应能匹配");
+        helper.assertTrue(mixed.get().registryName().equals("minecraft:iron_ingot"),
+                "应归一为全小写规范 id，实际 " + mixed.get().registryName());
+        helper.assertTrue(net.minecraft.resources.ResourceLocation.tryParse(
+                        mixed.get().registryName()) != null,
+                "归一后的 id 必须能被 ResourceLocation.tryParse 接受");
+        helper.succeed();
+    }
+
+    /** extractJson 必须扛住围栏、think 块、尾部闲聊、顶层数组四类真实回包。 */
+    @GameTest(template = "item_concept")
+    public static void extractJsonHandlesRealWorldResponses(GameTestHelper helper) {
+        record Case(String name, String raw) {}
+        var cases = List.of(
+                new Case("markdown 围栏", "```json\n{\"proposals\":[]}\n```"),
+                new Case("think 块（内含花括号）",
+                        "<think>我觉得应该用 {铁锭} 之类</think>\n{\"proposals\":[]}"),
+                new Case("尾部闲聊", "{\"proposals\":[]}\n希望这个方案对你有帮助！{笑}"),
+                new Case("顶层数组", "[{\"materials\":[\"qianxiang:ember_iron\"]}]"));
+
+        for (Case c : cases) {
+            String extracted = com.qianxiang.ai.PhaseAIRecipeService.extractJsonForTest(c.raw());
+            helper.assertTrue(extracted != null, c.name() + "：应能抽出 JSON，实际返回 null");
+            try {
+                var parsed = com.google.gson.JsonParser.parseString(extracted);
+                helper.assertTrue(parsed.isJsonObject(),
+                        c.name() + "：抽出的内容应是 JSON 对象，实际 " + extracted);
+            } catch (Exception e) {
+                helper.fail(c.name() + "：抽出的内容不是合法 JSON：" + extracted);
+                return;
+            }
+        }
+        helper.succeed();
+    }
+
     // ============================ 蓝图选料（WQ-11/48） ============================
 
     /**

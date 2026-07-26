@@ -32,6 +32,12 @@ import java.util.Optional;
  */
 public final class AIClient {
 
+    /** Ollama 上下文窗口。默认 2048~4096 装不下系统 prompt，必须显式下发。 */
+    private static final int OLLAMA_NUM_CTX = 8192;
+
+    /** 采样温度：挑材料 id 是照抄类任务，低温更稳。 */
+    private static final double TEMPERATURE = 0.2;
+
     private static final Gson GSON = new Gson();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2))
@@ -43,9 +49,17 @@ public final class AIClient {
      */
     private static final ThreadLocal<Boolean> LAST_CONNECT_ISSUE = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
+    /** 本次失败是否为「连上了但模型太慢」的请求超时（与连接失败分开计数）。 */
+    private static final ThreadLocal<Boolean> LAST_REQUEST_TIMEOUT = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     /** 供 {@link AIGateway} 熔断判定用：仅在同线程、紧随一次失败的 {@link #chat} 之后调用才有意义。 */
     static boolean lastFailureWasConnectionIssue() {
         return LAST_CONNECT_ISSUE.get();
+    }
+
+    /** 同上，但判「请求超时」。 */
+    static boolean lastFailureWasRequestTimeout() {
+        return LAST_REQUEST_TIMEOUT.get();
     }
 
     private AIClient() {}
@@ -60,6 +74,7 @@ public final class AIClient {
     public static Optional<String> chat(String userMessage, String systemPrompt) {
         AIConfig cfg = AIConfig.get();
         LAST_CONNECT_ISSUE.set(Boolean.FALSE);
+        LAST_REQUEST_TIMEOUT.set(Boolean.FALSE);
         try {
             if (cfg.isOpenAI()) {
                 return chatOpenAI(cfg, userMessage, systemPrompt);
@@ -68,6 +83,7 @@ public final class AIClient {
         } catch (Exception e) {
             // 包含：ConnectException（服务未启动）、TimeoutException、JsonSyntaxException ...
             LAST_CONNECT_ISSUE.set(isConnectionIssue(e));
+            LAST_REQUEST_TIMEOUT.set(isRequestTimeout(e));
             Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 调用失败，将退关键词配方：{}",
                     cfg.provider, e.getClass().getSimpleName() + ": " + e.getMessage());
             return Optional.empty();
@@ -81,6 +97,18 @@ public final class AIClient {
      * （HttpClient 常把底层 socket 异常包一层 IOException）。
      * <b>不含</b>普通请求超时 HttpTimeoutException——那说明连接已建立、只是模型慢。
      */
+    /**
+     * 是否是「连上了但模型太慢」的请求超时。
+     * <p>与 {@link #isConnectionIssue} 分开计数：端点不可达和模型跑不完是两种故障，
+     * 但对玩家的观感一样（每次白等满超时）。此前只有前者进熔断，
+     * 慢模型场景下熔断永不打开，每次请求都要等满 timeout×2（本体+重试）。
+     */
+    private static boolean isRequestTimeout(Throwable e) {
+        if (e == null) return false;
+        if (e instanceof java.net.http.HttpTimeoutException) return true;
+        return isRequestTimeout(e.getCause());
+    }
+
     private static boolean isConnectionIssue(Throwable e) {
         if (e == null) return false;
         if (e instanceof java.net.http.HttpConnectTimeoutException
@@ -100,7 +128,16 @@ public final class AIClient {
         JsonObject body = new JsonObject();
         body.addProperty("model", cfg.model);
         body.addProperty("stream", false);
+        // 结构化输出：本任务的回包必须是 JSON，开了它能消掉一半解析失败面
+        body.addProperty("format", "json");
         body.add("messages", buildMessages(userMessage, systemPrompt));
+        // 上下文窗口：Ollama 默认只有 2048~4096，不显式下发的话
+        // prompt 会被静默截断（先被截掉的恰是排在后面的玩家需求）。
+        // temperature 压到 0.2：挑 registryName 是「照抄」类任务，不需要创造性。
+        JsonObject options = new JsonObject();
+        options.addProperty("num_ctx", OLLAMA_NUM_CTX);
+        options.addProperty("temperature", TEMPERATURE);
+        body.add("options", options);
 
         HttpResponse<String> resp = send(cfg, cfg.normalizedBaseUrl() + "/api/chat", GSON.toJson(body), null);
         if (resp == null) return Optional.empty();
@@ -124,7 +161,11 @@ public final class AIClient {
         JsonObject body = new JsonObject();
         body.addProperty("model", cfg.model);
         body.addProperty("stream", false);
-        body.addProperty("temperature", 0.7);
+        body.addProperty("temperature", TEMPERATURE);
+        // 结构化输出：要求回包是 JSON 对象（OpenAI 兼容端点通用字段）
+        JsonObject responseFormat = new JsonObject();
+        responseFormat.addProperty("type", "json_object");
+        body.add("response_format", responseFormat);
         body.add("messages", buildMessages(userMessage, systemPrompt));
 
         // apiKey 为空 → 不带 Authorization 头（兼容本地无鉴权服务，如 LM Studio）

@@ -65,6 +65,9 @@ public final class AIGateway {
     private static final long BREAKER_OPEN_MS = 60_000L;
     /** 连续连接类失败计数；任何成功或非连接类失败都会清零。 */
     private static final AtomicInteger CONNECT_FAILS = new AtomicInteger();
+
+    /** 连续「请求超时」计数（连上了但模型没在 timeout 内返回），与连接失败分开。 */
+    private static final AtomicInteger TIMEOUT_FAILS = new AtomicInteger();
     /** 熔断打开时刻（System.currentTimeMillis），0 = 关闭。CAS 保证只打一条「开启」日志。 */
     private static final AtomicLong BREAKER_OPENED_AT = new AtomicLong();
     /** 窗口过后同一时刻只放行一个探测请求。 */
@@ -164,28 +167,48 @@ public final class AIGateway {
      * @param probe 该次尝试是否是熔断窗口后的探测请求
      */
     private static void recordOutcome(boolean ok, boolean probe) {
-        if (ok || !AIClient.lastFailureWasConnectionIssue()) {
+        boolean connectIssue = !ok && AIClient.lastFailureWasConnectionIssue();
+        boolean requestTimeout = !ok && AIClient.lastFailureWasRequestTimeout();
+
+        if (ok || (!connectIssue && !requestTimeout)) {
+            // 端点是通的且响应及时（哪怕内容不可用）→ 两个计数器都清零
             CONNECT_FAILS.set(0);
-            // 探测拿到了任何「端点可达」的证据（成功 / 非连接类失败）→ 关闭熔断
+            TIMEOUT_FAILS.set(0);
             if (BREAKER_OPENED_AT.get() != 0L) {
                 closeBreaker();
             }
             return;
         }
-        // 连接类失败
+
         if (probe && BREAKER_OPENED_AT.get() != 0L) {
             // 熔断仍处于打开态的探测失败：重新计时
             BREAKER_OPENED_AT.set(System.currentTimeMillis());
-            Qianxiang.LOGGER.info("[Qianxiang] AI 熔断探测失败，端点仍不可达，继续熔断 {} 秒",
-                    BREAKER_OPEN_MS / 1000);
+            Qianxiang.LOGGER.info("[Qianxiang] AI 熔断探测失败（{}），继续熔断 {} 秒",
+                    connectIssue ? "端点仍不可达" : "模型仍未在超时内返回", BREAKER_OPEN_MS / 1000);
             return;
         }
-        int n = CONNECT_FAILS.incrementAndGet();
-        if (n >= BREAKER_THRESHOLD
-                && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
-            Qianxiang.LOGGER.info(
-                    "[Qianxiang] AI 连续 {} 次连接失败，熔断开启：{} 秒内不再发起 AI 请求，直接走关键词兜底",
-                    n, BREAKER_OPEN_MS / 1000);
+
+        // 两类故障分开计数：端点不可达 vs 模型太慢。对玩家的观感一样（每次白等满超时），
+        // 但原因与建议不同，日志文案也要能区分。
+        if (connectIssue) {
+            int n = CONNECT_FAILS.incrementAndGet();
+            TIMEOUT_FAILS.set(0);
+            if (n >= BREAKER_THRESHOLD
+                    && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
+                Qianxiang.LOGGER.info(
+                        "[Qianxiang] AI 连续 {} 次连接失败，熔断开启：{} 秒内不再发起 AI 请求，直接走关键词兜底",
+                        n, BREAKER_OPEN_MS / 1000);
+            }
+        } else {
+            int n = TIMEOUT_FAILS.incrementAndGet();
+            CONNECT_FAILS.set(0);
+            if (n >= BREAKER_THRESHOLD
+                    && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
+                Qianxiang.LOGGER.info(
+                        "[Qianxiang] AI 连续 {} 次请求超时（模型太慢或 prompt 过长），熔断开启：{} 秒内直接走兜底。"
+                                + "建议换更小的模型，或在 config/qianxiang-ai.json 调大 timeout_seconds",
+                        n, BREAKER_OPEN_MS / 1000);
+            }
         }
     }
 
@@ -193,6 +216,7 @@ public final class AIGateway {
     private static void closeBreaker() {
         if (BREAKER_OPENED_AT.getAndSet(0L) != 0L) {
             CONNECT_FAILS.set(0);
+            TIMEOUT_FAILS.set(0);
             Qianxiang.LOGGER.info("[Qianxiang] AI 端点恢复可达，熔断关闭");
         }
     }

@@ -41,7 +41,11 @@ public final class AIConfig {
     public static final String DEFAULT_BASE_URL = "http://localhost:11434";
     public static final String DEFAULT_API_KEY = "";
     public static final String DEFAULT_MODEL = "qwen2.5:7b";
-    public static final int DEFAULT_TIMEOUT_SECONDS = 5;
+    /**
+     * 默认超时。30 秒而非 5 秒：本地 7B 模型在完整系统 prompt 下首 token 就要数秒，
+     * 5 秒等于「必然超时 → 每次都白等满时长再退兜底」，AI 功能形同虚设。
+     */
+    public static final int DEFAULT_TIMEOUT_SECONDS = 30;
 
     /** provider 合法取值。 */
     public static final String PROVIDER_OLLAMA = "ollama";
