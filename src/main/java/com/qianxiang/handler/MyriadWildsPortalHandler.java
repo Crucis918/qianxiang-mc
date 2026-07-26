@@ -78,29 +78,76 @@ public final class MyriadWildsPortalHandler {
             if (!player.isCreative()) {
                 event.getItemStack().shrink(1);
             }
-            ensureReturnAnchor(target, pos);
+            ensureReturnAnchor(target, pos, player);
         }
     }
 
-    /** 抵达万象森罗后，若落点周围没有裂隙岩，就近放置一块，保证回程可用。 */
-    private static void ensureReturnAnchor(ServerLevel level, BlockPos arrival) {
+    /**
+     * 抵达万象森罗后，若落点周围没有裂隙岩，就近放置一块，保证回程可用。
+     * <p>此前只试 2 个候选点，都不可替换就静默 return——玩家挖掉去程裂隙岩后
+     * 就永久困在维度里。现在扫 3×3×3 候选，仍失败则强制在脚边放置，
+     * 真的一个位置都放不下时给出聊天警示（不再静默）。
+     */
+    private static void ensureReturnAnchor(ServerLevel level, BlockPos arrival, ServerPlayer player) {
         for (BlockPos p : BlockPos.betweenClosed(arrival.offset(-6, -3, -6), arrival.offset(6, 3, 6))) {
             if (level.getBlockState(p).is(QianxiangBlocks.RIFT_STONE.get())) return;
         }
-        BlockPos anchor = arrival.east();
-        if (!level.getBlockState(anchor).canBeReplaced()) {
-            anchor = arrival.above(2);
-            if (!level.getBlockState(anchor).canBeReplaced()) return;
+        var anchorState = QianxiangBlocks.RIFT_STONE.get().defaultBlockState();
+        // 候选：脚边一圈 → 头顶两格 → 脚下（最后手段，玩家会站上去）
+        for (BlockPos candidate : BlockPos.betweenClosed(
+                arrival.offset(-1, 0, -1), arrival.offset(1, 2, 1))) {
+            if (candidate.equals(arrival)) continue;            // 不占玩家自己的格子
+            if (level.getBlockState(candidate).canBeReplaced()) {
+                level.setBlockAndUpdate(candidate.immutable(), anchorState);
+                return;
+            }
         }
-        level.setBlockAndUpdate(anchor, QianxiangBlocks.RIFT_STONE.get().defaultBlockState());
+        BlockPos forced = arrival.above(3);
+        if (level.getBlockState(forced).canBeReplaced() || !level.getBlockState(forced).isCollisionShapeFullBlock(level, forced)) {
+            level.setBlockAndUpdate(forced, anchorState);
+            return;
+        }
+        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                "qianxiang.portal.anchor_failed"));
     }
 
+    /**
+     * 找一个可站立的落点。
+     * <p>原实现用 {@code MOTION_BLOCKING_NO_LEAVES}（<b>流体计入高度图</b>），
+     * 在 amplified 地形上会把玩家直接放到海面或岩浆湖表面；y 兜底为 100 时
+     * 也不检查那里是不是实心岩层。现在改用 {@code WORLD_SURFACE} 取高后
+     * 向上找「脚下是实心、身体两格是空、脚下不是流体」的位置，找不到就
+     * 在候选点铺一块裂隙岩当基座。
+     */
     private static BlockPos findSafePos(ServerLevel level, BlockPos reference) {
-        BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, reference);
-        int y = surface.getY();
-        if (y <= level.getMinBuildHeight() + 1) {
-            y = Math.max(level.getMinBuildHeight() + 1, 100);
+        BlockPos surface = level.getHeightmapPos(Heightmap.Types.WORLD_SURFACE, reference);
+        int minY = level.getMinBuildHeight() + 1;
+        int maxY = level.getMaxBuildHeight() - 2;
+        int startY = Math.clamp(surface.getY(), minY, maxY);
+
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int y = startY; y <= Math.min(startY + 24, maxY); y++) {
+            cursor.set(reference.getX(), y, reference.getZ());
+            if (isStandable(level, cursor)) {
+                return cursor.immutable();
+            }
         }
-        return new BlockPos(reference.getX(), y, reference.getZ());
+        // 没有天然可站点：在起始高度铺一块裂隙岩作基座（同时兼作回程锚点）
+        BlockPos platform = new BlockPos(reference.getX(), startY, reference.getZ());
+        level.setBlockAndUpdate(platform, QianxiangBlocks.RIFT_STONE.get().defaultBlockState());
+        return platform.above();
+    }
+
+    /** 脚下实心非流体、身体两格可通过。 */
+    private static boolean isStandable(ServerLevel level, BlockPos feet) {
+        BlockPos ground = feet.below();
+        var groundState = level.getBlockState(ground);
+        if (!groundState.isSolidRender(level, ground) || !groundState.getFluidState().isEmpty()) {
+            return false;
+        }
+        return level.getBlockState(feet).getCollisionShape(level, feet).isEmpty()
+                && level.getBlockState(feet.above()).getCollisionShape(level, feet.above()).isEmpty()
+                && level.getBlockState(feet).getFluidState().isEmpty()
+                && level.getBlockState(feet.above()).getFluidState().isEmpty();
     }
 }

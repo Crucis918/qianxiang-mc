@@ -675,5 +675,7 @@
   "qianxiang.moveset_editor.msg.applied": "Moveset applied to weapon",
   "qianxiang.moveset_editor.msg.no_target": "No writable weapon: forge one into the result slot first, or hold a phase weapon",
   "qianxiang.moveset_editor.msg.invalid": "Invalid combo sequence",
-  "qianxiang.moveset_editor.msg.max": "At most %s segments"
+  "qianxiang.moveset_editor.msg.max": "At most %s segments",
+  "qianxiang.spell.ally_only": "§7This spell (%s) only affects allies — mana refunded.§r",
+  "qianxiang.portal.anchor_failed": "§cWarning: no room for a return anchor nearby — carry Rift Stone to get back.§r"
 }

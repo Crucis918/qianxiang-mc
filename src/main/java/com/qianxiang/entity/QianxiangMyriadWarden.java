@@ -155,7 +155,11 @@ public class QianxiangMyriadWarden extends Zombie {
         for (LivingEntity victim : server.getEntitiesOfClass(LivingEntity.class,
                 getBoundingBox().inflate(5.0),
                 e -> e.isAlive() && e != this && !(e instanceof QianxiangMyriadWarden)
-                        && !(e instanceof Endermite))) {
+                        && !(e instanceof Endermite)
+                        // 观战/创造模式玩家 hurt() 是空操作，但击退不是——
+                        // 不排除的话旁观者会被冲击波推着走
+                        && !(e instanceof net.minecraft.world.entity.player.Player p
+                                && (p.isSpectator() || p.isCreative())))) {
             victim.hurt(damageSources().sonicBoom(this), SHOCKWAVE_DAMAGE);
             double dx = victim.getX() - getX();
             double dz = victim.getZ() - getZ();

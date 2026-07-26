@@ -35,6 +35,9 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     public static final int MATERIAL_SLOTS = 10;
     public static final int RESULT_SLOT = 10;
 
+    /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连锻一次点击刷满位格。 */
+    private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
+
     private final Container container;
     private final Inventory playerInventory;
 
@@ -192,6 +195,15 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     private void recordForge(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
+            // Shift 点击结果槽会走原版 QUICK_MOVE 的 while 循环连续锻造：
+            // 材料槽各放 64 个，一次点击就能连锻 64 次。若每次都写一条相谱并 +1 位格，
+            // 相谱会被同一批产物灌满 64 条，位格两次点击即触顶 100，
+            // 直接架空 WILDS_POSITION_THRESHOLD 的维度门控设计。
+            // 这里给「铭刻 + 位格」设节流：连锻只记一次，锻造本身照常进行。
+            if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "forge_saga", FORGE_SAGA_COOLDOWN_MS)) {
+                return;
+            }
             var attr = resultStack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
             double power = attr != null ? attr.powerScore() : 0.0;
             String name = resultStack.getHoverName().getString();
@@ -226,7 +238,12 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             // 结果 → 背包。搬完后用完整拷贝触发 onTake（消耗材料 + 相谱 + 学法术）；
             // 原版 QUICK_MOVE 会循环调用本方法，材料够就连续锻造，背包满/材料尽自动停。
             if (!moveItemStackTo(stack, invStart, invEnd, true)) return ItemStack.EMPTY;
-            slot.set(ItemStack.EMPTY);
+            // 只在真的搬空时才清槽：moveItemStackTo 部分成功也返回 true，
+            // 无条件 set(EMPTY) 会吞掉余量。当前产物恒为单个栈不可触发，
+            // 但产物一旦支持堆叠这就是吞物品 bug——一行防御。
+            if (stack.isEmpty()) {
+                slot.set(ItemStack.EMPTY);
+            }
             slot.onTake(player, moved);
             return moved;
         }

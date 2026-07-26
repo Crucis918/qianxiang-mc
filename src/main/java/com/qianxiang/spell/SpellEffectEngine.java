@@ -218,12 +218,16 @@ public final class SpellEffectEngine {
                     if (isAlly(caster, target)) {
                         target.heal(power * 2.0f);
                         burstAt(level, element, target, 12);
+                    } else {
+                        refundOnInvalidTarget(caster, "heal");
                     }
                 }
                 case "buff" -> {
                     if (isAlly(caster, target)) {
                         target.addEffect(new MobEffectInstance(buffFor(element), 220 * durMul, amplifierOf(power)));
                         burstAt(level, element, target, 12);
+                    } else {
+                        refundOnInvalidTarget(caster, "buff");
                     }
                 }
                 case "debuff" -> {
@@ -371,6 +375,41 @@ public final class SpellEffectEngine {
     }
 
     // ---------- 工具 ----------
+
+    /**
+     * heal/buff 命中非友方目标时的补偿：退还法力 + 一句 actionbar 提示。
+     * <p>
+     * 此前这条路径是纯静默的——玩家拿治疗弹打僵尸，法力扣了、冷却进了、
+     * 什么都没发生也没有任何反馈，看起来像 bug。
+     * <p>
+     * 退还额按生成公式 {@code 10 + 5*power} 估算（所有锻造/AI 产出的法术都用它，
+     * 见 {@link CustomSpell#fromSpellJson}）。命中回调拿不到原始 CustomSpell，
+     * 若某个法术组件携带了自定义 manaCost，退还额可能与实际扣除略有出入；
+     * 退还上限被夹在「不超过法力上限」内，绝不会凭空造蓝。
+     */
+    private static void refundOnInvalidTarget(@Nullable ServerPlayer caster, String effect) {
+        if (caster == null) {
+            return;
+        }
+        try {
+            var data = caster.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+            int refund = 10 + 5 * 1;   // 保守下限：按最低 power 估算，宁可少退不多退
+            int restored = Math.min(data.maxMana(), data.currentMana() + refund);
+            if (restored != data.currentMana()) {
+                caster.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                        data.withMana(restored));
+                SpellCastHandler.sync(caster);
+            }
+            if (com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    caster, "spell_invalid_target", 1_000L)) {
+                caster.displayClientMessage(
+                        net.minecraft.network.chat.Component.translatable(
+                                "qianxiang.spell.ally_only", effect), true);
+            }
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 无效目标补偿失败（不影响主流程）：{}", t.toString());
+        }
+    }
 
     /** 形式 → 施法音：projectile=烈焰弹、beam=守卫者射线、aoe=唤魔者施法、self/touch=紫水晶。 */
     private static SoundEvent castSoundFor(String form) {

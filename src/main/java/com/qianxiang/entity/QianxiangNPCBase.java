@@ -40,6 +40,9 @@ public abstract class QianxiangNPCBase extends Villager {
     /** 补货间隔：一个 MC 日。 */
     private static final long RESTOCK_INTERVAL_TICKS = 24000L;
 
+    /** 同一 NPC 两次「计入好感」的交易之间的最小间隔——防 Shift 批量成交刷满折扣。 */
+    private static final long TRADE_REPUTATION_COOLDOWN_MS = 30_000L;
+
     /** 上次补货的游戏时间。落盘（见 {@link #addAdditionalSaveData}）——否则退出重进可无限刷新交易次数。 */
     private long lastRestockGameTime = Long.MIN_VALUE;
 
@@ -93,6 +96,14 @@ public abstract class QianxiangNPCBase extends Villager {
             return;
         }
         try {
+            // Shift 一键成交会连开 12 笔，每笔都 +1 好感的话两次点击就触顶 ±25%，
+            // 配合「卖货涨声望 → 声望让卖货更赚」会变成印钞机。这里给好感增长与
+            // 相谱铭刻各设一道节流：同一 NPC 的连续批量成交只算一次。
+            boolean countThisTrade = com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "npc_trade_" + getUUID(), TRADE_REPUTATION_COOLDOWN_MS);
+            if (!countThisTrade) {
+                return;
+            }
             PlayerFactionData before = player.getData(QianxiangAttachments.FACTION_DATA);
             PlayerFactionData after = before.withDiplomacy(1).updateTitle();
             player.setData(QianxiangAttachments.FACTION_DATA, after);
@@ -157,6 +168,14 @@ public abstract class QianxiangNPCBase extends Villager {
             pct = 0;
         }
         for (MerchantOffer offer : offers) {
+            // specialPriceDiff 只作用于 costA，而 costA 是「玩家付出的东西」。
+            // 售出型（玩家掏绿宝石买货）打折才是奖励；收购型（玩家交货换绿宝石）
+            // 的 costA 是玩家交出的货，打折等于「交更少的货拿同样的钱」——
+            // 高声望反而让卖货收益翻倍，屠杀烙印则双重惩罚。只对售出型定价。
+            if (!offer.getBaseCostA().is(net.minecraft.world.item.Items.EMERALD)) {
+                offer.setSpecialPriceDiff(0);
+                continue;
+            }
             int base = offer.getBaseCostA().getCount();
             int diff = -Math.round(base * pct / 100.0F);
             // 保证最终价 ≥1（specialPriceDiff 只作用于 costA）

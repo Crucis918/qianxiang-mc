@@ -23,10 +23,15 @@ public final class BlueprintServerHandler {
 
     private BlueprintServerHandler() {}
 
+    /** 蓝图操作的最小间隔：每次都要整库序列化回包，是廉价的放大面。 */
+    private static final long BLUEPRINT_COOLDOWN_MS = 500L;
+
     public static void handleSave(BlueprintSavePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             Player player = context.player();
             if (!(player.containerMenu instanceof ForgeTableMenu menu)) return;
+            if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "blueprint_save", BLUEPRINT_COOLDOWN_MS)) return;
 
             List<ItemStack> materials = new ArrayList<>(ForgeTableMenu.MATERIAL_SLOTS);
             for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
@@ -73,14 +78,19 @@ public final class BlueprintServerHandler {
                 context.reply(syncPayload(player));
                 return;
             }
+            if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "blueprint_use", BLUEPRINT_COOLDOWN_MS)) {
+                return;
+            }
 
             boolean ok = menu.applyBlueprint(data);
 
-            SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
-            String entry = String.format("循蓝图「%s」重铸相器", data.name());
-            player.setData(QianxiangAttachments.SAGA_DATA, saga.withEntry(entry));
-
             if (ok) {
+                // 只有真正铺料成功才写相谱——此前无条件写，缺材料连点「使用」
+                // 会用垃圾条目把 500 条上限挤满，真历史被挤进不可恢复的 forgotten。
+                SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
+                String entry = String.format("循蓝图「%s」重铸相器", data.name());
+                player.setData(QianxiangAttachments.SAGA_DATA, saga.withEntry(entry));
                 player.sendSystemMessage(Component.translatable("qianxiang.blueprint.use.success", data.name()));
             } else {
                 player.sendSystemMessage(Component.translatable("qianxiang.blueprint.use.missing", data.name()));
