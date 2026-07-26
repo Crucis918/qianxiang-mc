@@ -8,6 +8,9 @@ import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -62,6 +65,8 @@ public final class SpellEffectEngine {
             }
 
             ServerLevel level = player.serverLevel();
+            level.playSound(null, player.blockPosition(), castSoundFor(form),
+                    SoundSource.PLAYERS, 0.6f, pitchFor(element));
             switch (form) {
                 case "self" -> castSelf(level, player, element, effect, power, mods);
                 case "aoe" -> castAoe(level, player, element, effect, power, mods);
@@ -246,6 +251,8 @@ public final class SpellEffectEngine {
             target.hurt(level.damageSources().magic(), dmg);
         }
         burstAt(level, element, target, 14);
+        level.playSound(null, target.blockPosition(), SoundEvents.AMETHYST_CLUSTER_BREAK,
+                SoundSource.PLAYERS, 0.5f, pitchFor(element));
         if (!target.isAlive()) {
             return;
         }
@@ -274,7 +281,31 @@ public final class SpellEffectEngine {
                             caster.getYRot(), caster.getXRot());
                 }
             }
-            default -> { /* nature / holy / arcane 无附加 */ }
+            case "nature" -> {
+                int dur = (int) (power * 40) * durMul;
+                target.addEffect(new MobEffectInstance(MobEffects.POISON, dur, amplifierOf(power)));
+            }
+            case "holy" -> {
+                // 圣光克亡灵：对亡灵补一跳 50% 额外神圣伤，并小量回复施法者
+                if (target.isInvertedHealAndHarm()) {
+                    if (caster != null) {
+                        target.hurt(caster.damageSources().indirectMagic(direct != null ? direct : caster, caster),
+                                dmg * 0.5f);
+                    } else {
+                        target.hurt(level.damageSources().magic(), dmg * 0.5f);
+                    }
+                }
+                if (caster != null) {
+                    caster.heal(1.0f);
+                }
+            }
+            case "arcane" -> {
+                // 奥术印记：发光标记 + 短暂虚弱，为后续攻击创造窗口
+                int dur = (int) (power * 40) * durMul;
+                target.addEffect(new MobEffectInstance(MobEffects.GLOWING, dur, 0));
+                target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur / 2, 0));
+            }
+            default -> { }
         }
     }
 
@@ -305,10 +336,21 @@ public final class SpellEffectEngine {
         }
     }
 
-    /** utility：按元素 —— nature=骨粉效果，ender=传送施法者到目标点，其余仅粒子。 */
+    /** utility：按元素 —— nature=骨粉效果，ender=传送施法者到目标点，holy=范围治疗友方，其余仅粒子。 */
     private static void resolveUtility(ServerLevel level, @Nullable ServerPlayer caster, BlockPos pos,
                                        @Nullable Entity focus, String element) {
         switch (element) {
+            case "holy" -> {
+                Vec3 center = focus != null ? focus.position() : Vec3.atCenterOf(pos);
+                if (caster != null) {
+                    caster.heal(4.0f);
+                    for (LivingEntity ally : level.getEntitiesOfClass(LivingEntity.class,
+                            caster.getBoundingBox().inflate(5.0), e -> e.isAlive() && isAlly(caster, e))) {
+                        ally.heal(4.0f);
+                    }
+                }
+                burst(level, element, center.x, center.y + 0.5, center.z, 20, 0.5);
+            }
             case "nature" -> {
                 BoneMealItem.applyBonemeal(new ItemStack(Items.BONE_MEAL), level, pos, caster);
                 level.levelEvent(2005, pos, 0); // 骨粉粒子
@@ -329,6 +371,21 @@ public final class SpellEffectEngine {
     }
 
     // ---------- 工具 ----------
+
+    /** 形式 → 施法音：projectile=烈焰弹、beam=守卫者射线、aoe=唤魔者施法、self/touch=紫水晶。 */
+    private static SoundEvent castSoundFor(String form) {
+        return switch (form) {
+            case "beam" -> SoundEvents.GUARDIAN_ATTACK;
+            case "aoe" -> SoundEvents.EVOKER_CAST_SPELL;
+            case "self", "touch" -> SoundEvents.AMETHYST_BLOCK_CHIME;
+            default -> SoundEvents.BLAZE_SHOOT;
+        };
+    }
+
+    /** 元素 → 音高微调：同一施法音按元素错开 ±0.16，听感上区分火法与冰法。 */
+    private static float pitchFor(String element) {
+        return 1.0f + (Math.floorMod(element.hashCode(), 5) - 2) * 0.08f;
+    }
 
     /** 元素 → 粒子。 */
     public static ParticleOptions particleFor(ServerLevel level, String element) {
