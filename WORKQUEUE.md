@@ -706,6 +706,125 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 
 ---
 
+# 复核报告四：返工提交 8ca37d9（WQ-57~61）审查（2026-07-27）
+
+**结单确认**：WQ-58 ✅（`arrival.above()` 已双排除、兜底收紧为仅 `canBeReplaced()`，
+箱子/台阶不再被覆盖）、WQ-60 ✅（采方案②降 goal，全树仅 kill_warden 与 forge_legendary
+两个 challenge，父链完整、lang 683 键齐）、WQ-61 ✅（判据降为常量 rift_essence，兜底
+"一定配得齐"成立）。
+
+## WQ-68 [ ] 【严重·返工 WQ-57】退款代码全程是死的——被过期快照整体覆盖（侦察会话已亲自核实）
+
+`SpellCastHandler.castCustomSpell:124` 在调 `cast()` **之前**读 `PlayerSpellData data`；
+`cast()` 内 `settleCast` 用 `setData` 写回退款；返回后 `:143-146` 又用**过期快照**
+`data.withMana(data.currentMana() - manaCost).setCooldown(...)` 覆盖整个 attachment
+（record 语义，整体替换）。**退款写入被无条件丢弃**，只剩 actionbar 提示。
+旧硬编码法术路径 `:85/:103` 同样结构。
+**修法**：扣蓝移到 `cast()` 之前，或结算后重新 `serverPlayer.getData(...)` 再叠加冷却。
+
+**同时更正我方此前的判断（重要）**：复核报告二里说"WQ-8 的退蓝是无限法力电池"——
+在同步形式（AoE/beam/touch）上**从未真实发生**，正是被这同一处覆盖吃掉了。真正会退到账的
+只有 projectile 延迟命中那条路径，而本次返工恰好把 projectile 排除了。结论不变（仍需返工），
+但病因不是"退太多"而是"根本没退"，修的时候按本单描述来。
+
+**附带问题（同单一并处理）**：
+①projectile 是 `SpellEffectEngine:76` 的 default 分支、也是最常见形式，命中非友方现在
+**既不退款也不提示**——WQ-8 的原始诉求（消除静默无反馈）在该形式上被完全回退，
+注释里以"天然不满足条件"带过。需明确取舍并写进工单。
+②`CAST_TALLY` 是 ThreadLocal 且 projectile 的标记会滞留到下次 `cast()` 的 `resetTally`
+才清；将来若出现嵌套施法会互踩（低危）。
+
+## WQ-69 [ ] 【中·返工 WQ-59】去程两类塌陷仍在、区块加载判断未做，单据状态与实现不符
+
+已达成：基座材质换黑曜石；回程 `mayBuildPlatform=false` 不再改主世界地形。
+**未达成**：①全空气柱（虚空上方）去程仍在 `clamp(startY)=minBuildHeight+1` 铺基座，玩家
+落在世界最底层 y=min+2——"活埋"原样存在，只是材质变了；②树冠仍在上方凭空生成悬空黑曜石
+（`isSolidRender` 对树叶仍 false）；③工单点名的"heightmap 查询前判区块加载"完全没做
+（`:139`/`:144` 两处无 `hasChunk` 保护），却把单标记为完成。
+**另**：回程回退到 `getSharedSpawnPos()` 时 `spawnSurface.above()` 未过 `isStandable`，
+出生点在水面/树冠上仍会落水；且玩家被扔到世界出生点而非原坐标附近，是较大的行为变更，
+需确认是否为有意设计。
+遗留低危：`ensureReturnAnchor:93` 的 1183 次 `getBlockState` 全量扫描原样保留。
+
+## WQ-70 [ ] 【低】forge_legendary 的 powerScore>=12 门槛形同虚设 + 两处文案矛盾
+
+①`ForgeTableMenu:41/:199-203` 新增的 `powerScore >= 12.0` 判据：warden_core 单件
+（LEGENDARY×3.2 + mana/resistance/strength）自身就贡献约 15.6~18，**恒过阈值**，
+且 `ForgeComposer:175` 对任何非空产物都写 COMPOSED_ATTRIBUTES 故 attrs 也不为 null——
+新判据实际永远等价于旧的 `usedCore`，"与文案对齐"是名义上的。
+②`legendary_material.desc` 文案仍写"获得虚空裂片或逆相之核"，与已改的 criteria
+（warden_core）和图标不符（非本次引入）。
+③`FallbackRecipes:740-743` 的 javadoc 仍写"材料库里有森罗之核就选它"，与 WQ-61 改后的
+实现直接矛盾，误导后续维护。
+
+**测试掩盖缺陷第三例（务必重视）**：`ineffectiveTallyRefundsAtMostOnce`
+（`QianxiangCoreGameTests:204-233`）只调 `markIneffectiveForTest/markEffectiveForTest` 数数，
+再断言 `shouldRefundForTest`——而后者是把 `settleCast:443` 的条件**抄了一遍**的测试专用镜像，
+既不走 `settleCast`、不走 `cast()`、也不测法力值。所以 WQ-68 那个"退款全程被覆盖"的严重
+缺陷，这个测试照样绿。工单验收明写"断言法力净变化 == -manaCost"，未实现。
+**要求**：删掉自我印证的镜像断言，改为构造真实玩家、走完整 cast 路径、断言法力实际净变化。
+这已是连续第三次出现"断言太弱恰好被错误路径满足"——建议此后新增测试一律断言**可观测的
+最终状态**（玩家数据/物品/世界），不要断言内部判据函数。
+
+---
+
+# 复核报告五：8663a70 / 6140674（WQ-45/47/51）审查（2026-07-27）
+
+**结单确认**：WQ-51 ✅ 三项全对（`canPlaceItem` 覆写返回值正确且与 face 版语义一致；
+`removed()` 先清槽再 `updateCraftingState` 必落 IDLE；`items.clear()` 防抢跑注释已加）。
+**隐私红线 ✅ 通过**：新日志落盘字段不含 apiKey，key 只进 Authorization 头、不入 URL，
+非 200 的错误体走 latest.log 不进 jsonl——WQ-53 的凭据泄露没有从新日志漏回来。
+WQ-45 的子项②③（六组关键词补齐、七材料全部可达）与 WQ-47 的三代轮转已达标，返工时不必重做。
+
+## WQ-71 [ ] 【严重·返工 WQ-47】req_id 跨线程失效，飞轮地基没打上（侦察会话已亲自核实）
+
+`AIGateway:100/120` 的 `CURRENT_REQ_ID` 是 **ThreadLocal**，在 AI 执行线程（单线程
+`qianxiang-ai`）赋值；而采纳回写 `AiPlaceMaterialsHandler:81-85` 在 `enqueueWork` 里、
+跑在**服务端主线程**——取到 null，于是 `currentRequestId():101-108` 现造一个 id 并缓存进
+主线程 ThreadLocal。后果：①adopt 行的 req_id 与任何 request 行都对不上，"建议 vs 采纳"
+根本连不起来；②**全服所有玩家的所有采纳事件共用同一个假 id**，数据比没有更误导。
+**修法**：把 reqId 随提案下发（`AiResponsePayload`）再随 `AiPlaceMaterialsPayload` 回传
+——这与 WQ-2 已建立的"客户端回传索引"机制天然契合，可复用那条链路，不要用 ThreadLocal。
+**同单一并修**：
+①**违反了已核查保证"jsonl 写入不影响主流程"**——`logAdoption`→`appendLine:352-372` 在
+主线程做 `Files.createDirectories`+`Files.size`+`Files.writeString`，还与 AI 线程的 5MB
+轮转 `Files.move` 抢同一把 `LOG_LOCK`。此前所有落盘都在 AI 线程。改为投递到 AI 线程写。
+②工单点名的字段缺一半：`proposal_count`/`dropped_materials`/`fallback_reason`/请求行的
+`player_uuid` 全未实现，所以"解析失败与成功在日志里长一样"这个动机仍未解决（`ok` 只反映
+HTTP 层）。
+③低危：`anyPlaced` 只要放进 1 件就记录**整个** materialNames，over-report。
+
+## WQ-72 [ ] 【中·返工 WQ-45】档位塌缩子项零改动，两条验收实测不成立
+
+工单子项④在 diff 里**一行未改**：`pickBaseByTier:754-780`/`pickEffectByTier:792-818`/
+`defaultFillers:847` 原样，16 格里仍有 8 格 base==effect（magic RARE/LEGENDARY、armor 全四档、
+tool/weapon LEGENDARY）。实测：weapon+LEGENDARY → `buildExactTier` 得 size-1 集合 →
+`ensureTierCoverage` 提前 return → 落 `defaultFillers`(ember_iron RARE + beast_fang COMMON)
+→ **averageTier = RARE，不是 LEGENDARY**；"普通武器给 RARE 材料"也照旧（weapon COMMON 的
+base 就是 RARE 档的 ember_iron）。
+**另**：①`免疫` 被列入否定前缀（`:1078`）造成**反向误伤**——"免疫火焰的靴子"被剥成"的靴子"，
+玩家明确的 FIRE_RESIST 需求被吃掉（`去除诅咒` 同理）；②单字键升 2 字词/加边界未做
+（`血/防/护/甲/术/骨` 仍裸 contains，英文 `"ice"` 会被 `a nice sword` 命中）。
+好消息：`抗/防/护` 不在否定前缀表里，"防御向武器/护甲/抗性装备"**不会**被误伤，这点做对了。
+
+**测试掩盖缺陷第四例**：`fallbackRespectsNegation`（`QianxiangCoreGameTests:207-220`）
+只断言"结果里没有 ember"——若 normalize 退化成"删掉否定词后面 N 个字符"导致 picks 为空，
+`noneMatch` 恒真、测试照样绿。缺"形状词 `剑` 必须存活"的**正向断言**。更关键：测试只覆盖
+`keywordPicksForTest` 没走 `propose3`，而 propose3 的方案 2/3 必含 `ember_iron`——
+**玩家实际看到的"不要火的剑"结果里仍然有烬铁**，验收原文"不含 ember 系"在用户可见层面
+未达成。验收要求的 LEGENDARY averageTier 用例根本没写。
+（`fallbackCoversLightningAndModMaterials` 断言强度 OK，逐条 contains 具体材料 id，不会被
+错误路径蒙对——这是本轮唯一一个写得好的新测试。）
+
+**低危**：`FallbackRecipes:13` 新增的 `import java.util.Map` 全文件零使用。
+
+**给修理会话的流程建议**：WQ-45/47 的 `[x] 完成` 应回退为返工态。另外连续四轮出现
+"断言太弱恰好被错误路径满足"，建议立一条硬规矩：**新增测试一律断言可观测的最终状态**
+（玩家数据/物品栈/世界方块/用户可见输出），不断言内部判据函数、不写只验证"某物不存在"
+的单向断言（必须配一条"该在的东西还在"的正向断言）。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
