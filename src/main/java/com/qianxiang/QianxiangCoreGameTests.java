@@ -76,6 +76,19 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    /** 皮革（BASE_HIDE）+ 兔子脚（JUMP_BOOST）应锻出相胫——四件套可配齐的回归锁。 */
+    @GameTest(template = "item_concept")
+    public static void forgeComposesLeggings(GameTestHelper helper) {
+        List<ItemStack> materials = padTo10(
+                new ItemStack(Items.LEATHER),
+                new ItemStack(Items.RABBIT_FOOT));
+        ForgeComposer.Composition c = ForgeComposer.compose(materials);
+        helper.assertTrue(c.valid(), "皮革+兔子脚应能组合出产物");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_LEGGINGS.get()),
+                "BASE_HIDE+JUMP_BOOST 应锻出相胫，实际 " + c.result());
+        helper.succeed();
+    }
+
     /** 空材料/纯空气不应产出任何东西。 */
     @GameTest(template = "item_concept")
     public static void forgeRejectsEmpty(GameTestHelper helper) {
@@ -136,6 +149,22 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    /** productType 是闭集：外来码里的任意串必须归一为 weapon/armor/tool。 */
+    @GameTest(template = "item_concept")
+    public static void shareCodeNormalizesProductType(GameTestHelper helper) {
+        BlueprintData evil = new BlueprintData(
+                List.of("minecraft:stick"), "恶".repeat(10000), 1.0, "类型注入", null, null);
+        BlueprintData clean = BlueprintShareCodes.decode(BlueprintShareCodes.encode(evil));
+        helper.assertTrue("weapon".equals(clean.productType()),
+                "未知 productType 应归一为 weapon，实际 " + clean.productType());
+        BlueprintData armor = new BlueprintData(
+                List.of("minecraft:stick"), "armor", 1.0, "护甲", null, null);
+        helper.assertTrue("armor".equals(
+                        BlueprintShareCodes.decode(BlueprintShareCodes.encode(armor)).productType()),
+                "合法 productType=armor 应原样保留");
+        helper.succeed();
+    }
+
     /** 垃圾输入解码必须抛 IllegalArgumentException（不崩、不返回半成品）。 */
     @GameTest(template = "item_concept")
     public static void shareCodeRejectsGarbage(GameTestHelper helper) {
@@ -148,6 +177,30 @@ public final class QianxiangCoreGameTests {
                 // 正确行为
             }
         }
+        helper.succeed();
+    }
+
+    // ============================ 工坊配额 ============================
+
+    /** 单作者最多 MAX_PER_AUTHOR 条；同名覆盖不受配额限制；他人不受影响。 */
+    @GameTest(template = "item_concept")
+    public static void workshopEnforcesPerAuthorCap(GameTestHelper helper) {
+        var workshop = new com.qianxiang.blueprint.WorkshopSavedData();
+        BlueprintData bp = new BlueprintData(List.of("minecraft:stick"), "weapon", 1.0, "占位");
+        for (int i = 0; i < com.qianxiang.blueprint.WorkshopSavedData.MAX_PER_AUTHOR; i++) {
+            BlueprintData named = new BlueprintData(
+                    List.of("minecraft:stick"), "weapon", 1.0, "蓝图" + i);
+            helper.assertTrue(workshop.publish(named, "灌水者", "uuid-spammer") == null,
+                    "配额内第 " + (i + 1) + " 条发布应成功");
+        }
+        helper.assertTrue(workshop.publish(bp, "灌水者", "uuid-spammer") != null,
+                "超单作者配额的发布应被拒绝");
+        BlueprintData overwrite = new BlueprintData(
+                List.of("minecraft:stick"), "weapon", 2.0, "蓝图0");
+        helper.assertTrue(workshop.publish(overwrite, "灌水者", "uuid-spammer") == null,
+                "同名覆盖不应受配额限制");
+        helper.assertTrue(workshop.publish(bp, "路人", "uuid-other") == null,
+                "其他作者不应被牵连");
         helper.succeed();
     }
 
