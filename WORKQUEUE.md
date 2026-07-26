@@ -123,16 +123,215 @@ EF 21.15.6 字节码分析定论：**EF 不覆盖物品 attribute_modifiers，�
 退回法力（或干脆不进冷却）+ actionbar 提示「该法术只能作用于友方」（lang 键中英各 1）。
 **验收**：手测 heal 弹体打僵尸出提示且蓝退回。
 
-## WQ-9 [ ] 【低】法术冷却同步 + HUD 显示
+## WQ-9 [ ] 【中】法术冷却同步 + HUD 显示 + 同步风暴修复
 
-`SpellCastHandler.java:215` 的 `SpellDataSyncPayload` 只同步 mana 不同步 cooldown，
-`client/SpellHudRenderer` 只画一行"法力: cur/max"文字。修法：payload 加当前法术剩余冷却 tick；
-HUD 在法力行下加一条 80×4 像素冷却条（灰底白条，随剩余时间缩短），满冷却时不画。
-不做花哨美术，先解决"玩家不知道何时能再施法"。
-**验收**：手测施法后 HUD 出现冷却条并倒数消失；维度切换后 HUD 数据仍正确
-（顺手检查 `SpellTickHandler:260-272` 初始同步是否漏了 PlayerChangedDimensionEvent，漏了就补）。
+三件事同一批文件一起修：
+1. **同步风暴（先修）**：`SpellTickHandler:30-40` 的发包条件是 `next != data`，而
+   `tickCooldowns()` 在冷却非空时每 tick 返回新实例 → **冷却期间每 tick 一个同步包**
+   （20 包/秒/玩家），payload 却只带 mana 纯噪音。条件改为比较 currentMana/maxMana 实值。
+2. **冷却同步+HUD**：`SpellDataSyncPayload` 加当前法术剩余冷却 tick；`SpellHudRenderer`
+   在法力行下画 80×4 冷却条（灰底白条），满冷却不画。
+3. **维度切换 desync**：全仓库无 `PlayerChangedDimensionEvent` 订阅，过门后客户端 attachment
+   回落 empty(100/100) 虚高半秒。补一个事件订阅调 `SpellCastHandler.sync`。
+**验收**：施法后 HUD 冷却条倒数消失；冷却期间抓包/日志确认不再每 tick 发包；过维度门 HUD 不闪错值。
 
 ---
+
+# 第二批：bug 狩猎发现（2026-07-26 深夜，侦察代理实证核查过触发路径）
+
+## WQ-10 [~] 修理中 【高·刷物品】漏斗接锻造台 = 零成本无限锻造
+
+产物槽（槽 10）是**真实容器槽**：`ForgeTableMenu.slotsChanged` 直接
+`container.setItem(RESULT_SLOT, composition.result())`，`removed()`（:260-263）只调 super
+**不清产物槽**，还随 `saveAdditional` 落盘。`ForgeTableBlockEntity` 实现的是 `Container` 而非
+`WorldlyContainer`，无 `canPlaceItem/getSlotsForFace`——漏斗对 0-10 全槽自由读写。
+**触发**：放 10 材料开一次 GUI（产物生成、材料未耗）→ 关 GUI → 底下接漏斗：先抽走 10 个
+材料再抽走产物，材料零消耗白得成品，无限重复。反向漏斗还能往槽 10 塞东西被 slotsChanged
+静默覆盖删除。
+**修法**：BE 实现 `WorldlyContainer`，`getSlotsForFace` 只暴露 0-9、产物槽禁抽禁塞；
+`ForgeTableMenu.removed()` 清空 RESULT_SLOT（产物改纯预览、onTake 才实体化）。
+**验收**：GameTest：漏斗放锻造台下抽不到产物槽；关 GUI 后 BE 槽 10 为空。
+
+## WQ-11 [~] 修理中 【高·刷物品】蓝图放料"洗物品"：残耐久附魔装备变全新白板 + 可扒身上盔甲
+
+`ForgeTableMenu.applyBlueprint`（:92-109）找材料只比 `s.is(item)` 忽略组件，取用后放入的是
+`new ItemStack(item, 1)` **出厂新栈**；且扫描范围是 `playerInventory.getContainerSize()`=41，
+**含 4 护甲槽和副手**。
+**触发 A**：蓝图材料含钻石镐 → 背包放 1 耐久附魔镐 → 用蓝图 → 材料槽出现满耐久无附魔
+新镐，Shift 取回（免费修复+洗附魔）。**触发 B**：蓝图材料含头盔 → 直接扒走玩家头上戴的。
+**修法**：改为搬运原栈 `taken.split(1)`；扫描范围限 `Inventory.INVENTORY_SIZE`（36）。
+同文件 `AiPlaceMaterialsHandler.findInInventory`（:88-94）也是 41 格扫描（那条路径保留组件，
+危害仅"拿走身上装备当零件"），一并限 36。
+**验收**：GameTest：低耐久物品走蓝图放料后组件保留；护甲槽物品不被取用。
+
+## WQ-12 [~] 修理中 【高·吞物品】挖掉锻造台吞掉全部 11 格内容
+
+`ForgeTableBlock` 无 `onRemove` 覆写，破坏方块时 BE 连同物品直接销毁。
+**修法**：覆写 `onRemove`，`!state.is(newState.getBlock())` 时 `Containers.dropContents` 再 super。
+**验收**：GameTest：放材料后破坏方块，断言掉落物包含材料。
+
+## WQ-13 [ ] 【中·经济】声望折扣错误作用于收购单的 costA——高声望卖货投入减半
+
+`QianxiangNPCBase.applyReputationPricing`（:152-168）对**每条** offer 的 costA 打折，但收购型
+offer（碎片×2→5 绿宝石）的 costA 是玩家交出的货。声望 25% 时交货量 2→1，收益翻倍；
+屠杀烙印反向双重惩罚。**修法**：只对 `getBaseCostA().is(Items.EMERALD)` 的售出型条目写
+specialPriceDiff。（压到 0 白嫖不成立，已核实三重下限保险，勿改动那部分。）
+
+## WQ-14 [ ] 【中·NPC】NPC 继承整套 Villager 大脑：会转职/被原版补货绕过/被僵尸转化消灭
+
+`QianxiangNPCBase extends Villager` 未锁职业未剪 brain：①附近有讲台等 job-site 会转职，
+`updateTrades` 是 append——8 条千相交易后面接原版职业交易；②转职后 brain 的 WorkAtPoi 每日
+`restock()` 绕过 6eb1a04 的时间戳闸门（那闸门只在开 GUI 时查）；③僵尸打死千相 NPC 变原版
+僵尸村民，治愈后 NPC 永久变原版村民。
+**修法**：构造器锁 NITWIT 职业 + 覆写 `updateTrades()` 为空 + brain 去掉 job-site/work 活动；
+僵尸转化需拦 `Zombie.killedEntity` 路径（覆写 die 或事件取消转化）。
+**验收**：手测放讲台 NPC 不转职；僵尸杀 NPC 不出僵尸村民。
+
+## WQ-15 [ ] 【中·卡死】AI 解析中关 GUI → 锻造台永久卡 STATE_PARSING（落盘持久）+ 线程池泄漏
+
+`ForgeTableAIHandler` 复位依赖"玩家此刻仍开着菜单"（:56-68），关 GUI/下线后回包直接 return；
+`tickServer` 只对 STATE_COMPLETE 倒计时，PARSING 无超时；状态还落盘。玩家中途开了另一台
+锻造台还会把复位打到错的方块上。另外 `AI_EXECUTOR`（:23）static 永不 shutdown：单人游戏
+AI 请求进行中退出世界时 `enqueueWork` 提交到已停机 server，lambda 持有
+IPayloadContext→ServerPlayer→ServerLevel 整个对象图，反复进出世界叠加泄漏。
+**修法**：①AI 任务捕获 `BlockPos`+维度 key，回调按坐标定位 BE 复位（不经 containerMenu）；
+②`tickServer` 给 PARSING 加超时（200~600 tick）自动回 idle；③`loadAdditional` 把读到的
+PARSING 归一为 IDLE；④监听 `ServerStoppingEvent` 对 executor `shutdownNow` 并丢弃队列。
+**验收**：发起 AI 后立即关 GUI，超时后方块状态自动复位；重开存档无残留 PARSING 粒子。
+
+## WQ-16 [ ] 【中·落点】传送门落点含流体高度图——amplified 地形可直接落岩浆/海面
+
+`MyriadWildsPortalHandler:98-105` 用 `MOTION_BLOCKING_NO_LEAVES`（流体计入），落点无安全复检；
+y<=min+1 时兜底 y=100 不查是否闷在石头里；`getHeightmapPos` 未生成区块时主线程同步生成
+（amplified 很慢，可感知卡服）。
+**修法**：`WORLD_SURFACE` 取高后向上扫两格可站立且脚下非流体的位置，找不到建 3×3 黑曜石基座。
+**验收**：手测传送到海洋/岩浆湖坐标不落液体。
+
+## WQ-17 [ ] 【低·反馈】蓝图使用失败也写相谱 + Blueprint 包无限流
+
+`BlueprintServerHandler:79-81` 的 `withEntry` 在 `if (ok)` 之外——缺材料连点"使用"每次都写一条
+相谱（500 上限会被垃圾挤掉真历史），且 handler 无冷却可被刷。
+**修法**：`withEntry` 移进 ok 分支；handleUse/handleSave 加每玩家 ~10 tick 冷却。
+
+## WQ-18 [ ] 【低·一致性】AI 放料同种材料堆同一槽 → 零件数少于 AI 承诺
+
+`AiPlaceMaterialsHandler.findMaterialSlot`（:100-112）优先堆叠已有同种槽，而 compose 按槽计
+零件（数量无关）——AI 报 [铁锭,铁锭,煤] 实际只算 2 零件；蓝图路径却逐槽铺开，两路径不一致。
+**修法**：`findMaterialSlot` 改为优先空槽，无空槽才堆叠。
+**验收**：GameTest：AI 放料含重复材料时占用不同槽位。
+
+## WQ-19 [ ] 【低·经济】交易声望按笔计无节流——Shift 一键 12 笔直冲满折扣
+
+`notifyTrade`（:90-108）每笔 +1 声望且每笔写一条相谱，Shift 批量成交两次点击即触顶 ±25%，
+与 WQ-13 复合成"卖货涨声望→声望让卖货更赚"的印钞机。
+**修法**：声望加成设每 NPC/玩家/MC 日上限（如 5）；相谱按会话合并一条。
+
+## WQ-20 [ ] 【低·加固】上行包字段无长度上限（三处）
+
+`AiPlaceMaterialsPayload:29-32` 的 `ByteBufCodecs.collection` 不带 maxSize，恶意包可带上万条
+id 各触发注册表查询+41 格扫描；`AiRequestPayload.java:45,47` 与 `BlueprintSavePayload.java:25`
+同病。**修法**：collection/字符串 codec 补 maxSize（材料列表 16、需求文本 1024、蓝图名 64 等
+合理上限），handler 里再截断。
+
+## WQ-21 [ ] 【低·软锁】回程锚点放置可静默失败 → 玩家困在维度
+
+`MyriadWildsPortalHandler:86-96` 只试 2 个候选点，都不可替换就 return 无提示；玩家挖掉去程
+裂隙岩后无法回程。**修法**：候选扩为 3×3 必要时强制放置，失败发聊天警示。
+
+---
+
+# 第三批：客户端/同步/性能狩猎发现（2026-07-26 深夜第二队侦察代理）
+
+## WQ-22 [ ] 【高·多人】全部命令零权限门控
+
+全仓库 `grep "requires("` 零命中：多人服任意玩家可 `/qianxiang kit`（无限刷全套装备/刷怪蛋）、
+`/qianxiang dim`（无条件跨维度，绕过位格门控与裂隙精髓消耗）、`/qianxiang ask <串>`（往单线程
+无界 AI 队列塞 HTTP 任务并写 jsonl 日志）。
+**修法**：kit/dim/ai 子命令 `.requires(s -> s.hasPermission(2))`；saga/blueprint 保持玩家可用；
+ask 若保留给玩家则加 per-player 冷却（如 100 tick）。
+**验收**：非 OP 玩家 tab 补全看不到 kit/dim；OP 正常使用。
+
+## WQ-23 [ ] 【高·多人】施法入口缺存活/观战校验 + 失败提示构成 1:1 包放大
+
+`SpellCastHandler.handle`（:37-92）只判 `instanceof ServerPlayer`：观战者按 V 照常施法
+（ender 元素还会 `connection.teleport`）；死亡瞬间同理。且冷却/法力不足路径每个被拒上行包
+回一个 actionbar 下行包（:69/:73/:109/:113），改包客户端可用最小成本让服务端对自己单播海量
+数据、全占主线程。
+**修法**：入口加 `if (!p.isAlive() || p.isSpectator()) return;`；失败提示 per-player 20 tick 节流。
+**验收**：观战模式按 V 无任何效果；GameTest 覆盖 spectator 拒绝。
+
+## WQ-24 [ ] 【中·体验】伤害浮字寿命与帧率成反比——高刷屏上一闪即没
+
+`ClientDamageNumbers:117,134` 用 `getGameTimeDeltaPartialTick(true)`（tick 内插值系数 0~1，
+非帧间 delta）累加 age：30FPS 活 2 秒、144FPS 只活 0.42 秒、240FPS 0.25 秒。
+**修法**：改用 `event.getPartialTick().getRealtimeDeltaTicks()`，或把年龄推进移到
+`ClientTickEvent.Post` 渲染只读。顺带：`ACTIVE` 表在断线/换世界不清空，重进后旧 entityId
+撞新实体会冒幽灵数字——在 LoggingOut/LevelUnload 清一次。
+
+## WQ-25 [ ] 【中·性能】动态武器模型每帧全量重算 key + bake 失败静默重试风暴
+
+`DynamicWeaponModel.getRenderPasses`（:62-68）每帧每栈重算变体 key：`shapeFromCustomName`
+（toLowerCase+14 次 contains）、`hasGranted` 每次开 Stream 对每 key toString（Texture:473-474）、
+`List.of(new DynamicPass)` 再分配——GUI 40 格×60FPS=每秒数千次分配纯 GC 压力。更糟：
+`CACHE.computeIfAbsent(key, ::bake)`（:108）在 bake 抛异常时不留映射且 catch(Throwable) 吞异常
+→ 该变体每帧重绘 16×16 并尝试注册纹理，持续卡顿零日志。
+**修法**：变体 key 按组件哈希做一层缓存（或存 ItemStack 附带缓存）；bake 失败向 CACHE 写入
+哨兵 Variant 阻止重试，并打一条 WARN（每变体一次）。
+**背景**：变体总上界 720 个（shape20×color9×tier4），与锻造物数量无关——缓存本身设计没错，
+问题只在 key 计算频率和失败路径。
+
+## WQ-26 [ ] 【中·平衡】Shift 连锻一次点击灌 64 条相谱 + 位格直冲 100 越过维度门控
+
+QUICK_MOVE 循环调 `quickMoveStack`（ForgeTableMenu:194-206），每轮 `recordForge` 追加一条
+相谱 + `withBumpedPosition(1)`。材料槽各放 64 个 shift 一下：64 条相谱、位格 0→64+
+（MAX=100），直接跳过 `WILDS_POSITION_THRESHOLD=3` 的门控设计。
+**修法**：`recordForge` 按批次合并一条（带数量）；位格增长每次交互（或每 MC 日）限 +1。
+**验收**：shift 连锻后 /qianxiang saga 只多一条记录；位格增幅受限。
+
+## WQ-27 [ ] 【低·清理】客户端静态状态跨世界残留（两处）
+
+①`ClientForgeTableAI.onResult/lastResult` 是 static，断线/崩溃不走 onClose → 持有整个 Screen
+对象图；且 `receive`（:41）无条件回发 `SpellJsonReportPayload`（锻造台已关也发）。
+②`ClientSpellInput`（:20-24）tick 事件无 `player == null` 守卫（主菜单触发理论可抛），且用
+if 非 while 消费点击。
+**修法**：监听 `ClientPlayerNetworkEvent.LoggingOut`/`LevelEvent.Unload` 清静态字段；
+receive 校验当前 Screen 再回发（注意 WQ-2 重构会改这条链路，先做 WQ-2 的话本条①随之消解）；
+ClientSpellInput 加守卫、if→while。
+
+## WQ-28 [ ] 【低·性能】两处热路径开销
+
+①homing 弹体每 tick `getEntitiesOfClass(inflate(10))`+sort（SpellProjectileEntity:105-113）——
+改每 4 tick 重选目标并缓存目标 id。②锻造台任意一次容器点击（含背包无关格）全量重跑
+`ForgeComposer.compose` 并 setItem 新产物栈触发同步（ForgeTableMenu:252-258，quickMoveStack
+还会再调一次）——对材料槽内容做哈希，未变则跳过重算。
+
+## WQ-29 [ ] 【低·防御】产物槽 shift 部分搬运会清空余量（当前不可触发，防未来）
+
+`quickMoveStack` 产物分支 `moveItemStackTo` 部分成功也返回 true，随后无条件
+`slot.set(EMPTY)`（:231）。今日 compose 产物恒 count=1 不可触发（第一队已核实），但产物
+一旦支持堆叠即成吞物品 bug。**修法**：只在 `stack.isEmpty()` 时才清空。一行防御。
+
+---
+
+## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
+- `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
+- AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
+- DrawbackHandler 五代价无递归无双触发；ArmorEffectHandler magic 拦截防反伤循环成立
+- ArmorPassiveHandler 脱甲效果 11 秒内自然消退，无永久残留
+- SagaData 有 500 条上限+forgotten 计数，attachment 不上行客户端
+- 定价三重下限保险（不可能 0 绿宝石白嫖）；两 NPC 无套利闭环
+- WorkshopSavedData 配额按 UUID 不可绕过、setDirty 齐全
+- 传送 1:1 无缩放、门控无"进得去回不来"死局（除 WQ-21）、无双手双倍消耗精髓
+- 动态贴图变体有 720 上界（shape×color×tier），与锻造物数量无关，不会无限注册；
+  F3+T 重载不套娃不紫黑
+- GUI 打开时按 V 不会发施法包（KeyMapping.releaseAll 清点击队列）
+- SpellHudRenderer 无 NPE 路径（attachment 有默认供给）；弹体 160 tick 超时销毁、落盘完整
+- 浮字接收端有双层限流（单实体 8 条/全局 64 桶）不会无限增长
+- 渲染器/实体尺寸/属性注册全部匹配；Boss 血条玩家增删正确
+- AIGateway 熔断并发语义正确（ThreadLocal 同线程读写、探测标志 finally 释放）；
+  仅两处小瑕疵：兜底分支绕过熔断直连一次、BREAKER_SKIPS 永不归零（低危可不修）
+- GameTest 全部纯逻辑断言无随机/时序依赖，不会偶发红
+- PlayerSpellData copyOnDeath 已配，死亡数据不丢
 
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
