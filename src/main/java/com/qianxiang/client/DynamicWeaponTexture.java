@@ -56,7 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>仅客户端：本类只被 {@code com.qianxiang.client} 包内代码引用，服务端不加载。</p>
  */
 public final class DynamicWeaponTexture {
-    /** 参与动态外貌的物品 id（spell_book 尚未注册时自动跳过，见 wrap 侧 containsKey 判断）。 */
+    /** 参与动态外貌的物品 id（列表中未注册的物品自动跳过，见 wrap 侧 containsKey 判断）。 */
     public static final List<String> SUPPORTED_ITEM_IDS = List.of(
             "ember_blade", "bone_blade", "phase_staff", "phase_shield",
             "phase_helmet", "phase_chestplate", "phase_leggings", "phase_boots",

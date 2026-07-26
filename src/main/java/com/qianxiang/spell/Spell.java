@@ -18,8 +18,13 @@ import java.util.Map;
  * </ul>
  * <p>
  * 所有法术静态注册在 {@link #REGISTRY} 中，可用 {@link #byId(ResourceLocation)} 查询。
- * 这是 MVP 的最简硬编码法术表，后续可扩展为数据驱动。
+ *
+ * @deprecated <b>已封存的旧法术系统</b>：法术双轨收敛后，新产物一律走 {@link CustomSpell}
+ *             （AI 组合法术），本表只为旧存档物品上的 {@code qianxiang:spell} 组件保留读取路径
+ *             （{@link SpellCastHandler} 优先级②）。不要在新代码中引用；四个硬编码法术
+ *             已无任何获取途径。
  */
+@Deprecated
 public record Spell(ResourceLocation id, int manaCost, int cooldownTicks, SpellEffectType type) {
 
     private static final Map<ResourceLocation, Spell> REGISTRY = new HashMap<>();

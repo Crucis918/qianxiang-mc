@@ -44,7 +44,7 @@ public final class DynamicWeaponModel implements BakedModel {
 
     /**
      * 把 {@link DynamicWeaponTexture#SUPPORTED_ITEM_IDS} 里已存在模型的物品包上动态外貌。
-     * 尚未注册的物品（如并行开发中的 spell_book）自动跳过，注册了即生效。
+     * 列表中尚未注册的物品自动跳过，注册了即生效。
      */
     public static void wrap(Map<ModelResourceLocation, BakedModel> models) {
         for (String id : DynamicWeaponTexture.SUPPORTED_ITEM_IDS) {

@@ -15,7 +15,11 @@ import java.util.List;
  * 法术效果执行器：把 {@link Spell} 的定义兑现为游戏内效果。
  * <p>
  * 所有方法只在服务端调用；粒子和效果由服务端同步给客户端。
+ *
+ * @deprecated 旧法术系统的执行器，仅为旧存档兼容保留（见 {@link Spell} 的封存说明）。
+ *             新效果一律写进 {@link SpellEffectEngine}。
  */
+@Deprecated
 public final class SpellEffects {
 
     private SpellEffects() {}

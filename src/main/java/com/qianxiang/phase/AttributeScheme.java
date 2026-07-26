@@ -412,12 +412,9 @@ public final class AttributeScheme {
      *   <li>{@code attackSpeed}：MC 默认玩家攻击速度基底 4.0。我们把它表达为「+bonus」，
      *       即加快攻击（数值越大越快）。若调用方希望用「penalty」表达减速，请传负值。</li>
      *   <li>{@code durability}：<b>MC 没有内置的 durability Attribute</b>，
-     *       durability 来自 {@code Item.getMaxDamage()}。
-     *       这里把 durability 通过自定义方式表达——
-     *       TODO（由统筹者决定）：
-     *         (a) 在 Item 子类 getMaxDamage() 里读取 ComposedAttributes.durability；或
-     *         (b) 引入 NeoForge 的 MaxHealthDurabilityAttribute / 自定义 attribute；或
-     *         (c) 直接无视，durability 仅用于 powerScore 估算，不在 ItemStack 体现。
+     *       durability 来自 {@code Item.getMaxDamage()}——各产物 Item 子类
+     *       （QianxiangWeaponItem/QianxiangArmorItem/QianxiangToolItem）override
+     *       {@code getMaxDamage} 直接读 ComposedAttributes.durability，
      *       因此本方法<b>不</b>生成 durability 的 entry。</li>
      *   <li>特殊效果等级（ignite/lifesteal/thorns/slow/heal）：不是 attribute，
      *       由 Epic Fight 技能 / 自定义事件钩子读取 ComposedAttributes 决定行为，

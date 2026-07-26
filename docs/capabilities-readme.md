@@ -39,9 +39,11 @@ EF 自带示例 `data/epicfight/capabilities/weapons/item_keyword/longsword.json
 
 > 注意：层③（item_keyword）只为物品挂"默认武器类型"，当某物品已有层①显式映射时，层①优先。所以即便 `ember_blade` 同时被两条规则命中，最终生效的仍是 `ember_blade.json` 的 `tachi`（与正则结果一致，无冲突）。
 
-### `weapons/types/` —— 未创建（schema 未坐实）
+### `weapons/types/` —— 已创建（`types/qianxiang_blades.json`）
 
-简报 §8 未确认项 #1 明确指出：层②（`capabilities/weapons/types/*.json`）的确切 schema **本次未从 jar 抽取**，只有加载器类名和 DIRECTORY 被坐实。**为不瞎编 schema，本版不创建自创武器类型**，全部复用 EF 内置 preset（`epicfight:tachi`）。需要自创专属动作时，再 `unzip <jar> 'data/epicfight/capabilities/weapons/types/*'` 取模板。
+层②（`capabilities/weapons/types/*.json`）schema 已从 jar 抽取并坐实，本目录下
+`qianxiang_blades.json` 定义了千相刃类武器类型（category=tachi + 自定义 collider + combos）。
+当前 combos 仍复用 EF 自带的 `tachi_auto*` 动画（自创动画 JSON 格式尚未抽取，见简报 §6.4）。
 
 ---
 
