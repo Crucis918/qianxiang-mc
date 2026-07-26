@@ -44,11 +44,83 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     /** PARSING 状态已持续的 tick，用于超时兜底（不落盘）。 */
     private int parsingTicks = 0;
 
-    // 最近一次 AI 响应的输出暂存（服务端）：AI 自由法术描述 + 自定义名 + EF 动作定制。
-    // 由 SpellJsonReportPayload（C2S）写入，ForgeTableMenu.slotsChanged 组合产物时消费。
+    // 【已废弃】方块级单份 AI 暂存。保留仅为读取旧存档 NBT 不报错；
+    // 现行链路一律走下面的 per-player 提案表（多人同台不再串味）。
     private String lastSpellJson = "";
     private String lastCustomName = "";
     private String lastMovesetJson = "";
+
+    // ======================= 按玩家的 AI 提案与选择（信任边界）=======================
+    // 为什么要按玩家分开存：
+    //  ① 信任边界——服务端算完提案后必须留一份副本，客户端只回传「选了第几条」。
+    //     此前客户端回传的是 spellJson 全文，服务端无从区分「选了方案二」和
+    //     「自己编了一段合法 JSON」，等于把法术内容的决定权交给了客户端。
+    //  ② 多人同台——lastSpellJson 是方块级单份暂存，两个玩家用同一台锻造台时
+    //     A 的 AI 法术会串味到 B 的产物，B 取走即白嫖 A 的成果。
+    // 不落盘：提案随会话有效，重进世界重新问 AI 即可。
+
+    /** 一条可被选中的 AI 提案（服务端权威副本）。 */
+    public record AiProposal(String spellJson, String customName, String movesetJson) {
+        public static final AiProposal EMPTY = new AiProposal("", "", "");
+    }
+
+    /** 玩家 UUID → 服务端为其算出的提案列表。 */
+    private final java.util.Map<java.util.UUID, java.util.List<AiProposal>> proposalsByPlayer =
+            new java.util.HashMap<>();
+
+    /** 玩家 UUID → 该玩家当前选中的提案（含蓝图路径写入的等效选择）。 */
+    private final java.util.Map<java.util.UUID, AiProposal> selectionByPlayer =
+            new java.util.HashMap<>();
+
+    /** 服务端算出提案后登记（覆盖该玩家上一批）。 */
+    public void setProposals(java.util.UUID playerId, java.util.List<AiProposal> proposals) {
+        if (playerId == null) return;
+        if (proposals == null || proposals.isEmpty()) {
+            proposalsByPlayer.remove(playerId);
+        } else {
+            proposalsByPlayer.put(playerId, java.util.List.copyOf(proposals));
+        }
+    }
+
+    /**
+     * 按索引选中该玩家自己的提案。
+     *
+     * @param index 提案下标；负数或越界 = 清除选择（等价「不用 AI 结果」）
+     * @return true = 选中了一条真实提案
+     */
+    public boolean selectProposal(java.util.UUID playerId, int index) {
+        if (playerId == null) return false;
+        java.util.List<AiProposal> list = proposalsByPlayer.get(playerId);
+        if (list == null || index < 0 || index >= list.size()) {
+            selectionByPlayer.remove(playerId);
+            return false;
+        }
+        selectionByPlayer.put(playerId, list.get(index));
+        return true;
+    }
+
+    /** 直接写入一份选择（蓝图路径：蓝图自带 spellJson/movesetJson，不经 AI 提案表）。 */
+    public void setSelection(java.util.UUID playerId, AiProposal selection) {
+        if (playerId == null) return;
+        if (selection == null) {
+            selectionByPlayer.remove(playerId);
+        } else {
+            selectionByPlayer.put(playerId, selection);
+        }
+    }
+
+    /** 该玩家当前选中的提案；没有则返回 {@link AiProposal#EMPTY}。 */
+    public AiProposal selectionOf(java.util.UUID playerId) {
+        if (playerId == null) return AiProposal.EMPTY;
+        return selectionByPlayer.getOrDefault(playerId, AiProposal.EMPTY);
+    }
+
+    /** 玩家关闭容器/离开时清理其提案与选择，避免长期占用。 */
+    public void clearPlayerAiState(java.util.UUID playerId) {
+        if (playerId == null) return;
+        proposalsByPlayer.remove(playerId);
+        selectionByPlayer.remove(playerId);
+    }
 
     public ForgeTableBlockEntity(BlockPos pos, BlockState state) {
         super(QianxiangBlockEntities.FORGE_TABLE.get(), pos, state);

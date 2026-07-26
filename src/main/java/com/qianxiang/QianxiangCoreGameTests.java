@@ -201,6 +201,46 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ AI 提案信任边界（WQ-2） ============================
+
+    /**
+     * 未收到提案的玩家回传任意索引都必须被拒绝——客户端不能凭空造出法术。
+     * 同时验证提案按玩家隔离：A 的提案不会被 B 选中。
+     */
+    @GameTest(template = "item_concept")
+    public static void aiProposalsAreServerAuthoritative(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                com.qianxiang.QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        java.util.UUID alice = java.util.UUID.nameUUIDFromBytes("alice".getBytes());
+        java.util.UUID bob = java.util.UUID.nameUUIDFromBytes("bob".getBytes());
+
+        // 谁都没收到提案时，任何索引都选不中
+        helper.assertTrue(!be.selectProposal(alice, 0), "无提案时选择索引 0 应失败");
+        helper.assertTrue(be.selectionOf(alice).spellJson().isEmpty(), "无提案时选择应为空");
+
+        // 只给 Alice 登记提案
+        be.setProposals(alice, List.of(
+                new com.qianxiang.block.ForgeTableBlockEntity.AiProposal("{\"element\":\"fire\"}", "焰", ""),
+                new com.qianxiang.block.ForgeTableBlockEntity.AiProposal("{\"element\":\"frost\"}", "霜", "")));
+
+        helper.assertTrue(be.selectProposal(alice, 1), "Alice 选自己的提案 #1 应成功");
+        helper.assertTrue(be.selectionOf(alice).customName().equals("霜"),
+                "Alice 应选中第 2 条，实际 " + be.selectionOf(alice).customName());
+
+        // Bob 没有提案：越权选择必须失败，且拿不到 Alice 的内容（多人同台不串味）
+        helper.assertTrue(!be.selectProposal(bob, 0), "Bob 无提案时不应选中任何东西");
+        helper.assertTrue(be.selectionOf(bob).spellJson().isEmpty(),
+                "Bob 不应看到 Alice 的提案内容，实际 " + be.selectionOf(bob).spellJson());
+        // Alice 的选择不受 Bob 操作影响
+        helper.assertTrue(be.selectionOf(alice).customName().equals("霜"), "Alice 的选择不应被他人影响");
+
+        // 越界索引 = 清除选择（等价「不用 AI 结果」）
+        helper.assertTrue(!be.selectProposal(alice, 99), "越界索引应失败");
+        helper.assertTrue(be.selectionOf(alice).spellJson().isEmpty(), "越界索引应清除选择");
+        helper.succeed();
+    }
+
     // ============================ 版本化与迁移（WQ-7） ============================
 
     /** 无版本字段的旧码（本功能上线前产出）必须仍能导入。 */
@@ -297,9 +337,10 @@ public final class QianxiangCoreGameTests {
         be.setItem(1, new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get()));
         menu.slotsChanged(be);
 
-        // 材料保持不变，只改 AI 暂存 —— 必须触发重算并把法术写进产物
-        be.setLastAiSpell("{\"element\":\"frost\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":2}",
-                "霜牙");
+        // 材料保持不变，只改该玩家的 AI 选择 —— 必须触发重算并把法术写进产物
+        be.setSelection(player.getUUID(), new com.qianxiang.block.ForgeTableBlockEntity.AiProposal(
+                "{\"element\":\"frost\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":2}",
+                "霜牙", ""));
         menu.slotsChanged(be);
 
         ItemStack result = be.getItem(ForgeTableMenu.RESULT_SLOT);

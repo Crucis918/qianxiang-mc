@@ -29,17 +29,12 @@ public final class SpellJsonReportHandler {
             if (!(player.containerMenu instanceof ForgeTableMenu menu)) return;
             if (!(menu.getContainer() instanceof ForgeTableBlockEntity be)) return;
 
-            String spellJson = payload.spellJson();
-            if (spellJson != null && !spellJson.isBlank()
-                    && CustomSpell.fromSpellJson(spellJson, 1) == null) {
-                Qianxiang.LOGGER.warn("[Qianxiang] 玩家 {} 回传了非法 spellJson，已丢弃",
-                        player.getName().getString());
-                return;
+            // 只接受「第几条」——真身在服务端自己的提案表里，客户端无从伪造内容。
+            boolean selected = be.selectProposal(player.getUUID(), payload.proposalIndex());
+            if (!selected && payload.proposalIndex() != SpellJsonReportPayload.NONE) {
+                Qianxiang.LOGGER.warn("[Qianxiang] 玩家 {} 选择了不存在的 AI 提案 #{}，已忽略",
+                        player.getName().getString(), payload.proposalIndex());
             }
-
-            be.setLastAiSpell(spellJson == null ? "" : spellJson,
-                    CustomSpell.sanitizeCustomName(payload.customName()));
-            be.setLastAiMoveset(payload.movesetJson());
             menu.slotsChanged(menu.getContainer());
         });
     }

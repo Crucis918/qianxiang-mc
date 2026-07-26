@@ -48,8 +48,11 @@ public final class BlueprintServerHandler {
             String spellJson = null;
             String movesetJson = null;
             if (menu.getContainer() instanceof com.qianxiang.block.ForgeTableBlockEntity be) {
-                spellJson = be.getLastSpellJson();
-                movesetJson = be.getLastMovesetJson();
+                // 读「这个玩家自己的」选择而非方块级单份暂存——
+                // 后者在多人同用一台锻造台时会把别人的 AI 法术存进自己的蓝图。
+                var sel = be.selectionOf(player.getUUID());
+                spellJson = sel.spellJson();
+                movesetJson = sel.movesetJson();
             }
             BlueprintData data = BlueprintData.fromComposition(composition, materials, spellJson, movesetJson);
             BlueprintLibrary library = player.getData(QianxiangAttachments.BLUEPRINT_LIBRARY);

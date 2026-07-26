@@ -37,9 +37,10 @@ public final class ClientForgeTableAI {
         if (onResult != null) {
             onResult.accept(lastResult);
         }
-        // AI 响应到达即把首选方案的 spellJson 同步给服务端锻造台；
-        // 玩家改选其他方案时 applyProposal 会再报一次（后者覆盖前者）。
-        reportSpellJson(payload.proposals().isEmpty() ? null : payload.proposals().getFirst());
+        // AI 响应到达即把「选中第 0 条」同步给服务端锻造台；
+        // 玩家改选其他方案时 applyProposal 会再报一次索引（后者覆盖前者）。
+        reportProposalIndex(payload.proposals().isEmpty()
+                ? SpellJsonReportPayload.NONE : 0);
     }
 
     /** 当前打开的锻造台 UI 注册一个回调，收到结果时刷新。 */
@@ -71,16 +72,15 @@ public final class ClientForgeTableAI {
     }
 
     /**
-     * 把某条 AI 方案的 spellJson + 自定义名（spellJson 的 name 字段）+ movesetJson 回传服务端。
-     * proposal 为 null 或不带对应 JSON 时发送空串 = 清除服务端暂存。
+     * 告诉服务端「我选了第几条 AI 方案」。
+     * <p>
+     * 只发索引不发内容：法术/动作的真身由服务端在算出提案时自己留底，
+     * 客户端无从伪造。{@link SpellJsonReportPayload#NONE} = 不使用 AI 结果。
      * 任何异常吞掉——回传失败不该影响客户端 UI。
      */
-    public static void reportSpellJson(PhaseAIRecipeService.RecipeProposal proposal) {
+    public static void reportProposalIndex(int index) {
         try {
-            String spellJson = proposal != null && proposal.hasSpell() ? proposal.spellJson() : "";
-            String name = spellJson.isEmpty() ? "" : CustomSpell.extractName(spellJson);
-            String movesetJson = proposal != null && proposal.hasMoveset() ? proposal.movesetJson() : "";
-            PacketDistributor.sendToServer(new SpellJsonReportPayload(spellJson, name, movesetJson));
+            PacketDistributor.sendToServer(new SpellJsonReportPayload(index));
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 回传 AI spellJson 失败（不影响推荐显示）", t);
         }

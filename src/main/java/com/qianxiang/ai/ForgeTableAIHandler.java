@@ -89,6 +89,8 @@ public final class ForgeTableAIHandler {
                         // 玩家可能已断线：回包失败不该影响方块复位
                         Qianxiang.LOGGER.debug("[Qianxiang] AI 回包失败（玩家已断线？）：{}", t.toString());
                     }
+                    // 登记服务端权威提案副本：客户端随后只能回传「选第几条」。
+                    registerProposals(context, tablePos, dim, finalResult);
                     resetTableByPos(context, tablePos, dim);
                 });
             } catch (Throwable t) {
@@ -96,6 +98,36 @@ public final class ForgeTableAIHandler {
                 Qianxiang.LOGGER.debug("[Qianxiang] AI 回调入队失败（服务端已停止？）：{}", t.toString());
             }
         });
+    }
+
+    /**
+     * 把本次 AI 算出的提案登记到锻造台（按发起玩家的 UUID）。
+     * <p>这是信任边界的服务端一侧：内容留在服务端，客户端只说「我选第几条」。
+     */
+    private static void registerProposals(IPayloadContext context,
+                                          net.minecraft.core.BlockPos pos,
+                                          net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dim,
+                                          PhaseAIRecipeService.RecipeResult result) {
+        if (pos == null || dim == null || result == null) return;
+        try {
+            if (!(context.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+            var level = sp.server.getLevel(dim);
+            if (level == null || !level.isLoaded(pos)) return;
+            if (!(level.getBlockEntity(pos) instanceof ForgeTableBlockEntity be)) return;
+
+            var proposals = new java.util.ArrayList<ForgeTableBlockEntity.AiProposal>();
+            for (var rp : result.proposals()) {
+                String spellJson = rp.hasSpell() ? rp.spellJson() : "";
+                String name = spellJson.isEmpty()
+                        ? "" : com.qianxiang.spell.CustomSpell.sanitizeCustomName(
+                                com.qianxiang.spell.CustomSpell.extractName(spellJson));
+                String movesetJson = rp.hasMoveset() ? rp.movesetJson() : "";
+                proposals.add(new ForgeTableBlockEntity.AiProposal(spellJson, name, movesetJson));
+            }
+            be.setProposals(sp.getUUID(), proposals);
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 登记 AI 提案失败（无害）：{}", t.toString());
+        }
     }
 
     /** 按坐标复位锻造台状态（不依赖玩家当前打开的菜单）。 */

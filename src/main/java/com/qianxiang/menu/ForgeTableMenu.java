@@ -116,9 +116,12 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         // 避免上一次 AI 响应的法术/动作串味到蓝图产物）。蓝图名作为自定义名恢复。
         if (container instanceof ForgeTableBlockEntity be) {
             String sj = blueprint.spellJson();
-            be.setLastAiSpell(sj == null ? "" : sj, sj == null ? "" : blueprint.name());
             String mj = blueprint.movesetJson();
-            be.setLastAiMoveset(mj == null ? "" : mj);
+            // 蓝图自带的法术/动作也按玩家隔离写入（与 AI 提案同一条通道）
+            be.setSelection(ownerUuid(), new ForgeTableBlockEntity.AiProposal(
+                    sj == null ? "" : sj,
+                    sj == null ? "" : blueprint.name(),
+                    mj == null ? "" : mj));
         }
         slotsChanged(container);
         return true;
@@ -150,8 +153,11 @@ public class ForgeTableMenu extends AbstractContainerMenu {
 
         ForgeComposer.Composition composition;
         if (this.container instanceof ForgeTableBlockEntity be) {
-            composition = ForgeComposer.compose(materials, be.getLastSpellJson(), be.getLastCustomName(),
-                    be.getLastMovesetJson());
+            // 按「打开这个菜单的玩家」取 AI 选择，而不是方块级单份暂存——
+            // 后者会让多人同用一台锻造台时互相串味（A 的 AI 法术出现在 B 的产物上）。
+            var sel = be.selectionOf(ownerUuid());
+            composition = ForgeComposer.compose(materials,
+                    sel.spellJson(), sel.customName(), sel.movesetJson());
         } else {
             composition = ForgeComposer.compose(materials);
         }
@@ -260,14 +266,20 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         return hash;
     }
 
-    /** 方块实体上暂存的 AI 输出的指纹（客户端 SimpleContainer 恒为 0）。 */
+    /** 该玩家当前 AI 选择的指纹（客户端 SimpleContainer 恒为 0）。 */
     private int aiStateFingerprint() {
         if (!(this.container instanceof ForgeTableBlockEntity be)) {
             return 0;
         }
-        return be.getLastSpellJson().hashCode() * 31
-                + be.getLastCustomName().hashCode() * 7
-                + be.getLastMovesetJson().hashCode();
+        var sel = be.selectionOf(ownerUuid());
+        return sel.spellJson().hashCode() * 31
+                + sel.customName().hashCode() * 7
+                + sel.movesetJson().hashCode();
+    }
+
+    /** 打开本菜单的玩家 UUID（AI 选择按玩家隔离）。 */
+    private java.util.UUID ownerUuid() {
+        return playerInventory.player == null ? null : playerInventory.player.getUUID();
     }
 
     private void addPlayerInventory(Inventory inv) {
@@ -333,6 +345,10 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         // 产物槽是实时预览，材料尚未消耗——关闭界面必须清掉，
         // 否则它作为真实容器槽留在方块实体里，可被漏斗抽走（零成本无限锻造）。
         this.container.setItem(RESULT_SLOT, ItemStack.EMPTY);
+        // 顺带清掉该玩家在这台锻造台上的 AI 提案与选择（不落盘，随会话有效）
+        if (this.container instanceof ForgeTableBlockEntity be) {
+            be.clearPlayerAiState(player.getUUID());
+        }
     }
 
     private int stillValidFailLogCooldown = 0;

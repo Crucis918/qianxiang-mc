@@ -1431,9 +1431,9 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             return;
         }
 
-        // 先回传该方案的 spellJson + 自定义名（包序保证服务端先暂存再放料），
-        // 服务端放料触发 slotsChanged 时产物即按 AI 法术/名称组合。
-        ClientForgeTableAI.reportSpellJson(proposal);
+        // 先回传「选了第几条」（包序保证服务端先记下选择再放料），
+        // 服务端放料触发 slotsChanged 时产物即按该提案的法术/名称组合。
+        ClientForgeTableAI.reportProposalIndex(index);
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(proposal.materialNames()));
     }
 

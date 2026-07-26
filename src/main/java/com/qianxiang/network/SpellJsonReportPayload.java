@@ -14,23 +14,24 @@ import net.minecraft.resources.ResourceLocation;
  * 客户端缓存 → 本包回传服务端 → 暂存于 {@code ForgeTableBlockEntity} →
  * {@code ForgeTableMenu.slotsChanged} 组合产物时消费（见 ForgeComposer#applyAiSpell / #applyAiMoveset）。
  * <p>
- * 字段都可为空串：空串 = 清除暂存（AI 响应不带对应 JSON / 玩家选了无定制方案）。
+ * <b>只携带索引，不携带内容</b>：法术/动作的真身由服务端在算出提案时留底
+ * （见 {@code ForgeTableBlockEntity.setProposals}），客户端只能说「我选第几条」。
+ * 此前回传的是 spellJson 全文，服务端无从区分「选了方案二」与「自己编了一段
+ * 合法 JSON」——法术内容的决定权实际在客户端手里。
+ * <p>
+ * {@link #NONE}（-1）或越界索引 = 不使用 AI 结果（清除该玩家的选择）。
  */
-public record SpellJsonReportPayload(String spellJson, String customName, String movesetJson) implements CustomPacketPayload {
+public record SpellJsonReportPayload(int proposalIndex) implements CustomPacketPayload {
 
-    /** 兼容旧两参构造：movesetJson 默认空串（=无动作定制）。 */
-    public SpellJsonReportPayload(String spellJson, String customName) {
-        this(spellJson, customName, "");
-    }
+    /** 「不使用 AI 结果」的索引值。 */
+    public static final int NONE = -1;
 
     public static final Type<SpellJsonReportPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "spell_json_report"));
 
     public static final StreamCodec<FriendlyByteBuf, SpellJsonReportPayload> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.STRING_UTF8, SpellJsonReportPayload::spellJson,
-                    ByteBufCodecs.STRING_UTF8, SpellJsonReportPayload::customName,
-                    ByteBufCodecs.STRING_UTF8, SpellJsonReportPayload::movesetJson,
+                    ByteBufCodecs.VAR_INT, SpellJsonReportPayload::proposalIndex,
                     SpellJsonReportPayload::new);
 
     @Override
