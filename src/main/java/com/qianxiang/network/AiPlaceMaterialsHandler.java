@@ -78,6 +78,12 @@ public final class AiPlaceMaterialsHandler {
             }
 
             if (anyPlaced) {
+                // 闭合「建议 → 采纳」链路：玩家真的把 AI 推荐的材料放上台了。
+                // 这是判断 AI 质量的唯一客观信号（调用次数说明不了任何问题）。
+                com.qianxiang.ai.AIGateway.logAdoption(
+                        com.qianxiang.ai.AIGateway.currentRequestId(),
+                        payload.materialNames(),
+                        player.getUUID().toString());
                 forgeMenu.slotsChanged(forgeMenu.getContainer());
                 forgeMenu.getContainer().setChanged();
                 player.getInventory().setChanged();

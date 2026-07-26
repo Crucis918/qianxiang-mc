@@ -45,6 +45,9 @@ public final class AIGateway {
     private static final int CACHE_MAX = 128;
     private static final long CACHE_TTL_MS = 10 * 60_000L;
     private static final long LOG_ROTATE_BYTES = 5L * 1024 * 1024;
+
+    /** 日志保留代数（.1/.2/.3）。单代 .old 在活跃服务器上回溯窗口太短。 */
+    private static final int LOG_GENERATIONS = 3;
     private static final Path LOG_PATH = FMLPaths.GAMEDIR.get().resolve("logs").resolve("qianxiang-ai.jsonl");
 
     private record CacheEntry(String response, long expiresAt) {}
@@ -89,7 +92,32 @@ public final class AIGateway {
     /**
      * 带缓存/重试/日志的 chat。契约同 {@link AIClient#chat}：永不抛，失败返回 empty。
      */
+    /**
+     * 本线程当前这次 AI 请求的 id。
+     * <p>请求日志与「玩家采纳」日志用它串起来，才能回答
+     * 「AI 建议了什么 → 玩家实际用了什么」；否则日志只能告诉你调用了多少次。
+     */
+    private static final ThreadLocal<String> CURRENT_REQ_ID = new ThreadLocal<>();
+
+    /** 供请求链路读取当前 reqId（无则现生成一个）。 */
+    public static String currentRequestId() {
+        String id = CURRENT_REQ_ID.get();
+        if (id == null) {
+            id = newRequestId();
+            CURRENT_REQ_ID.set(id);
+        }
+        return id;
+    }
+
+    private static String newRequestId() {
+        return Long.toHexString(System.nanoTime()) + "-" + REQ_SEQ.incrementAndGet();
+    }
+
+    private static final java.util.concurrent.atomic.AtomicLong REQ_SEQ =
+            new java.util.concurrent.atomic.AtomicLong();
+
     public static Optional<String> chat(String userMessage, String systemPrompt) {
+        CURRENT_REQ_ID.set(newRequestId());
         boolean probe = false;
         try {
             REQUESTS.incrementAndGet();
@@ -100,7 +128,7 @@ public final class AIGateway {
             CacheEntry hit = CACHE.get(key);
             if (hit != null && hit.expiresAt() > now) {
                 CACHE_HITS.incrementAndGet();
-                log(cfg, userMessage, true, false, true, 0);
+                log(cfg, userMessage, true, false, true, 0, currentRequestId(), null);
                 return Optional.of(hit.response());
             }
 
@@ -141,7 +169,8 @@ public final class AIGateway {
                 lastFailure = "provider=" + cfg.provider + " model=" + cfg.model
                         + " @" + java.time.LocalDateTime.now().withNano(0);
             }
-            log(cfg, userMessage, false, retried, resp.isPresent(), latency);
+            log(cfg, userMessage, false, retried, resp.isPresent(), latency,
+                    currentRequestId(), resp.orElse(null));
             return resp;
         } catch (Throwable t) {
             // 网关自身任何意外都不许影响调用方
@@ -274,7 +303,7 @@ public final class AIGateway {
 
     /** 追加一行 jsonl；任何 IO 失败只记 debug，绝不影响主流程。 */
     private static void log(AIConfig cfg, String userMessage, boolean cached, boolean retried,
-                            boolean ok, long latencyMs) {
+                            boolean ok, long latencyMs, String reqId, String rawResponse) {
         try {
             JsonObject o = new JsonObject();
             o.addProperty("ts", java.time.Instant.now().toString());
@@ -284,13 +313,60 @@ public final class AIGateway {
             o.addProperty("retried", retried);
             o.addProperty("ok", ok);
             o.addProperty("latency_ms", latencyMs);
+            o.addProperty("req_id", reqId);
+            o.addProperty("event", "request");
             String want = userMessage == null ? "" : userMessage;
             o.addProperty("want", want.length() > 200 ? want.substring(0, 200) : want);
+            if (rawResponse != null) {
+                String raw = rawResponse.replaceAll("\\s+", " ").trim();
+                o.addProperty("raw_response", raw.length() > 500 ? raw.substring(0, 500) : raw);
+            }
+            appendLine(o);
+        } catch (Exception e) {
+            Qianxiang.LOGGER.debug("[Qianxiang] AI 日志写入失败：{}", e.toString());
+        }
+    }
+
+    /**
+     * 记录一次「玩家采纳了 AI 建议」事件。
+     * <p>请求与采纳用同一个 {@code req_id} 串起来，日志才能回答
+     * 「AI 建议了什么 → 玩家实际用了什么」这个问题（否则只知道调用了几次）。
+     */
+    public static void logAdoption(String reqId, java.util.List<String> materials, String playerUuid) {
+        try {
+            JsonObject o = new JsonObject();
+            o.addProperty("ts", java.time.Instant.now().toString());
+            o.addProperty("req_id", reqId == null ? "" : reqId);
+            o.addProperty("event", "adopt");
+            o.addProperty("player", playerUuid == null ? "" : playerUuid);
+            var arr = new com.google.gson.JsonArray();
+            if (materials != null) {
+                materials.forEach(arr::add);
+            }
+            o.add("materials", arr);
+            appendLine(o);
+        } catch (Exception e) {
+            Qianxiang.LOGGER.debug("[Qianxiang] AI 采纳日志写入失败：{}", e.toString());
+        }
+    }
+
+    /** 追加一行 jsonl，带三代轮转。 */
+    private static void appendLine(JsonObject o) {
+        try {
             String line = o + System.lineSeparator();
             synchronized (LOG_LOCK) {
                 Files.createDirectories(LOG_PATH.getParent());
                 if (Files.exists(LOG_PATH) && Files.size(LOG_PATH) > LOG_ROTATE_BYTES) {
-                    Files.move(LOG_PATH, LOG_PATH.resolveSibling("qianxiang-ai.jsonl.old"),
+                    // 三代轮转：.3 丢弃，.2→.3，.1→.2，当前→.1
+                    // 单代 .old 在活跃服务器上很快就被覆盖，回溯窗口太短。
+                    for (int gen = LOG_GENERATIONS - 1; gen >= 1; gen--) {
+                        Path from = LOG_PATH.resolveSibling("qianxiang-ai.jsonl." + gen);
+                        Path to = LOG_PATH.resolveSibling("qianxiang-ai.jsonl." + (gen + 1));
+                        if (Files.exists(from)) {
+                            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+                        }
+                    }
+                    Files.move(LOG_PATH, LOG_PATH.resolveSibling("qianxiang-ai.jsonl.1"),
                             StandardCopyOption.REPLACE_EXISTING);
                 }
                 Files.writeString(LOG_PATH, line, StandardCharsets.UTF_8,
