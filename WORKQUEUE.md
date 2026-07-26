@@ -549,6 +549,73 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 
 ---
 
+# 复核报告二：cc6f1ab / 1b44305 / dfa7641 / d8a0070 对抗性审查（2026-07-27）
+
+**结单确认（证据充分、无残留）**：WQ-30、WQ-22（requires 正确加在 kit/dim/ai 子节点，
+saga/blueprint 保持玩家可用）、WQ-23（守卫位置正确，节流 key 含 playerId 无跨玩家污染）、
+WQ-53、WQ-20（三处上限均高于合法客户端实际值，不会误踢）、WQ-13（非绿宝石 offer 显式
+清零 specialPriceDiff，印钞链断开）、WQ-17、WQ-29、WQ-56、WQ-32~38 全部七项
+（recipe advancement 22/22 精确对应；wildlight_patch 的 offset 谓词经核实不会哑火）。
+
+**有条件结单**：WQ-19（实现是 30 秒墙钟窗口而非"每 MC 日 5 次"，跨重启清零，且 action
+键基数无界永不清理——若接受此口径可结单，否则返工）；WQ-55（校验+限流已前置，但
+"队列深度上限、满则回兜底"未做，AI_EXECUTOR 仍无界）；WQ-6（物品/资产/独占性达成，
+lang 683/683 双向零差集，但 GameTest 只断言了"无配方产出"，商人表/其它 loot/kit 三条
+回归面无护栏，建议补断言）。
+
+## WQ-57 [ ] 【高·返工】WQ-8 的退蓝实现是无限法力电池——比原 bug 更糟
+
+`refundOnInvalidTarget` 挂在 `SpellEffectEngine.resolveHit` 的 per-target 分支（:222/:230），
+而 resolveHit 被 AoE 与链式循环**逐目标**调用（:118/:141/:326）。后果三条：①一发 AoE
+heal 命中 5 只怪退 5 次；②退款额是写死的 `10 + 5*1 = 15`（:390-392）与实际 manaCost 无关，
+cost<15 的法术每次净赚；③命中集合里同时有友方时**治疗照常生效还额外退蓝**——补偿变奖励。
+**修法**：退款上提到 cast 层，一次施法只结算一次、退实际 manaCost、且仅当零个目标生效时退。
+**验收**：GameTest：AoE heal 命中 N 个非友方，断言法力净变化 == -manaCost（不是 +）。
+
+## WQ-58 [ ] 【中·返工】WQ-21 锚点候选未排除玩家头部格——会把裂隙岩放进玩家头里
+
+`MyriadWildsPortalHandler:97-99` 的候选框 `betweenClosed(arrival.offset(-1,0,-1),
+arrival.offset(1,2,1))` 只跳过 arrival 自身，未跳过 `arrival.above()`。脚边一圈不可替换而
+头顶是空气时（1×2 竖井/洞穴落点）锚点放进玩家头部造成窒息。**一行修法**：
+`if (candidate.equals(arrival) || candidate.equals(arrival.above())) continue;`
+另低危：强制兜底 :106 的 `canBeReplaced() || !isCollisionShapeFullBlock(...)` 会覆盖
+箱子/台阶/楼梯——等于破坏玩家容器，条件应收紧为只覆盖可替换方块。
+
+## WQ-59 [ ] 【中·返工】WQ-16 落点算法三类地形塌陷 + 污染主世界地形
+
+①全空气柱（虚空上方）：heightmap 返回 minBuildHeight → clamp → 玩家被放到**世界最底层**
+y=min+2，不掉虚空但等同活埋；②树冠/雪层/台阶：`isSolidRender` 对树叶 false，落在树上会
+在树冠上方凭空生成悬空裂隙岩；③**回程去主世界也走同一函数**（:71 无分支）→ 主世界树顶/
+海面被凭空放一块 `qianxiang:rift_stone`，旧实现从不改地形。④工单点名的"主线程同步生成
+区块"未处理，`ensureReturnAnchor` 的 1183 次 getBlockState 还可能顺带同步加载相邻区块。
+**修法**：落点失败时改用"回退到维度出生点附近"而非就地造块；回程路径不建基座；
+基座材质用黑曜石且只在目标维度内建；heightmap 查询前先判区块是否已加载。
+
+## WQ-60 [ ] 【中·返工】WQ-31 未达成目标——warden_core 同样 100% 掉落，双成就仍同帧弹
+
+`loot_table/entities/myriad_warden.json` 末池 warden_core 是 `rolls 1.0` 无 conditions 无
+looting，与原来的 void_shard 第 1 池**触发时机完全等价**：kill_warden 与 legendary_material
+（parent 正是 kill_warden）仍在同一帧各弹一个 challenge 框。病因未消除，只是附赠品改了名。
+**修法（二选一）**：①`legendary_material` 条件改为"锻出含 warden_core 的 LEGENDARY 产物"
+（与 forge_legendary 拆开：前者 goal 帧、后者 challenge 终点）；②legendary_material 降为
+goal，challenge 唯一留给 forge_legendary。
+附带低危：forge_legendary 只检查材料槽有核就授予，不校验产物是否真为 LEGENDARY，与成就
+文案"锻造出一件传奇相器"错配。
+
+## WQ-61 [ ] 【低·返工】FallbackRecipes.legendaryCatalyst() 的判据恒为真
+
+`:699-703` 用 `MaterialLibrary.exists("qianxiang:warden_core")` 判断——exists 查的是注册表
+索引，装着 mod 就恒 true，不是"玩家有核"。后果：所有攻击/法术向 LEGENDARY 兜底方案一律
+要求 Boss 独占材料，没打过 Boss 的玩家在 AI 掉线时拿到永远配不齐的方案（AI 放料静默失败）。
+**修法**：判据改为"玩家背包/材料槽中存在 warden_core"，或保留 rift_essence 方案作为并列
+备选让玩家二选一。
+
+**流程提醒（给修理会话）**：本批 20 余张单在队列里的复选框大多仍是 `[ ]`，请领活/完成时
+及时回填状态+提交号；cc6f1ab/1b44305/dfa7641 三个提交新增 GameTest 数为 0，而
+WQ-22/26/30/16 的验收条款要求实测或断言——补测或在工单里注明"人工冒烟已做"。
+
+---
+
 ## 侦察员核查过没有问题的区域（修理时不必怀疑，改动时别破坏这些保证）
 - `quickMoveStack` 产物分支/onTakeResult 时序/连锻确定性（compose 无 RNG）
 - AiPlaceMaterialsHandler 物品守恒三路径（split/grow/撤销）不复制不造物
@@ -571,9 +638,15 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 
 ---
 
-# 第五批：修理会话侦察代理补充发现（编号 40+ 避开第四批）（2026-07-26 深夜，均已亲自打开源码复核）
+# 第六批：修理会话侦察代理补充发现（原编号 40~44 与第五批撞号，2026-07-27 已重编为 WQ-52~56）
 
-## WQ-40 [x] 完成(6bdc4c4) 【严重·系统性失效】产物注册缺 Properties.durability，整条耐久链是死代码
+> **编号消歧记录**：本批原用 WQ-40~44，与第五批 AI 质量工单同号，导致 cc6f1ab/1b44305
+> 的提交信息里的"WQ-41/43/44"指向本批而非第五批。现重编为 **WQ-52~56**，对应关系：
+> 旧 40→**52**（耐久链）、旧 41→**53**（凭据泄露）、旧 42→**54**（每帧全表扫）、
+> 旧 43→**55**（AI 请求包加固）、旧 44→**56**（Boss 击退）。
+> **第五批的 WQ-39~47（AI 质量九单）一张都还没开工**，勿因提交信息误判为已完成。
+
+## WQ-52 [x] 完成(6bdc4c4) 【严重·系统性失效】产物注册缺 Properties.durability，整条耐久链是死代码
 
 `QianxiangItems` 全部 10 个产物只写了 `.rarity(...)`，栈上没有 MAX_DAMAGE/DAMAGE 组件 →
 `isDamageableItem()` 恒 false。后果：①三个 Item 子类的 `getMaxDamage(ItemStack)` override
@@ -584,7 +657,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 **注**：`AttributeScheme` 那段"durability 由 override 提供"的 javadoc 此前由修理会话写下但
 漏了注册侧前提，已一并纠正。
 
-## WQ-41 [x] 完成(cc6f1ab) 【严重·凭据泄露】服务端 apiKey 明文推送给每个进服玩家
+## WQ-53 [x] 完成(cc6f1ab) 【严重·凭据泄露】服务端 apiKey 明文推送给每个进服玩家
 
 `network/AiConfigSyncHandler.java:52-60`（`onPlayerLogin` → `PacketDistributor.sendToPlayer`）
 经 `:64-68 currentPayload()` 把 `cfg.apiKey` 放进包；`AiConfigSyncPayload.java:37` 照发；
@@ -596,7 +669,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 保存时若仍是占位则不覆盖服务端已有 Key。
 **验收**：非 OP 玩家进服抓包无明文 Key；OP 打开界面仍能看到并修改真值。
 
-## WQ-42 [x] 完成(c0fa031) 【高·客户端卡死】锻造台每帧 12 次全物品注册表扫描
+## WQ-54 [x] 完成(c0fa031) 【高·客户端卡死】锻造台每帧 12 次全物品注册表扫描
 
 `client/ForgeTableScreen.java:572`（render 内）→ `:1307` → `:1448 resolveItemStack`
 → `ai/MaterialLibrary.java:440 find()` → `:126 snapshot()`。`find()` 每次调用都重跑
@@ -609,7 +682,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 `find()` 改查预建 Map 而非线性扫描；`resolveItemStack` 结果在 Screen 里按提案缓存。
 **验收**：装整合包打开锻造台+AI 推荐，帧率无可感下降。
 
-## WQ-43 [x] 完成(cc6f1ab) 【高·可打死服务端】AI 请求包无前置校验、无限流、执行器队列无界
+## WQ-55 [x] 完成(cc6f1ab) 【高·可打死服务端】AI 请求包无前置校验、无限流、执行器队列无界
 
 `ai/ForgeTableAIHandler.java:31-53`：`enqueueWork` 只用来设粒子状态，**AI 任务无条件
 `AI_EXECUTOR.submit`**——不校验玩家是否真的开着锻造台，无冷却；`:23` 的
@@ -620,7 +693,7 @@ STATE_READY 粒子；③`dropContentsOnRemove` 的 `items.clear()` 加注释说�
 队列深度上限（满则直接回兜底）；`AiRequestPayload` 的 collection/字符串 codec 补 maxSize
 （与 WQ-20 合并做）。
 
-## WQ-44 [x] 完成(1b44305) 【中】Boss 冲击波对无敌目标仍施加击退
+## WQ-56 [x] 完成(1b44305) 【中】Boss 冲击波对无敌目标仍施加击退
 
 `entity/QianxiangMyriadWarden.java:159-162`（修理会话本人所写）：过滤器只排除自身/同类/
 裂隙蠹，`hurt()` 对创造与旁观模式玩家是空操作，但紧随其后的 `knockback()` **无条件执行**
