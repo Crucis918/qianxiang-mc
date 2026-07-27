@@ -101,35 +101,35 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
     /** 预置：火球（火/投射/伤害）。 */
     public static final CustomSpell FIREBALL =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "fireball"),
-                    "fire", "projectile", "damage", List.of(), 15, 40, 2));
+                    "fire", "projectile", "damage", List.of(), 15, 40, 3));
     /** 预置：自然治愈（自然/自身/治疗）。 */
     public static final CustomSpell NATURE_HEAL =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "nature_heal"),
-                    "nature", "self", "heal", List.of(), 20, 80, 2));
+                    "nature", "self", "heal", List.of(), 25, 80, 3));
     /** 预置：奥术飞弹（奥术/投射/伤害，追踪）。 */
     public static final CustomSpell ARCANE_MISSILES =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "arcane_missiles"),
-                    "arcane", "projectile", "damage", List.of("homing"), 12, 20, 1));
+                    "arcane", "projectile", "damage", List.of("homing"), 12, 20, 2));
     /** 预置：冰锥（寒霜/投射/伤害，穿透）。 */
     public static final CustomSpell ICE_SHARD =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "ice_shard"),
-                    "frost", "projectile", "damage", List.of("piercing"), 15, 40, 1));
+                    "frost", "projectile", "damage", List.of("piercing"), 25, 40, 3));
     /** 预置：雷链（雷电/范围/伤害，连锁）。 */
     public static final CustomSpell LIGHTNING_CHAIN =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "lightning_chain"),
-                    "lightning", "aoe", "damage", List.of("chain"), 25, 60, 2));
+                    "lightning", "aoe", "damage", List.of("chain"), 25, 60, 4));
     /** 预置：暗影箭（暗影/投射/伤害）。 */
     public static final CustomSpell SHADOW_BOLT =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "shadow_bolt"),
-                    "shadow", "projectile", "damage", List.of(), 15, 40, 2));
+                    "shadow", "projectile", "damage", List.of(), 15, 40, 3));
     /** 预置：圣光术（神圣/范围/治疗，延展）。 */
     public static final CustomSpell HOLY_LIGHT =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "holy_light"),
-                    "holy", "aoe", "heal", List.of("extended"), 30, 120, 2));
+                    "holy", "aoe", "heal", List.of("extended"), 30, 120, 4));
     /** 预置：血祭（鲜血/自身/增益，增幅）。 */
     public static final CustomSpell BLOOD_SACRIFICE =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "blood_sacrifice"),
-                    "blood", "self", "buff", List.of("amplified"), 25, 200, 3));
+                    "blood", "self", "buff", List.of("amplified"), 30, 200, 4));
     /** 预置：末影闪现（末影/自身/效用）。 */
     public static final CustomSpell ENDER_BLINK =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "ender_blink"),
@@ -137,11 +137,11 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
     /** 预置：追踪火球（火焰/投射/伤害，追踪+增幅）。 */
     public static final CustomSpell HOMING_FIREBALL =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "homing_fireball"),
-                    "fire", "projectile", "damage", List.of("homing", "amplified"), 25, 60, 3));
+                    "fire", "projectile", "damage", List.of("homing", "amplified"), 35, 60, 5));
     /** 预置：寒霜新星（寒霜/范围/减益，延展）。 */
     public static final CustomSpell FROST_NOVA =
             register(new CustomSpell(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "frost_nova"),
-                    "frost", "aoe", "debuff", List.of("extended"), 20, 80, 2));
+                    "frost", "aoe", "debuff", List.of("extended"), 30, 80, 4));
 
     /** 按 id 查询预置法术；找不到（材料/AI 生成的法术不入表）返回 null。 */
     public static CustomSpell byId(ResourceLocation id) {

@@ -92,10 +92,16 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
             return;
         }
         try {
-            // 元素轨迹粒子（服务端下发，客户端只负责显示）
+            // 元素轨迹粒子（服务端下发，客户端只负责显示）：
+            // 每 tick 2~3 个带微扩散；power > 6 再加一层尾迹（高威力弹幕更密）。
             if (level() instanceof ServerLevel serverLevel) {
-                serverLevel.sendParticles(SpellEffectEngine.particleFor(serverLevel, element),
-                        getX(), getY(), getZ(), 2, 0.02, 0.02, 0.02, 0.0);
+                var trail = SpellEffectEngine.particleFor(serverLevel, element);
+                serverLevel.sendParticles(trail, getX(), getY(), getZ(),
+                        power > 6 ? 3 : 2, 0.05, 0.05, 0.05, 0.0);
+                if (power > 6) {
+                    serverLevel.sendParticles(trail, getX(), getY(), getZ(),
+                            2, 0.12, 0.12, 0.12, 0.0);
+                }
             }
             if (homing) {
                 steerTowardsNearestEnemy();

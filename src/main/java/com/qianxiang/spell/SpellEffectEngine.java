@@ -59,7 +59,7 @@ public final class SpellEffectEngine {
      *
      * @param damageMult 增幅器倍率（1 + 主副手 spellPowerPercent/100，
      *                   见 {@link AmplifierHelper#damageMultiplier}）；
-     *                   只放大 damage/heal 结算（power×2.0 那一跳），
+     *                   只放大 damage/heal 结算（power×3.0 / power×2.5 那一跳），
      *                   不影响效果时长/半径等其他派生量
      */
     public static void cast(CustomSpell spell, ServerPlayer player, float damageMult) {
@@ -78,8 +78,8 @@ public final class SpellEffectEngine {
             float mult = damageMult <= 0.0f ? 1.0f : damageMult;
 
             ServerLevel level = player.serverLevel();
-            level.playSound(null, player.blockPosition(), castSoundFor(form),
-                    SoundSource.PLAYERS, 0.6f, pitchFor(element));
+            level.playSound(null, player.blockPosition(), castSoundFor(form, element),
+                    SoundSource.PLAYERS, castVolumeFor(element), pitchForForm(form));
             resetTally();
             switch (form) {
                 case "self" -> castSelf(level, player, element, effect, power, mods, mult);
@@ -113,12 +113,12 @@ public final class SpellEffectEngine {
         burst(level, element, eye.x, eye.y, eye.z, 6, 0.15);
     }
 
-    /** self：对自身结算。heal 回血 power×2×增幅倍率；buff 按元素给正面状态 220tick；damage 自身周围 3 格小 aoe。 */
+    /** self：对自身结算。heal 回血 power×2.5×增幅倍率；buff 按元素给正面状态 220tick；damage 自身周围 3 格小 aoe。 */
     private static void castSelf(ServerLevel level, ServerPlayer player, String element,
                                  String effect, float power, Set<String> mods, float damageMult) {
         switch (effect) {
             case "heal" -> {
-                player.heal(power * 2.0f * damageMult);
+                player.heal(power * 2.5f * damageMult);
                 burst(level, element, player.getX(), player.getY() + 1.0, player.getZ(), 14, 0.4);
             }
             case "buff" -> {
@@ -246,7 +246,7 @@ public final class SpellEffectEngine {
             switch (effect) {
                 case "heal" -> {
                     if (isAlly(caster, target)) {
-                        target.heal(power * 2.0f * damageMult);
+                        target.heal(power * 2.5f * damageMult);
                         burstAt(level, element, target, 12);
                         markEffective();
                     } else {
@@ -262,12 +262,7 @@ public final class SpellEffectEngine {
                         markIneffective();
                     }
                 }
-                case "debuff" -> {
-                    int dur = (int) (power * 40) * durMul;
-                    target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur, amplifierOf(power)));
-                    target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, dur, amplifierOf(power)));
-                    burstAt(level, element, target, 12);
-                }
+                case "debuff" -> resolveDebuff(level, target, element, power, durMul);
                 case "utility" -> resolveUtility(level, caster, target.blockPosition(), target, element);
                 default -> resolveDamage(level, caster, direct, target, element, power, mods, durMul, damageMult);
             }
@@ -276,19 +271,62 @@ public final class SpellEffectEngine {
         }
     }
 
-    /** damage：power×2.0×增幅倍率 魔法伤害 + 元素附加。 */
+    /**
+     * debuff：按元素分派的负面效果。时长统一 {@code (int)(power*40) * durMul}，
+     * 等级 {@code amplifierOf(power)}（nature 中毒借此可到 II）。
+     */
+    private static void resolveDebuff(ServerLevel level, LivingEntity target, String element,
+                                      float power, int durMul) {
+        int dur = (int) (power * 40) * durMul;
+        int amp = amplifierOf(power);
+        switch (element) {
+            case "fire" -> {
+                target.igniteForTicks((int) (power * 20) * durMul);
+                target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur, amp));
+            }
+            case "frost" -> {
+                target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, dur, amp));
+                target.setTicksFrozen(target.getTicksFrozen() + (int) (power * 30) * durMul);
+            }
+            case "lightning" -> {
+                target.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, dur, amp));
+                target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur, amp));
+            }
+            case "nature" -> {
+                target.addEffect(new MobEffectInstance(MobEffects.POISON, dur, amp));
+                target.addEffect(new MobEffectInstance(MobEffects.CONFUSION, dur, amp));
+            }
+            case "shadow" -> {
+                target.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, dur, amp));
+                target.addEffect(new MobEffectInstance(MobEffects.DARKNESS, dur, amp));
+            }
+            case "holy" -> {
+                target.addEffect(new MobEffectInstance(MobEffects.GLOWING, dur, amp));
+                target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur, amp));
+            }
+            case "blood" -> target.addEffect(new MobEffectInstance(MobEffects.WITHER, dur, amp));
+            case "ender" -> target.addEffect(new MobEffectInstance(MobEffects.LEVITATION, dur, amp));
+            default -> { // arcane
+                target.addEffect(new MobEffectInstance(MobEffects.CONFUSION, dur, amp));
+                target.addEffect(new MobEffectInstance(MobEffects.WEAKNESS, dur, amp));
+            }
+        }
+        burstAt(level, element, target, 12);
+    }
+
+    /** damage：power×3.0×增幅倍率 魔法伤害（对标武器 EDGE 件 3.0×档倍的标定）+ 元素附加。 */
     private static void resolveDamage(ServerLevel level, @Nullable ServerPlayer caster, @Nullable Entity direct,
                                       LivingEntity target, String element, float power,
                                       Set<String> mods, int durMul, float damageMult) {
-        float dmg = power * 2.0f * damageMult;
+        float dmg = power * 3.0f * damageMult;
         if (caster != null) {
             target.hurt(caster.damageSources().indirectMagic(direct != null ? direct : caster, caster), dmg);
         } else {
             target.hurt(level.damageSources().magic(), dmg);
         }
         burstAt(level, element, target, 14);
-        level.playSound(null, target.blockPosition(), SoundEvents.AMETHYST_CLUSTER_BREAK,
-                SoundSource.PLAYERS, 0.5f, pitchFor(element));
+        level.playSound(null, target.blockPosition(), hitSoundFor(element),
+                SoundSource.PLAYERS, hitVolumeFor(element), 1.0f);
         if (!target.isAlive()) {
             return;
         }
@@ -372,7 +410,8 @@ public final class SpellEffectEngine {
         }
     }
 
-    /** utility：按元素 —— nature=骨粉效果，ender=传送施法者到目标点，holy=范围治疗友方，其余仅粒子。 */
+    /** utility：按元素 —— holy=群疗友方，nature=骨粉效果，ender=传送施法者到目标点，
+     *  blood=血换蓝，fire/frost/lightning/shadow/arcane=施法者自身状态，其余仅粒子。 */
     private static void resolveUtility(ServerLevel level, @Nullable ServerPlayer caster, BlockPos pos,
                                        @Nullable Entity focus, String element) {
         switch (element) {
@@ -399,11 +438,61 @@ public final class SpellEffectEngine {
                     burst(level, element, pos.getX() + 0.5, pos.getY() + 1.0, pos.getZ() + 0.5, 20, 0.3);
                 }
             }
-            default -> {
-                Vec3 v = focus != null ? focus.position() : Vec3.atCenterOf(pos);
-                burst(level, element, v.x, v.y + 0.5, v.z, 16, 0.4);
+            case "blood" -> resolveBloodMana(level, caster);
+            case "fire" -> {
+                if (caster != null) {
+                    caster.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, 1200, 0));
+                    burstAt(level, element, caster, 16);
+                }
+            }
+            case "frost" -> {
+                if (caster != null) {
+                    caster.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 1200, 0));
+                    burstAt(level, element, caster, 16);
+                }
+            }
+            case "lightning" -> {
+                if (caster != null) {
+                    caster.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 1200, 0));
+                    burstAt(level, element, caster, 16);
+                }
+            }
+            case "shadow" -> {
+                if (caster != null) {
+                    caster.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, 600, 0));
+                    burstAt(level, element, caster, 16);
+                }
+            }
+            default -> { // arcane
+                if (caster != null) {
+                    caster.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, 1200, 0));
+                    burstAt(level, element, caster, 16);
+                }
             }
         }
+    }
+
+    /**
+     * blood utility：血换蓝——当前生命 > 4 时自伤 4 点换 20 法力
+     * （操作 PLAYER_SPELL_DATA attachment，withMana 钳到 maxMana，与 settleCast 同款写法）；
+     * 生命 ≤ 4 不发动，actionbar 提示。
+     */
+    private static void resolveBloodMana(ServerLevel level, @Nullable ServerPlayer caster) {
+        if (caster == null) return;
+        if (caster.getHealth() <= 4.0f) {
+            caster.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    "qianxiang.spell.blood_mana.low_hp"), true);
+            return;
+        }
+        caster.hurt(caster.damageSources().magic(), 4.0f);
+        var data = caster.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+        int restored = Math.min(data.maxMana(), data.currentMana() + 20);
+        if (restored != data.currentMana()) {
+            caster.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                    data.withMana(restored));
+        }
+        SpellCastHandler.sync(caster);
+        burstAt(level, "blood", caster, 16);
     }
 
     // ---------- 工具 ----------
@@ -490,19 +579,65 @@ public final class SpellEffectEngine {
         }
     }
 
-    /** 形式 → 施法音：projectile=烈焰弹、beam=守卫者射线、aoe=唤魔者施法、self/touch=紫水晶。 */
-    private static SoundEvent castSoundFor(String form) {
-        return switch (form) {
-            case "beam" -> SoundEvents.GUARDIAN_ATTACK;
-            case "aoe" -> SoundEvents.EVOKER_CAST_SPELL;
-            case "self", "touch" -> SoundEvents.AMETHYST_BLOCK_CHIME;
-            default -> SoundEvents.BLAZE_SHOOT;
+    /**
+     * 命中音：按元素分派（与施法音成对，反馈闭环）。
+     * 注：1.21.1 无 SCULK_BREAK，shadow 用最接近的 {@code SCULK_BLOCK_BREAK}。
+     */
+    private static SoundEvent hitSoundFor(String element) {
+        return switch (element) {
+            case "fire" -> SoundEvents.GENERIC_BURN;
+            case "frost" -> SoundEvents.GLASS_BREAK;
+            case "lightning" -> SoundEvents.LIGHTNING_BOLT_IMPACT;
+            case "nature" -> SoundEvents.ROOTED_DIRT_PLACE;
+            case "shadow" -> SoundEvents.SCULK_BLOCK_BREAK;
+            case "holy" -> SoundEvents.BEACON_POWER_SELECT;
+            case "blood" -> SoundEvents.WARDEN_STEP;
+            case "ender" -> SoundEvents.ENDERMAN_HURT;
+            default -> SoundEvents.AMETHYST_CLUSTER_BREAK; // arcane
         };
     }
 
-    /** 元素 → 音高微调：同一施法音按元素错开 ±0.16，听感上区分火法与冰法。 */
-    private static float pitchFor(String element) {
-        return 1.0f + (Math.floorMod(element.hashCode(), 5) - 2) * 0.08f;
+    /** 命中音音量：雷劈太炸压到 0.3，其余与历史值 0.5 相当。 */
+    private static float hitVolumeFor(String element) {
+        return "lightning".equals(element) ? 0.3f : 0.5f;
+    }
+
+    /**
+     * 施法音：元素定主音、form 微调音高（见 {@link #pitchForForm}）。
+     * 注：1.21.1 无 BLOCK_GLASS_BREAK，frost 用 {@code GLASS_BREAK}（同一事件）。
+     */
+    private static SoundEvent castSoundFor(String form, String element) {
+        return switch (element) {
+            case "fire" -> SoundEvents.BLAZE_SHOOT;
+            case "frost" -> SoundEvents.GLASS_BREAK;
+            case "lightning" -> SoundEvents.TRIDENT_THUNDER.value(); // 1.21.1 该字段是 Holder
+            case "nature" -> SoundEvents.BONE_MEAL_USE;
+            case "shadow" -> SoundEvents.SCULK_CLICKING; // 无 SCULK_CLICK，用最接近的 SCULK_CLICKING
+            case "holy" -> SoundEvents.TOTEM_USE;
+            case "blood" -> SoundEvents.WARDEN_HEARTBEAT;
+            case "ender" -> SoundEvents.ENDERMAN_TELEPORT;
+            default -> SoundEvents.AMETHYST_BLOCK_CHIME; // arcane
+        };
+    }
+
+    /** 施法音音量：雷声/图腾太炸，压一档；其余与历史值 0.6 相当。 */
+    private static float castVolumeFor(String element) {
+        return switch (element) {
+            case "lightning" -> 0.4f;
+            case "holy" -> 0.5f;
+            default -> 0.6f;
+        };
+    }
+
+    /** 施法音音高：form 微调——aoe 低沉、touch 尖细，听感区分施法形态。 */
+    private static float pitchForForm(String form) {
+        return switch (form) {
+            case "beam" -> 0.9f;
+            case "aoe" -> 0.8f;
+            case "self" -> 1.1f;
+            case "touch" -> 1.2f;
+            default -> 1.0f; // projectile
+        };
     }
 
     /** 元素 → 粒子。 */

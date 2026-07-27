@@ -112,10 +112,13 @@ public final class SpellCastHandler {
             return false;
         }
 
-        PlayerSpellData next = data
-                .withMana(data.currentMana() - spell.manaCost())
+        // 重读 attachment 再扣蓝：引擎结算可能已动过法力
+        // （blood 血换蓝的 +20、settleCast 退款），用旧快照扣减会把它们整个抹掉。
+        PlayerSpellData after = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
+        PlayerSpellData next = after
+                .withMana(after.currentMana() - spell.manaCost())
                 .setCooldown(spell.id(), spell.cooldownTicks());
-        if (next != data) {
+        if (next != after) {
             serverPlayer.setData(QianxiangAttachments.PLAYER_SPELL_DATA, next);
         }
         sync(serverPlayer);

@@ -22,9 +22,11 @@ import java.util.Set;
  * </p>
  * <h3>组合规则</h3>
  * <ul>
- *   <li>材料算子并集按优先级命中 {@link #SPELL_TEMPLATES} 第一条 → 法术主题
- *       （元素/形式/效果/修饰）；都没命中时兜底奥术飞弹。</li>
- *   <li>power = clamp(最高材料档位序数 + 1, 1, 材料预算)——强度靠材料，
+ *   <li>先扫 {@link #COMBO_TEMPLATES} 双算子组合表（并集同时含两算子即命中），
+ *       再扫 {@link #SPELL_TEMPLATES} 单算子表（按优先级取第一条），
+ *       都没命中时兜底奥术飞弹。</li>
+ *   <li>power = clamp(2 × (最高材料档位序数 + 1), 1, 材料预算)——伤害对标武器
+ *       （EDGE 件 3.0×档倍），COMMON 2 / RARE 4 / EPIC 6 / LEGENDARY 8；
  *       预算 = 4 + 2×最高档位序数（COMMON=4 / RARE=6 / EPIC=8 / LEGENDARY=10，
  *       与 WQ-1 的 spellJson 预算同一口径）。</li>
  *   <li>耗魔 = 8 + 6×power；材料含 MANA 算子时 -4（下限 1）——法力材料让卷轴更省蓝。
@@ -126,28 +128,73 @@ public final class SpellScrollComposer {
             Map.entry(PhaseFunction.POISON, new SpellTemplate("forged_venom", "nature", "touch", "debuff", List.of())),
             Map.entry(PhaseFunction.LEVITATION, new SpellTemplate("forged_levitate", "ender", "self", "utility", List.of())),
             Map.entry(PhaseFunction.GROWTH, new SpellTemplate("forged_growth", "nature", "aoe", "utility", List.of())),
+            // 战斗/功能向算子补齐：血怒/石肤/疾行/轻羽/鹰眼/再生/潮汐/余烬披风
+            Map.entry(PhaseFunction.STRENGTH, new SpellTemplate("forged_blood_rage", "blood", "self", "buff", List.of("amplified"))),
+            Map.entry(PhaseFunction.RESISTANCE, new SpellTemplate("forged_stone_skin", "frost", "self", "buff", List.of("extended"))),
+            Map.entry(PhaseFunction.SPEED_BOOST, new SpellTemplate("forged_swiftness", "lightning", "self", "utility", List.of())),
+            Map.entry(PhaseFunction.JUMP_BOOST, new SpellTemplate("forged_feather", "frost", "self", "utility", List.of())),
+            Map.entry(PhaseFunction.NIGHT_VISION, new SpellTemplate("forged_eagle_eye", "arcane", "self", "utility", List.of("extended"))),
+            Map.entry(PhaseFunction.REGENERATION, new SpellTemplate("forged_regrowth", "nature", "self", "heal", List.of("extended"))),
+            Map.entry(PhaseFunction.WATER_BREATH, new SpellTemplate("forged_tide", "frost", "self", "utility", List.of("extended"))),
+            Map.entry(PhaseFunction.FIRE_RESIST, new SpellTemplate("forged_ember_cloak", "fire", "self", "utility", List.of("extended"))),
             // MANA 兜底放最后：纯法力材料也给一个可用的奥术飞弹。
             Map.entry(PhaseFunction.MANA, new SpellTemplate("forged_arcane_bolt", "arcane", "projectile", "damage", List.of("homing")))
+    );
+
+    /**
+     * 双算子组合模板：材料并集同时含两个算子即命中，<b>检查优先于单算子表</b>
+     * （先扫组合再扫单算子）。与具体放入哪份材料无关，只看功能并集。
+     * <p>注：{@link PhaseFunction} 枚举没有 LIGHTNING——雷侧取 SPEED_BOOST
+     * （雷石 thunder_stone 的第二算子，STRENGTH 已用于烈焰打击）。</p>
+     */
+    private record ComboTemplate(PhaseFunction first, PhaseFunction second, SpellTemplate template) {}
+
+    private static final List<ComboTemplate> COMBO_TEMPLATES = List.of(
+            new ComboTemplate(PhaseFunction.IGNITE, PhaseFunction.SPEED_BOOST,
+                    new SpellTemplate("forged_plasma_bolt", "fire", "projectile", "damage", List.of("chain"))),
+            new ComboTemplate(PhaseFunction.FROST, PhaseFunction.SLOW,
+                    new SpellTemplate("forged_glacier_nova", "frost", "aoe", "debuff", List.of("extended"))),
+            new ComboTemplate(PhaseFunction.LIFESTEAL, PhaseFunction.STRENGTH,
+                    new SpellTemplate("forged_crimson_frenzy", "blood", "self", "buff", List.of("amplified", "extended"))),
+            new ComboTemplate(PhaseFunction.MANA, PhaseFunction.EDGE,
+                    new SpellTemplate("forged_arcane_wave", "arcane", "beam", "damage", List.of("piercing"))),
+            new ComboTemplate(PhaseFunction.POISON, PhaseFunction.SLOW,
+                    new SpellTemplate("forged_venom_cloud", "nature", "aoe", "debuff", List.of())),
+            new ComboTemplate(PhaseFunction.HEAL, PhaseFunction.REGENERATION,
+                    new SpellTemplate("forged_life_spring", "nature", "aoe", "heal", List.of("extended"))),
+            new ComboTemplate(PhaseFunction.MANA, PhaseFunction.LEVITATION,
+                    new SpellTemplate("forged_wind_walk", "ender", "self", "utility", List.of("extended"))),
+            new ComboTemplate(PhaseFunction.IGNITE, PhaseFunction.STRENGTH,
+                    new SpellTemplate("forged_flame_strike", "fire", "touch", "damage", List.of("amplified")))
     );
 
     /** 兜底模板：材料算子一个都不命中映射表时（如纯基底），仍给一发奥术飞弹。 */
     private static final SpellTemplate FALLBACK =
             new SpellTemplate("forged_arcane_bolt", "arcane", "projectile", "damage", List.of("homing"));
 
-    /** 按材料算子并集从模板表生成法术；强度/消耗按最高档位推导（规则见类文档）。 */
+    /** 按材料算子并集生成法术：先扫双算子组合表，再扫单算子表；强度/消耗按最高档位推导（规则见类文档）。 */
     private static CustomSpell templateSpell(Set<PhaseFunction> union, int maxTier) {
         SpellTemplate template = null;
-        for (Map.Entry<PhaseFunction, SpellTemplate> entry : SPELL_TEMPLATES) {
-            if (union.contains(entry.getKey())) {
-                template = entry.getValue();
+        for (ComboTemplate combo : COMBO_TEMPLATES) {
+            if (union.contains(combo.first()) && union.contains(combo.second())) {
+                template = combo.template();
                 break;
+            }
+        }
+        if (template == null) {
+            for (Map.Entry<PhaseFunction, SpellTemplate> entry : SPELL_TEMPLATES) {
+                if (union.contains(entry.getKey())) {
+                    template = entry.getValue();
+                    break;
+                }
             }
         }
         if (template == null) {
             template = FALLBACK;
         }
 
-        int power = net.minecraft.util.Mth.clamp(maxTier + 1, 1, 4 + 2 * maxTier);
+        // 伤害对标武器：COMMON 2 / RARE 4 / EPIC 6 / LEGENDARY 8（上限仍是材料预算）
+        int power = net.minecraft.util.Mth.clamp(2 * (maxTier + 1), 1, 4 + 2 * maxTier);
         int manaCost = 8 + power * 6;
         if (union.contains(PhaseFunction.MANA)) {
             manaCost = Math.max(1, manaCost - 4);  // 法力材料让卷轴更省蓝

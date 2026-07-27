@@ -7,7 +7,6 @@ import com.qianxiang.spell.CustomSpell;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -264,17 +263,10 @@ public final class SpellWheelOverlay {
     }
 
     /**
-     * 轮盘显示名：有 {@code spell.<ns>.<path>} 翻译键（预置/锻造成语）就用全名；
-     * 否则「元素·效果」拼接（复用本地化键，AI 法术也不裸显翻译键）。
+     * 轮盘显示名：真名/翻译键/元素·效果三级回退，统一走 {@link ClientSpellNames}。
      */
     private static Component spellName(CustomSpell spell) {
-        String key = "spell." + spell.id().getNamespace() + "." + spell.id().getPath();
-        if (I18n.exists(key)) {
-            return Component.translatable(key);
-        }
-        return Component.translatable("qianxiang.spell.wheel.name",
-                CustomSpell.elementName(spell.element()),
-                CustomSpell.effectName(spell.effect()));
+        return ClientSpellNames.displayName(spell);
     }
 
     /** 元素 → 扇区底色（ARGB）。 */

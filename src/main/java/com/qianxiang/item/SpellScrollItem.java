@@ -74,7 +74,7 @@ public class SpellScrollItem extends Item {
             tooltip.add(Component.translatable("qianxiang.scroll.no_spell").withStyle(ChatFormatting.GRAY));
             return;
         }
-        tooltip.add(spell.displayName().copy().withStyle(ChatFormatting.YELLOW));
+        tooltip.add(displayNameForTooltip(spell).copy().withStyle(ChatFormatting.YELLOW));
         tooltip.add(Component.translatable("qianxiang.scroll.stats",
                 CustomSpell.elementName(spell.element()),
                 CustomSpell.formName(spell.form()),
@@ -83,5 +83,17 @@ public class SpellScrollItem extends Item {
                 spell.manaCost(),
                 String.format("%.1f", spell.cooldownTicks() / 20.0)).withStyle(ChatFormatting.GRAY));
         tooltip.add(Component.translatable("qianxiang.scroll.hint").withStyle(ChatFormatting.DARK_GRAY));
+    }
+
+    /**
+     * tooltip 显示名：客户端走 {@code ClientSpellNames}（真名优先）；
+     * 服务端/数据生成路径回退 {@link CustomSpell#displayName()}——
+     * 本类双端加载，dist 守卫保证客户端类只在客户端链接。
+     */
+    private static Component displayNameForTooltip(CustomSpell spell) {
+        if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+            return com.qianxiang.client.ClientSpellNames.displayName(spell);
+        }
+        return spell.displayName();
     }
 }
