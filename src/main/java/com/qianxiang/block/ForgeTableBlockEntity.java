@@ -25,7 +25,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Vector3f;
 
-public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider {
+public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider, FloatingTableView {
     public static final int STATE_IDLE = 0;
     public static final int STATE_PARSING = 1;
     public static final int STATE_READY = 2;
@@ -45,6 +45,11 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     private int completeTicks = 0;
     /** PARSING 状态已持续的 tick，用于超时兜底（不落盘）。 */
     private int parsingTicks = 0;
+
+    /** 显示用产物栈（仅 BER 渲染，随 update tag 下发；与产物槽同口径不落盘）。 */
+    private ItemStack displayResult = ItemStack.EMPTY;
+    /** 客户端同步脏标记：材料/产物变化同 tick 合并，tickServer 末尾统一 sendBlockUpdated。 */
+    private boolean clientSyncDirty = false;
 
     // 【已废弃】方块级单份 AI 暂存。保留仅为读取旧存档 NBT 不报错；
     // 现行链路一律走下面的 per-player 提案表（多人同台不再串味）。
@@ -223,12 +228,10 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             if (completeTicks <= 0) {
                 updateCraftingState();
             }
-            return;
-        }
-        // PARSING 的复位此前完全依赖「AI 回包时玩家仍开着这个菜单」——
-        // 玩家中途关 GUI 或下线，回包直接 return，方块就永久停在 PARSING
-        // （粒子长明，且状态还会落盘，重进存档依旧）。这里加一道超时兜底。
-        if (craftingState == STATE_PARSING) {
+        } else if (craftingState == STATE_PARSING) {
+            // PARSING 的复位此前完全依赖「AI 回包时玩家仍开着这个菜单」——
+            // 玩家中途关 GUI 或下线，回包直接 return，方块就永久停在 PARSING
+            // （粒子长明，且状态还会落盘，重进存档依旧）。这里加一道超时兜底。
             parsingTicks++;
             if (parsingTicks > PARSING_TIMEOUT_TICKS) {
                 parsingTicks = 0;
@@ -237,6 +240,36 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         } else {
             parsingTicks = 0;
         }
+
+        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸）
+        if (level != null && level.getGameTime() % 5 == 0
+                && TableInteractions.absorbAbove(this, ForgeTableMenu.MATERIAL_SLOTS, level, worldPosition) > 0) {
+            recomputeResult(null);
+        }
+
+        // 客户端同步：同 tick 的材料/产物变化合并成一次 sendBlockUpdated
+        if (clientSyncDirty && level != null) {
+            clientSyncDirty = false;
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
+    /**
+     * 菜单外（投料/取料/吸收/空手取产物）改动材料后重算预览产物。
+     * <p>菜单开着时由 {@code ForgeTableMenu.slotsChanged} 重算（带指纹短路），
+     * 本方法覆盖的是玩家没开 GUI 的交互路径；{@code viewer} 的 AI 选择参与组合，可空。</p>
+     */
+    public void recomputeResult(@javax.annotation.Nullable java.util.UUID viewer) {
+        if (level == null || level.isClientSide) return;
+        java.util.List<ItemStack> materials = new java.util.ArrayList<>(ForgeTableMenu.MATERIAL_SLOTS);
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            materials.add(items.get(i));
+        }
+        var sel = selectionOf(viewer);
+        var composition = com.qianxiang.phase.ForgeComposer.compose(
+                materials, sel.spellJson(), sel.customName(), sel.movesetJson());
+        setItem(ForgeTableMenu.RESULT_SLOT, composition.result());
+        updateCraftingState();
     }
 
     private void tickClientParticles(Level level, BlockPos pos) {
@@ -333,7 +366,16 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     @Override public ItemStack getItem(int slot) { return items.get(slot); }
     @Override public ItemStack removeItem(int slot, int amount) { return ContainerHelper.removeItem(items, slot, amount); }
     @Override public ItemStack removeItemNoUpdate(int slot) { return ContainerHelper.takeItem(items, slot); }
-    @Override public void setItem(int slot, ItemStack stack) { items.set(slot, stack); setChanged(); }
+    @Override
+    public void setItem(int slot, ItemStack stack) {
+        items.set(slot, stack);
+        // 产物槽变化同步 displayResult（BER 渲染数据源），材料/产物变化都标客户端同步脏
+        if (slot == ForgeTableMenu.RESULT_SLOT) {
+            displayResult = stack.isEmpty() ? ItemStack.EMPTY : stack.copy();
+        }
+        clientSyncDirty = true;
+        setChanged();
+    }
     /**
      * 产物槽不接受任何放入。
      * <p>{@link Container} 的默认实现恒返回 true，是产物槽最后一个敞着的口子——
@@ -420,6 +462,15 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
         CompoundTag tag = super.getUpdateTag(registries);
         tag.putInt("CraftingState", craftingState);
+        // BER 漂浮虚影数据源：材料槽（产物槽与落盘口径一致排除）+ 显示用产物栈
+        NonNullList<ItemStack> materialsOnly = NonNullList.withSize(items.size(), ItemStack.EMPTY);
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            materialsOnly.set(i, items.get(i));
+        }
+        ContainerHelper.saveAllItems(tag, materialsOnly, registries);
+        if (!displayResult.isEmpty()) {
+            tag.put("DisplayResult", displayResult.save(registries));
+        }
         return tag;
     }
 
@@ -427,6 +478,10 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     public void handleUpdateTag(CompoundTag tag, HolderLookup.Provider registries) {
         super.handleUpdateTag(tag, registries);
         craftingState = tag.getInt("CraftingState");
+        ContainerHelper.loadAllItems(tag, items, registries);
+        displayResult = tag.contains("DisplayResult")
+                ? ItemStack.parse(registries, tag.getCompound("DisplayResult")).orElse(ItemStack.EMPTY)
+                : ItemStack.EMPTY;
     }
 
     // ---- MenuProvider ----
@@ -435,5 +490,17 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     @Override
     public AbstractContainerMenu createMenu(int id, Inventory inv, Player player) {
         return new ForgeTableMenu(id, inv, this);
+    }
+
+    // ---- FloatingTableView（BER 读取视图）----
+
+    @Override
+    public int materialSlotCount() {
+        return ForgeTableMenu.MATERIAL_SLOTS;
+    }
+
+    @Override
+    public ItemStack getDisplayResult() {
+        return displayResult;
     }
 }

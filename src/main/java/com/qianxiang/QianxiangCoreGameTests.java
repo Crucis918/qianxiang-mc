@@ -1240,6 +1240,215 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 去格子化：投入式交互 ============================
+
+    /** 投料：useItemOn 塞 1 个进 BE、玩家背包 -1；满槽（25 槽全满）再投不消耗。 */
+    @GameTest(template = "item_concept")
+    public static void insertMaterialByRightClick(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        var held = new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 3);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+        var hit = new net.minecraft.world.phys.BlockHitResult(
+                net.minecraft.world.phys.Vec3.atCenterOf(pos),
+                net.minecraft.core.Direction.UP, pos, false);
+
+        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        helper.assertTrue(be.getItem(0).is(QianxiangItems.EMBER_CRYSTAL.get())
+                        && be.getItem(0).getCount() == 1,
+                "投入后材料槽 0 应有 1 个余烬石，实际 " + be.getItem(0));
+        helper.assertTrue(player.getMainHandItem().getCount() == 2,
+                "投入 1 个后手持应剩 2，实际 " + player.getMainHandItem().getCount());
+
+        // 满槽：25 槽全部塞满木棍 → 再投不消耗
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            be.setItem(i, new ItemStack(Items.STICK, 64));
+        }
+        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        helper.assertTrue(player.getMainHandItem().getCount() == 2,
+                "满槽投入不得消耗手持，实际 " + player.getMainHandItem().getCount());
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 空手右键：有产物直接拿（材料消耗、产物清空）；再点一次不给第二份（防双计）。 */
+    @GameTest(template = "item_concept")
+    public static void takeResultByEmptyHand(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        var hit = new net.minecraft.world.phys.BlockHitResult(
+                net.minecraft.world.phys.Vec3.atCenterOf(pos),
+                net.minecraft.core.Direction.UP, pos, false);
+
+        be.setItem(0, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        menu.slotsChanged(be);
+        ItemStack preview = be.getItem(ForgeTableMenu.RESULT_SLOT);
+        helper.assertTrue(!preview.isEmpty(), "材料就绪后产物槽应有预览产物");
+        var resultItem = preview.getItem();
+
+        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        helper.assertTrue(be.getItem(0).isEmpty(), "取走产物应消耗材料槽 0");
+        helper.assertTrue(be.getItem(ForgeTableMenu.RESULT_SLOT).isEmpty(),
+                "材料耗尽后产物槽应清空，实际 " + be.getItem(ForgeTableMenu.RESULT_SLOT));
+        helper.assertTrue(countInInventory(player, resultItem) == 1,
+                "产物应进玩家背包 1 份");
+
+        // 拿走产物后它落在主手（Inventory.add 优先选中槽）——挪到背包深处，
+        // 否则第二次「空手」点击会把它当材料重新投入（那是正确行为，不是本断言目标）。
+        var inv = player.getInventory();
+        for (int i = 0; i < 9; i++) {
+            if (inv.getItem(i).is(resultItem)) {
+                inv.setItem(9, inv.getItem(i));
+                inv.setItem(i, ItemStack.EMPTY);
+                break;
+            }
+        }
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+
+        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        helper.assertTrue(countInInventory(player, resultItem) == 1,
+                "第二次空手点击不得再给一份（防双计），实际背包 " + dumpInventory(player));
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 潜行+空手右键：取回全部材料（入背包、BE 清空）。 */
+    @GameTest(template = "item_concept")
+    public static void sneakRetrieveReturnsAll(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        var hit = new net.minecraft.world.phys.BlockHitResult(
+                net.minecraft.world.phys.Vec3.atCenterOf(pos),
+                net.minecraft.core.Direction.UP, pos, false);
+
+        be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 2));
+        be.setItem(1, new ItemStack(Items.STICK));
+        player.setShiftKeyDown(true);
+        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        player.setShiftKeyDown(false);
+
+        helper.assertTrue(be.getItem(0).isEmpty() && be.getItem(1).isEmpty(),
+                "取回后材料槽应全空");
+        helper.assertTrue(countInInventory(player, QianxiangItems.EMBER_CRYSTAL.get()) == 2,
+                "余烬石 ×2 应回背包");
+        helper.assertTrue(countInInventory(player, Items.STICK) == 1,
+                "木棍 ×1 应回背包");
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 台面上方的掉落物被 BE 吸收：实体消失、材料槽 +1。 */
+    @GameTest(template = "item_concept")
+    public static void itemEntityAbsorbed(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var entity = new net.minecraft.world.entity.item.ItemEntity(level,
+                pos.getX() + 0.5, pos.getY() + 1.2, pos.getZ() + 0.5,
+                new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 2));
+        level.addFreshEntity(entity);
+
+        // BE 吸收扫描每 5 tick 一次，等 10 tick 让真实 tick 跑过
+        helper.runAfterDelay(10, () -> {
+            helper.assertTrue(entity.isRemoved(), "掉落物应被台子吸收");
+            helper.assertTrue(be.getItem(0).is(QianxiangItems.EMBER_CRYSTAL.get())
+                            && be.getItem(0).getCount() == 2,
+                    "吸收后材料槽 0 应有 2 个余烬石，实际 " + be.getItem(0));
+            helper.succeed();
+        });
+    }
+
+    /** update tag 同步口径：材料槽含、产物槽不含（与落盘一致），displayResult 单独往返。 */
+    @GameTest(template = "item_concept")
+    public static void updateTagExcludesResultSlot(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        be.setItem(0, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        menu.slotsChanged(be);
+        helper.assertTrue(!be.getItem(ForgeTableMenu.RESULT_SLOT).isEmpty(), "产物槽应有预览产物");
+
+        net.minecraft.nbt.CompoundTag tag = be.getUpdateTag(level.registryAccess());
+        var list = tag.getList("Items", 10);
+        boolean hasMaterial = false;
+        for (int i = 0; i < list.size(); i++) {
+            int slot = list.getCompound(i).getByte("Slot") & 0xFF;
+            helper.assertTrue(slot != ForgeTableMenu.RESULT_SLOT,
+                    "update tag 不应包含产物槽（slot " + slot + "）");
+            if (slot == 0) hasMaterial = true;
+        }
+        helper.assertTrue(hasMaterial, "update tag 应包含材料槽 0");
+        helper.assertTrue(tag.contains("DisplayResult"), "update tag 应含 displayResult");
+
+        // displayResult 读回：新 BE 应用同一 tag 后应有显示产物
+        var be2 = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO, state);
+        be2.handleUpdateTag(tag, level.registryAccess());
+        helper.assertTrue(!be2.getDisplayResult().isEmpty(),
+                "displayResult 应随 update tag 往返");
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 玩家背包中某物品的总数。 */
+    private static int countInInventory(net.minecraft.world.entity.player.Player player,
+                                        net.minecraft.world.item.Item item) {
+        int total = 0;
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (s.is(item)) total += s.getCount();
+        }
+        return total;
+    }
+
+    /** 诊断用：背包非空槽清单。 */
+    private static String dumpInventory(net.minecraft.world.entity.player.Player player) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty()) sb.append(i).append(':').append(s.getItem()).append('x').append(s.getCount()).append(' ');
+        }
+        return sb.append(']').toString();
+    }
+
     // ============================ 工具 ============================
 
     /**

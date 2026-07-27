@@ -282,6 +282,8 @@
   "qianxiang.alchemy_table.status.complete": "炼成！",
   "qianxiang.alchemy_table.msg.no_materials": "未找到推荐材料。",
   "qianxiang.alchemy_table.msg.slots_full": "炼金台材料槽已满，请清理或取出材料。",
+  "qianxiang.table.full": "材料槽已满",
+  "qianxiang.table.hint_insert": "手持材料右键台子投入 · 潜行空手右键取回",
   "qianxiang.spell.migration.learned": "已从旧装备中学会 %d 个法术",
   "qianxiang.forge_table.summary.fallback.spell": "（基础配方）按法术描述匹配的自由法术方案",
   "qianxiang.spell.custom": "自由法术：%s",

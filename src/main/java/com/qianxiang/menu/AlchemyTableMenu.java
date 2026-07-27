@@ -42,10 +42,11 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         this.container = container;
         this.playerInventory = playerInventory;
         checkContainerSize(container, RESULT_SLOT + 1);
-        // 材料槽 0-5：2 行 3 列，与 alchemy_table.png 左上凹槽对齐（间距 18）
-        //   第 1 行 y=17：x = 8/26/44；第 2 行 y=35：同 x
+        // 材料槽 0-5：逻辑槽位（compose 只看占用槽不看坐标）。
+        // 「去格子化」后坐标挪到屏外——GUI 改文字列表，槽位只作数据模型；
+        // quickMoveStack/clicked 按索引工作，不受坐标影响。
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
-            addSlot(new Slot(container, i, 8 + (i % 3) * 18, 17 + (i / 3) * 18));
+            addSlot(new Slot(container, i, -2000, -2000));
         }
         // 结果槽 6：只读（不可放入），取出时消耗材料 + 记相谱。坐标 (222,54) 对齐纹理右侧 32×32 凹槽中心。
         addSlot(new Slot(container, RESULT_SLOT, 222, 54) {
@@ -99,6 +100,15 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
     }
 
     private void onTakeResult(Player player, ItemStack resultStack) {
+        afterTakeResult(player, resultStack, container, () -> slotsChanged(container));
+    }
+
+    /**
+     * 取走产物的后置结算（menu 槽位取与 block 空手取两路径共用）：
+     * 记相谱 + 酿造音 + 消耗每个材料槽 1 个 + 重算预览 + 完成态。
+     * 产物栈的取出与清槽由调用方完成，本方法不碰产物槽，天然防双计。
+     */
+    public static void afterTakeResult(Player player, ItemStack resultStack, Container container, Runnable recompute) {
         recordAlchemy(player, resultStack);  // 炼金也进相谱（与锻造同一套传记）
         if (!resultStack.isEmpty() && !player.level().isClientSide()) {
             // 锻成即鸣砧（同锻造台）：炼成一记落锤
@@ -110,15 +120,15 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
             ItemStack s = container.getItem(i);
             if (!s.isEmpty()) { s.shrink(1); container.setItem(i, s); }
         }
-        slotsChanged(container);
+        recompute.run();
 
-        if (this.container instanceof AlchemyTableBlockEntity be) {
+        if (container instanceof AlchemyTableBlockEntity be) {
             be.setComplete();
         }
     }
 
     /** 把这次炼金记进玩家相谱 + 位格 +1（律二不可逆铭刻，与锻造同一套）。失败不阻断合成。 */
-    private void recordAlchemy(Player player, ItemStack resultStack) {
+    private static void recordAlchemy(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
             // Shift 连炼节流（同锻造台 recordForge）：按「产物种类」而非纯时间窗。

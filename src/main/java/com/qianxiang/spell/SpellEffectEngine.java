@@ -88,6 +88,9 @@ public final class SpellEffectEngine {
                 case "touch" -> castTouch(level, player, element, effect, power, mods, mult);
                 default -> castProjectile(level, player, element, effect, power, mods, mult);
             }
+            // 高光层：元素色 spark 喷泉（原版粒子底层保留，自定义粒子只做点缀）
+            Vec3 eye = player.getEyePosition(1.0f);
+            sparkBurst(level, element, eye.x, eye.y - 0.2, eye.z, 10);
             // projectile 形式的命中发生在若干 tick 之后，本次同步结算里必然是 0/0，
             // settleCast 的「零受益且有无效目标」条件自然不成立，不会误退款。
             settleCast(player, spell);
@@ -168,6 +171,8 @@ public final class SpellEffectEngine {
             double pz = center.z + Math.sin(angle) * radius;
             level.sendParticles(particle, px, y + 0.2, pz, 1, 0.0, 0.05, 0.0, 0.0);
         }
+        // 高光层：冲击波环按作用半径扩散
+        shockwave(level, element, center.x, y + 0.2, center.z, (float) radius);
     }
 
     /** beam：视线 raycast 20 格，路径粒子 + 命中结算。 */
@@ -325,6 +330,10 @@ public final class SpellEffectEngine {
             target.hurt(level.damageSources().magic(), dmg);
         }
         burstAt(level, element, target, 14);
+        // 高光层：命中点 spark 四溅 + 小冲击波环
+        sparkBurst(level, element, target.getX(), target.getY() + target.getBbHeight() * 0.5,
+                target.getZ(), 6 + level.random.nextInt(3));
+        shockwave(level, element, target.getX(), target.getY() + 0.1, target.getZ(), 1.5f);
         level.playSound(null, target.blockPosition(), hitSoundFor(element),
                 SoundSource.PLAYERS, hitVolumeFor(element), 1.0f);
         if (!target.isAlive()) {
@@ -638,6 +647,41 @@ public final class SpellEffectEngine {
             case "touch" -> 1.2f;
             default -> 1.0f; // projectile
         };
+    }
+
+    /** 元素 → spark/shockwave 自定义粒子的目标色（RGB 0~1）。 */
+    public static Vector3f colorFor(String element) {
+        return switch (element == null ? "" : element) {
+            case "fire" -> new Vector3f(0.95f, 0.35f, 0.10f);
+            case "frost" -> new Vector3f(0.50f, 0.85f, 1.00f);
+            case "lightning" -> new Vector3f(1.00f, 0.95f, 0.35f);
+            case "nature" -> new Vector3f(0.35f, 0.90f, 0.45f);
+            case "shadow" -> new Vector3f(0.45f, 0.25f, 0.65f);
+            case "holy" -> new Vector3f(0.95f, 0.90f, 0.65f);
+            case "blood" -> new Vector3f(0.75f, 0.10f, 0.15f);
+            case "ender" -> new Vector3f(0.70f, 0.35f, 0.95f);
+            default -> new Vector3f(0.95f, 0.30f, 0.80f); // arcane
+        };
+    }
+
+    /**
+     * spark 喷泉：count 颗元素色火花向外上方喷出（每颗单独发包以获得各自初速——
+     * sendParticles 的批量模式是所有粒子共享同一速度，喷泉要的是散开）。
+     */
+    private static void sparkBurst(ServerLevel level, String element, double x, double y, double z, int count) {
+        var options = new com.qianxiang.particle.SparkParticleOptions(colorFor(element));
+        for (int i = 0; i < count; i++) {
+            double vx = (level.random.nextDouble() - 0.5) * 0.5;
+            double vy = 0.2 + level.random.nextDouble() * 0.4;
+            double vz = (level.random.nextDouble() - 0.5) * 0.5;
+            level.sendParticles(options, x, y, z, 1, vx, vy, vz, 0.0);
+        }
+    }
+
+    /** shockwave 冲击波环：单粒子整圈扩散。 */
+    private static void shockwave(ServerLevel level, String element, double x, double y, double z, float scale) {
+        level.sendParticles(new com.qianxiang.particle.ShockwaveParticleOptions(colorFor(element), scale),
+                x, y, z, 1, 0.0, 0.0, 0.0, 0.0);
     }
 
     /** 元素 → 粒子。 */

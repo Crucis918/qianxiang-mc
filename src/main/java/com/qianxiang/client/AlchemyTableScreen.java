@@ -98,6 +98,44 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
     // ============================ 渲染 ============================
 
+    // 「去格子化」：材料区改文字列表（槽位坐标已挪屏外，列表只读数据模型）。
+    private static final int MATLIST_X = 8;
+    private static final int MATLIST_Y = 17;
+    private static final int MATLIST_ROW_H = 9;
+    private static final int MATLIST_MAX_ROWS = 4;
+    private static final int MATLIST_HINT_Y = 68;
+
+    /** 去格子化：材料槽不再画物品，产物槽/背包走原版。 */
+    @Override
+    protected void renderSlot(GuiGraphics g, net.minecraft.world.inventory.Slot slot) {
+        if (slot.index < AlchemyTableMenu.MATERIAL_SLOTS) {
+            return;
+        }
+        super.renderSlot(g, slot);
+    }
+
+    /** 材料区文字列表：材料名×数量，超出省略；下方投入提示行。 */
+    private void renderMaterialList(GuiGraphics g) {
+        List<net.minecraft.world.item.ItemStack> rows = new ArrayList<>();
+        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
+            var s = this.menu.getSlot(i).getItem();
+            if (!s.isEmpty()) rows.add(s);
+        }
+        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
+        for (int i = 0; i < shown; i++) {
+            var s = rows.get(i);
+            String line = s.getHoverName().getString() + " ×" + s.getCount();
+            g.drawString(this.font, this.font.plainSubstrByWidth(line, 60),
+                    leftPos + MATLIST_X, topPos + MATLIST_Y + i * MATLIST_ROW_H, 0xE0E0E0, false);
+        }
+        if (rows.size() > shown) {
+            g.drawString(this.font, "… +" + (rows.size() - shown),
+                    leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
+        }
+        g.drawString(this.font, Component.translatable("qianxiang.table.hint_insert"),
+                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
+    }
+
     @Override
     protected void renderBg(GuiGraphics g, float partialTick, int mouseX, int mouseY) {
         g.blit(BG_TEXTURE, leftPos, topPos, 0, 0, imageWidth, imageHeight);
@@ -107,6 +145,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
         updateStatus();
+        renderMaterialList(g);
         renderStatus(g);
         renderCards(g, mouseX, mouseY);
         renderTooltip(g, mouseX, mouseY);

@@ -84,33 +84,15 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int STATUS_W = 132;
     private static final int STATUS_H = 10;
 
-    /** 材料槽坐标（必须与 {@link ForgeTableMenu} 中槽位一致）。25 槽 5×5 网格，间距 18；
-     *  索引 12 = 中心核心槽，内圈 8 格 = 辅助，外圈 16 格 = 基底。 */
-    private static final int[] SLOT_X = {
-            8, 26, 44, 62, 80,
-            8, 26, 44, 62, 80,
-            8, 26, 44, 62, 80,
-            8, 26, 44, 62, 80,
-            8, 26, 44, 62, 80
-    };
-    private static final int[] SLOT_Y = {
-            17, 17, 17, 17, 17,
-            35, 35, 35, 35, 35,
-            53, 53, 53, 53, 53,
-            71, 71, 71, 71, 71,
-            89, 89, 89, 89, 89
-    };
-    /** 色环比槽位外扩的像素数（行距 18，环总尺寸 16+2×1=18，两行正好相切）。 */
-    private static final int SLOT_RING_MARGIN = 1;
-
-    /** 材料槽色环颜色：索引 12 核心-青，内圈 8 格辅助-紫，外圈 16 格基底-橙。 */
-    private static final int[] SLOT_RING_COLORS = {
-            0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316,
-            0xFFF97316, 0xFFA855F7, 0xFFA855F7, 0xFFA855F7, 0xFFF97316,
-            0xFFF97316, 0xFFA855F7, 0xFF00FFFF, 0xFFA855F7, 0xFFF97316,
-            0xFFF97316, 0xFFA855F7, 0xFFA855F7, 0xFFA855F7, 0xFFF97316,
-            0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316
-    };
+    // 「去格子化」：材料网格退役，左上材料区改文字列表（材料名×数量）。
+    // 槽位数据模型不变（menu 槽位坐标已挪屏外，快速移动按索引工作）。
+    /** 材料列表：左上角起点与行距。 */
+    private static final int MATLIST_X = 8;
+    private static final int MATLIST_Y = 17;
+    private static final int MATLIST_ROW_H = 9;
+    private static final int MATLIST_MAX_ROWS = 8;
+    /** 投入提示行 y（列表区底部、状态条上方）。 */
+    private static final int MATLIST_HINT_Y = 98;
 
     /** 结果槽坐标（逻辑槽 16×16，视觉渲染为 32×32）。 */
     private static final int RESULT_SLOT_X = 222;
@@ -574,7 +556,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
         super.render(g, mouseX, mouseY, partialTick);
 
-        renderMaterialSlotRings(g);
+        renderMaterialList(g);
         renderStatusBar(g);
         renderKeywordHints(g);
         renderResultSlotPreview(g);
@@ -743,60 +725,69 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         this.tierButton.setMessage(Component.translatable("qianxiang.forge_table.tier_icon." + TIERS[tierIndex]));
     }
 
-    // ========================== 材料槽色环、标签与提示 ==========================
+    // ========================== 材料列表（去格子化：网格退役，改文字列表） ==========================
 
-    private void renderMaterialSlotRings(GuiGraphics g) {
-        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
-            drawSlotRing(g,
-                    leftPos + SLOT_X[i] - SLOT_RING_MARGIN,
-                    topPos + SLOT_Y[i] - SLOT_RING_MARGIN,
-                    SLOT_RING_COLORS[i]);
+    /** 去格子化：材料槽不再画物品（坐标已挪屏外双保险），产物槽/背包走原版。 */
+    @Override
+    protected void renderSlot(GuiGraphics g, net.minecraft.world.inventory.Slot slot) {
+        if (slot.index < ForgeTableMenu.MATERIAL_SLOTS) {
+            return;
         }
-        // 5×5 网格后行间无空位放文字标签：槽位角色由色环颜色 + 空槽 tooltip 表达
+        super.renderSlot(g, slot);
     }
 
-    /** 画 1px 色边（槽位大小 16×16，环在槽外 {@link #SLOT_RING_MARGIN}px，总 18×18）。 */
-    private void drawSlotRing(GuiGraphics g, int x, int y, int color) {
-        int w = 16 + SLOT_RING_MARGIN * 2;
-        int h = 16 + SLOT_RING_MARGIN * 2;
-        g.fill(x, y, x + w, y + 1, color);         // 上
-        g.fill(x, y + h - 1, x + w, y + h, color); // 下
-        g.fill(x, y, x + 1, y + h, color);         // 左
-        g.fill(x + w - 1, y, x + w, y + h, color); // 右
+    /** 当前非空材料槽的物品列表（展示/命中测试共用，按槽序）。 */
+    private List<ItemStack> materialListRows() {
+        List<ItemStack> rows = new ArrayList<>();
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            ItemStack s = this.menu.getSlot(i).getItem();
+            if (!s.isEmpty()) rows.add(s);
+        }
+        return rows;
+    }
+
+    /** 材料区文字列表：材料名×数量，超出省略；底部投入提示行。 */
+    private void renderMaterialList(GuiGraphics g) {
+        List<ItemStack> rows = materialListRows();
+        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
+        for (int i = 0; i < shown; i++) {
+            ItemStack s = rows.get(i);
+            String line = s.getHoverName().getString() + " ×" + s.getCount();
+            g.drawString(this.font, this.font.plainSubstrByWidth(line, 88),
+                    leftPos + MATLIST_X, topPos + MATLIST_Y + i * MATLIST_ROW_H, 0xE0E0E0, false);
+        }
+        if (rows.size() > shown) {
+            g.drawString(this.font, "… +" + (rows.size() - shown),
+                    leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
+        }
+        g.drawString(this.font, Component.translatable("qianxiang.table.hint_insert"),
+                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
     }
 
     /**
-     * 材料槽 tooltip：空槽显示槽位角色（核心/辅助/基底）；
-     * 有物品时显示 {@link MaterialCardHelper#buildCard} 的完整材料性质卡
-     * （名称/稀有度档位/相性/功能算子+用途/自由状态效果/概念/贡献预估），
-     * 原版物品也走 {@link com.qianxiang.phase.ItemConceptResolver} 推导显示。
+     * 材料列表 tooltip：悬停某一行显示 {@link MaterialCardHelper#buildCard} 的完整材料性质卡
+     * （名称/稀有度档位/相性/功能算子+用途/自由状态效果/概念/贡献预估）。
      */
     private void renderMaterialSlotTooltips(GuiGraphics g, int mouseX, int mouseY) {
-        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
-            int sx = leftPos + SLOT_X[i];
-            int sy = topPos + SLOT_Y[i];
-            if (mouseX >= sx && mouseX < sx + 16 && mouseY >= sy && mouseY < sy + 16) {
-                ItemStack stack = this.menu.getSlot(i).getItem();
-                if (!stack.isEmpty()) {
-                    try {
-                        MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
-                        List<Component> card = MaterialCardHelper.buildCard(stack, info);
-                        if (!card.isEmpty()) {
-                            g.renderTooltip(this.font, card, Optional.empty(), mouseX, mouseY);
-                            break;
-                        }
-                    } catch (Throwable t) {
-                        // 性质卡渲染失败退回槽位角色提示
+        List<ItemStack> rows = materialListRows();
+        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
+        for (int i = 0; i < shown; i++) {
+            int rx = leftPos + MATLIST_X;
+            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
+            if (mouseX >= rx && mouseX < rx + 92 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
+                ItemStack stack = rows.get(i);
+                try {
+                    MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
+                    List<Component> card = MaterialCardHelper.buildCard(stack, info);
+                    if (!card.isEmpty()) {
+                        g.renderTooltip(this.font, card, Optional.empty(), mouseX, mouseY);
+                        return;
                     }
+                } catch (Throwable t) {
+                    // 性质卡渲染失败退化为物品名
                 }
-                // 5×5 网格：中心 12=核心（青环），内圈 8 格=辅助（紫环），外圈 16 格=基底（橙环）
-                String key = switch (i) {
-                    case 12 -> "qianxiang.forge_table.slot.core";
-                    case 6, 7, 8, 11, 13, 16, 17, 18 -> "qianxiang.forge_table.slot.aux";
-                    default -> "qianxiang.forge_table.slot.base";
-                };
-                g.renderTooltip(this.font, Component.translatable(key), mouseX, mouseY);
-                break;
+                g.renderTooltip(this.font, stack.getHoverName(), mouseX, mouseY);
+                return;
             }
         }
     }

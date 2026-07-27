@@ -57,10 +57,11 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         this.container = container;
         this.playerInventory = playerInventory;
         checkContainerSize(container, MATERIAL_SLOTS + 1);
-        // 材料槽 0-24：5×5 网格，与 forge_table.png 左上材料区对齐（间距 18）
-        //   行 y = 17/35/53/71/89，列 x = 8/26/44/62/80；索引 12=中心核心槽
+        // 材料槽 0-24：5×5 逻辑网格（compose 只看占用槽不看坐标）。
+        // 「去格子化」后坐标挪到屏外——GUI 改文字列表，槽位只作数据模型；
+        // quickMoveStack/clicked 按索引工作，不受坐标影响。
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
-            addSlot(new Slot(container, i, 8 + (i % 5) * 18, 17 + (i / 5) * 18));
+            addSlot(new Slot(container, i, -2000, -2000));
         }
         // 结果槽 10：只读（不可放入），取出时消耗材料 + 记相谱。坐标 (222,54) 对齐纹理右侧 32×32 凹槽中心。
         addSlot(new Slot(container, RESULT_SLOT, 222, 54) {
@@ -177,8 +178,17 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     }
 
     private void onTakeResult(Player player, ItemStack resultStack) {
+        afterTakeResult(player, resultStack, container, () -> slotsChanged(container));
+    }
+
+    /**
+     * 取走产物的后置结算（menu 槽位取与 block 空手取两路径共用）：
+     * 记相谱 + 学法术 + 落锤音 + 消耗每个材料槽 1 个 + 重算预览 + 完成态。
+     * 产物栈的取出与清槽由调用方完成，本方法不碰产物槽，天然防双计。
+     */
+    public static void afterTakeResult(Player player, ItemStack resultStack, Container container, Runnable recompute) {
         recordForge(player, resultStack);  // 律二：锻造即传记，不可逆烙进相谱
-        learnSpellFromResult(player, resultStack); // 相杖上的法术自动进入已学列表
+        learnSpellFromResult(player, resultStack); // 旧存档带法术组件的产物自动进入已学列表
         if (!resultStack.isEmpty() && !player.level().isClientSide()) {
             // 锻成即鸣砧：动态锻造没有固定配方音，这里统一给成品一记落锤
             player.level().playSound(null, player.blockPosition(),
@@ -209,16 +219,16 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             ItemStack s = container.getItem(i);
             if (!s.isEmpty()) { s.shrink(1); container.setItem(i, s); }
         }
-        slotsChanged(container);
+        recompute.run();
 
-        if (this.container instanceof ForgeTableBlockEntity be) {
+        if (container instanceof ForgeTableBlockEntity be) {
             be.setComplete();
         }
     }
 
     /** 如果产物铭刻了法术，让玩家学会它（不消耗，用于施法环/面板）。覆盖三种载体：
      *  相杖 CUSTOM_SPELL（单个）、法术书 SPELLBOOK（全部法术）、旧存档物品的 SPELL（id 查预置注册表转换）。 */
-    private void learnSpellFromResult(Player player, ItemStack resultStack) {
+    private static void learnSpellFromResult(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
             java.util.List<com.qianxiang.spell.CustomSpell> spells = new java.util.ArrayList<>();
@@ -246,7 +256,7 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     }
 
     /** 把这次锻造记进玩家相谱 + 位格 +1（律二不可逆铭刻）。失败不阻断合成。 */
-    private void recordForge(Player player, ItemStack resultStack) {
+    private static void recordForge(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
             // Shift 点击结果槽会走原版 QUICK_MOVE 的 while 循环连续锻造：

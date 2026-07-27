@@ -102,6 +102,13 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
                     serverLevel.sendParticles(trail, getX(), getY(), getZ(),
                             2, 0.12, 0.12, 0.12, 0.0);
                 }
+                // 高光层：每 3 tick 掺 1 颗元素色 spark（原版轨迹不动）
+                if (tickCount % 3 == 0) {
+                    serverLevel.sendParticles(
+                            new com.qianxiang.particle.SparkParticleOptions(
+                                    SpellEffectEngine.colorFor(element)),
+                            getX(), getY(), getZ(), 1, 0.0, 0.02, 0.0, 0.0);
+                }
             }
             if (homing) {
                 steerTowardsNearestEnemy();

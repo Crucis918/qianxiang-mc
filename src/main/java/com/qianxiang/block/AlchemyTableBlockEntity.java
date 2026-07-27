@@ -32,7 +32,7 @@ import net.minecraft.world.level.block.state.BlockState;
  * 不落盘，随会话有效；炼金台提案只需 spellJson + 自定义名（无 moveset）。
  * </p>
  */
-public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider {
+public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider, FloatingTableView {
     public static final int STATE_IDLE = 0;
     public static final int STATE_PARSING = 1;
     public static final int STATE_READY = 2;
@@ -50,6 +50,11 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
     private int completeTicks = 0;
     /** PARSING 状态已持续的 tick，用于超时兜底（不落盘）。 */
     private int parsingTicks = 0;
+
+    /** 显示用产物栈（仅 BER 渲染，随 update tag 下发；与产物槽同口径不落盘）。 */
+    private ItemStack displayResult = ItemStack.EMPTY;
+    /** 客户端同步脏标记：材料/产物变化同 tick 合并，tickServer 末尾统一 sendBlockUpdated。 */
+    private boolean clientSyncDirty = false;
 
     // ======================= 按玩家的 AI 提案与选择（信任边界）=======================
     // 与锻造台同一套隔离理由（见 ForgeTableBlockEntity）：服务端留内容真身，
@@ -171,11 +176,9 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
             if (completeTicks <= 0) {
                 updateCraftingState();
             }
-            return;
-        }
-        // PARSING 超时兜底（与锻造台同理）：玩家中途关 GUI/下线时回包可能打空，
-        // 不能让方块永久停在 PARSING。
-        if (craftingState == STATE_PARSING) {
+        } else if (craftingState == STATE_PARSING) {
+            // PARSING 超时兜底（与锻造台同理）：玩家中途关 GUI/下线时回包可能打空，
+            // 不能让方块永久停在 PARSING。
             parsingTicks++;
             if (parsingTicks > PARSING_TIMEOUT_TICKS) {
                 parsingTicks = 0;
@@ -184,6 +187,34 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
         } else {
             parsingTicks = 0;
         }
+
+        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸）
+        if (level != null && level.getGameTime() % 5 == 0
+                && TableInteractions.absorbAbove(this, AlchemyTableMenu.MATERIAL_SLOTS, level, worldPosition) > 0) {
+            recomputeResult(null);
+        }
+
+        // 客户端同步：同 tick 的材料/产物变化合并成一次 sendBlockUpdated
+        if (clientSyncDirty && level != null) {
+            clientSyncDirty = false;
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
+    /**
+     * 菜单外（投料/取料/吸收/空手取产物）改动材料后重算预览产物。
+     * <p>{@code viewer} 的 AI 选择参与组合，可空（空 = 纯材料模板路径）。</p>
+     */
+    public void recomputeResult(@javax.annotation.Nullable java.util.UUID viewer) {
+        if (level == null || level.isClientSide) return;
+        java.util.List<ItemStack> materials = new java.util.ArrayList<>(AlchemyTableMenu.MATERIAL_SLOTS);
+        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
+            materials.add(items.get(i));
+        }
+        var sel = selectionOf(viewer);
+        var composition = com.qianxiang.phase.SpellScrollComposer.compose(materials, sel.spellJson());
+        setItem(AlchemyTableMenu.RESULT_SLOT, composition.result());
+        updateCraftingState();
     }
 
     /**
@@ -207,7 +238,16 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
     @Override public ItemStack getItem(int slot) { return items.get(slot); }
     @Override public ItemStack removeItem(int slot, int amount) { return ContainerHelper.removeItem(items, slot, amount); }
     @Override public ItemStack removeItemNoUpdate(int slot) { return ContainerHelper.takeItem(items, slot); }
-    @Override public void setItem(int slot, ItemStack stack) { items.set(slot, stack); setChanged(); }
+    @Override
+    public void setItem(int slot, ItemStack stack) {
+        items.set(slot, stack);
+        // 产物槽变化同步 displayResult（BER 渲染数据源），材料/产物变化都标客户端同步脏
+        if (slot == AlchemyTableMenu.RESULT_SLOT) {
+            displayResult = stack.isEmpty() ? ItemStack.EMPTY : stack.copy();
+        }
+        clientSyncDirty = true;
+        setChanged();
+    }
     /** 产物槽不接受任何放入（同锻造台：封死 Container 默认恒 true 的口子）。 */
     @Override
     public boolean canPlaceItem(int slot, ItemStack stack) {
@@ -274,6 +314,15 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
         CompoundTag tag = super.getUpdateTag(registries);
         tag.putInt("CraftingState", craftingState);
+        // BER 漂浮虚影数据源：材料槽（产物槽与落盘口径一致排除）+ 显示用产物栈
+        NonNullList<ItemStack> materialsOnly = NonNullList.withSize(items.size(), ItemStack.EMPTY);
+        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
+            materialsOnly.set(i, items.get(i));
+        }
+        ContainerHelper.saveAllItems(tag, materialsOnly, registries);
+        if (!displayResult.isEmpty()) {
+            tag.put("DisplayResult", displayResult.save(registries));
+        }
         return tag;
     }
 
@@ -281,6 +330,10 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
     public void handleUpdateTag(CompoundTag tag, HolderLookup.Provider registries) {
         super.handleUpdateTag(tag, registries);
         craftingState = tag.getInt("CraftingState");
+        ContainerHelper.loadAllItems(tag, items, registries);
+        displayResult = tag.contains("DisplayResult")
+                ? ItemStack.parse(registries, tag.getCompound("DisplayResult")).orElse(ItemStack.EMPTY)
+                : ItemStack.EMPTY;
     }
 
     // ---- MenuProvider ----
@@ -289,5 +342,17 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
     @Override
     public AbstractContainerMenu createMenu(int id, Inventory inv, Player player) {
         return new AlchemyTableMenu(id, inv, this);
+    }
+
+    // ---- FloatingTableView（BER 读取视图）----
+
+    @Override
+    public int materialSlotCount() {
+        return AlchemyTableMenu.MATERIAL_SLOTS;
+    }
+
+    @Override
+    public ItemStack getDisplayResult() {
+        return displayResult;
     }
 }

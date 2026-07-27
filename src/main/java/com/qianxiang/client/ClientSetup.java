@@ -25,11 +25,25 @@ public final class ClientSetup {
         event.registerEntityRenderer(QianxiangEntities.ABYSS_MERCHANT.get(), QianxiangAbyssMerchantRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.SPELL_PROJECTILE.get(), SpellProjectileRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.MYRIAD_WARDEN.get(), QianxiangMyriadWardenRenderer::new);
+        // 功能台「去格子化」：漂浮材料/产物虚影（两台共用同一泛型 BER）
+        event.registerBlockEntityRenderer(com.qianxiang.QianxiangBlockEntities.FORGE_TABLE.get(),
+                com.qianxiang.client.render.FloatingItemsRenderer::new);
+        event.registerBlockEntityRenderer(com.qianxiang.QianxiangBlockEntities.ALCHEMY_TABLE.get(),
+                com.qianxiang.client.render.FloatingItemsRenderer::new);
     }
 
     /** 武器外貌即时生成：把动态产物的静态模型包上 DynamicWeaponModel（无组件时静态纹理兜底）。 */
     @SubscribeEvent
     public static void onModifyBakingResult(ModelEvent.ModifyBakingResult event) {
         DynamicWeaponModel.wrap(event.getModels());
+    }
+
+    /** 自定义粒子（spark/shockwave）provider 注册。 */
+    @SubscribeEvent
+    public static void registerParticles(net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent event) {
+        event.registerSpriteSet(com.qianxiang.QianxiangParticles.SPARK.get(),
+                com.qianxiang.client.particle.SparkParticle.Provider::new);
+        event.registerSpriteSet(com.qianxiang.QianxiangParticles.SHOCKWAVE.get(),
+                com.qianxiang.client.particle.ShockwaveParticle.Provider::new);
     }
 }

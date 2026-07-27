@@ -32,6 +32,7 @@ public final class Qianxiang {
         QianxiangCreativeTab.CREATIVE_TABS.register(modEventBus); // 创造分组「千相」
         QianxiangBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         QianxiangMenus.MENUS.register(modEventBus);
+        QianxiangParticles.PARTICLE_TYPES.register(modEventBus); // spark/shockwave 自定义粒子
         // Epic Fight 动态武器动作适配：锻造产物按特征（重/轻/长柄/杖/盾）实时选动作类型。
         // 需先于 EF 注册（mods.toml 对 epicfight 声明 ordering = "BEFORE"），静态 JSON 兜底。
         //

@@ -282,6 +282,8 @@
   "qianxiang.alchemy_table.status.complete": "Brewed!",
   "qianxiang.alchemy_table.msg.no_materials": "No recommended materials found.",
   "qianxiang.alchemy_table.msg.slots_full": "Alchemy table material slots are full.",
+  "qianxiang.table.full": "Material slots are full",
+  "qianxiang.table.hint_insert": "Right-click with materials to insert · sneak + empty hand to retrieve",
   "qianxiang.spell.migration.learned": "Learned %d spell(s) from your old gear",
   "qianxiang.forge_table.summary.fallback.spell": "(Fallback) free-form spell plan matched from description",
   "qianxiang.spell.custom": "Custom Spell: %s",
