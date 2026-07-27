@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [" A ", "KBK", "SSS"],
+  "key": {
+    "A": {"item": "minecraft:amethyst_shard"},
+    "K": {"item": "minecraft:book"},
+    "B": {"item": "minecraft:brewing_stand"},
+    "S": {"item": "minecraft:stone"}
+  },
+  "result": {"id": "qianxiang:alchemy_table", "count": 1}
+}

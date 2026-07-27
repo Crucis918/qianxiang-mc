@@ -94,15 +94,20 @@ public final class QianxiangItems {
                     new Item.Properties().rarity(Rarity.UNCOMMON)
                             .durability(QianxiangToolItem.DEFAULT_DURABILITY)));
 
-    // 千相法术书 spell_book —— 自由法术系统的施法载体：存法术列表+选中下标，
-    // 右键施放、潜行+右键切换。默认带 3 个入门预置法术；锻造台（含裂隙精髓的魔法组合）
-    // 会产出按材料算子生成的自定义法术书。
+    // 千相法术书 spell_book —— 法术增幅器：凭 COMPOSED_ATTRIBUTES 的
+    // spellPowerPercent/manaBonus 加成施法（增幅器化后不再带默认法术；
+    // 旧存档的 SPELLBOOK 组件由 LegacySpellMigration 登录时迁移并剥离）。
     public static final DeferredHolder<Item, Item> SPELL_BOOK =
             ITEMS.register("spell_book", () -> new com.qianxiang.item.SpellBookItem(new Item.Properties()
                     .stacksTo(1)
-                    .rarity(Rarity.RARE)
-                    .component(QianxiangDataComponents.SPELLBOOK.get(),
-                            com.qianxiang.spell.SpellBookData.withDefaults())));
+                    .rarity(Rarity.RARE)));
+
+    // 魔法卷轴 magic_scroll —— 炼金台产物：CUSTOM_SPELL 组件存单个法术，
+    // 右键消耗 1 个学习（进 PlayerSpellData.learnedSpells）；已学会则不消耗。
+    public static final DeferredHolder<Item, Item> MAGIC_SCROLL =
+            ITEMS.register("magic_scroll", () -> new com.qianxiang.item.SpellScrollItem(new Item.Properties()
+                    .stacksTo(16)
+                    .rarity(Rarity.UNCOMMON)));
 
     // 森罗残片 myriad_fragment —— 万象森罗掉落的专属材料（微光树叶概率掉落），
     // 万象生机凝成的残片：MANA（法力）+ GROWTH（生长）；稀有；混沌+生命。

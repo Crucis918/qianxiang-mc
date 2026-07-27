@@ -78,30 +78,38 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int TIER_W = 24;
     private static final int TIER_H = 14;
 
-    /** 状态条（材料槽下方，状态文字绘制在条内）。 */
+    /** 状态条（材料网格下方，状态文字绘制在条内）。 */
     private static final int STATUS_X = 8;
-    private static final int STATUS_Y = 56;
+    private static final int STATUS_Y = 108;
     private static final int STATUS_W = 132;
     private static final int STATUS_H = 10;
 
-    /** 材料槽坐标（必须与 {@link ForgeTableMenu} 中槽位一致）。10 槽 2 行 5 列，间距 18。 */
-    private static final int[] SLOT_X = {8, 26, 44, 62, 80, 8, 26, 44, 62, 80};
-    private static final int[] SLOT_Y = {17, 17, 17, 17, 17, 35, 35, 35, 35, 35};
+    /** 材料槽坐标（必须与 {@link ForgeTableMenu} 中槽位一致）。25 槽 5×5 网格，间距 18；
+     *  索引 12 = 中心核心槽，内圈 8 格 = 辅助，外圈 16 格 = 基底。 */
+    private static final int[] SLOT_X = {
+            8, 26, 44, 62, 80,
+            8, 26, 44, 62, 80,
+            8, 26, 44, 62, 80,
+            8, 26, 44, 62, 80,
+            8, 26, 44, 62, 80
+    };
+    private static final int[] SLOT_Y = {
+            17, 17, 17, 17, 17,
+            35, 35, 35, 35, 35,
+            53, 53, 53, 53, 53,
+            71, 71, 71, 71, 71,
+            89, 89, 89, 89, 89
+    };
     /** 色环比槽位外扩的像素数（行距 18，环总尺寸 16+2×1=18，两行正好相切）。 */
     private static final int SLOT_RING_MARGIN = 1;
 
-    /** 材料槽色环颜色：槽0 核心-青，槽1-4 辅助-紫，槽5-9 基底-橙。 */
+    /** 材料槽色环颜色：索引 12 核心-青，内圈 8 格辅助-紫，外圈 16 格基底-橙。 */
     private static final int[] SLOT_RING_COLORS = {
-            0xFF00FFFF, // 核心槽：青
-            0xFFA855F7, // 辅助槽：紫
-            0xFFA855F7, // 辅助槽：紫
-            0xFFA855F7, // 辅助槽：紫
-            0xFFA855F7, // 辅助槽：紫
-            0xFFF97316, // 基底槽：橙
-            0xFFF97316, // 基底槽：橙
-            0xFFF97316, // 基底槽：橙
-            0xFFF97316, // 基底槽：橙
-            0xFFF97316  // 基底槽：橙
+            0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316,
+            0xFFF97316, 0xFFA855F7, 0xFFA855F7, 0xFFA855F7, 0xFFF97316,
+            0xFFF97316, 0xFFA855F7, 0xFF00FFFF, 0xFFA855F7, 0xFFF97316,
+            0xFFF97316, 0xFFA855F7, 0xFFA855F7, 0xFFA855F7, 0xFFF97316,
+            0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316, 0xFFF97316
     };
 
     /** 结果槽坐标（逻辑槽 16×16，视觉渲染为 32×32）。 */
@@ -119,11 +127,11 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int BUTTON_H = 13;
     private static final int CONFIRM_W = 58;
 
-    /** AI 推荐配方卡片（2 列网格）。 */
+    /** AI 推荐配方卡片（2 列网格，材料网格与状态条下方、背包上方）。 */
     private static final int CARD_X = 8;
-    private static final int CARD_Y = 102;
+    private static final int CARD_Y = 132;
     private static final int CARD_W = 116;
-    private static final int CARD_H = 28;
+    private static final int CARD_H = 20;
     private static final int CARD_GAP_X = 8;
     private static final int CARD_GAP_Y = 2;
     private static final int CARD_COLS = 2;
@@ -150,10 +158,12 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final float CONTRIB_TITLE_SCALE = 0.75f;
     private static final float CONTRIB_ROW_SCALE = 0.6f;
 
-    /** 关键词提示行：半字号小字填在状态条下方的两条缝隙里。 */
+    /** 关键词提示行：半字号小字填在右列输入框/按钮组下方的缝隙里（不撞左侧材料网格）。 */
     private static final float HINT_SCALE = 0.45f;
-    private static final float HINT_LINE1_Y = 67.5f;
-    private static final float HINT_LINE2_Y = 77.5f;
+    private static final int HINT_X = 104;
+    private static final float HINT_LINE1_Y = 104.5f;
+    private static final float HINT_LINE2_Y = 114.5f;
+    private static final int HINT_W = 100;
     private static final int HINT_MAX_LINES = 2;
 
     // ========================== 右侧扩展面板布局 ==========================
@@ -532,7 +542,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     @Override
     protected void renderLabels(GuiGraphics g, int mouseX, int mouseY) {
         g.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, 0xFFE0E0E0, false);
-        g.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, 0xFFE0E0E0, false);
+        // 背包标签不画：卡片第二行（y≈154..174）已占满背包上方的标签位。
     }
 
     /**
@@ -742,7 +752,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                     topPos + SLOT_Y[i] - SLOT_RING_MARGIN,
                     SLOT_RING_COLORS[i]);
         }
-        // 2 行 5 列后行间无空位放文字标签：槽位角色由色环颜色 + 空槽 tooltip 表达
+        // 5×5 网格后行间无空位放文字标签：槽位角色由色环颜色 + 空槽 tooltip 表达
     }
 
     /** 画 1px 色边（槽位大小 16×16，环在槽外 {@link #SLOT_RING_MARGIN}px，总 18×18）。 */
@@ -779,9 +789,10 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                         // 性质卡渲染失败退回槽位角色提示
                     }
                 }
+                // 5×5 网格：中心 12=核心（青环），内圈 8 格=辅助（紫环），外圈 16 格=基底（橙环）
                 String key = switch (i) {
-                    case 0 -> "qianxiang.forge_table.slot.core";
-                    case 1, 2, 3, 4 -> "qianxiang.forge_table.slot.aux";
+                    case 12 -> "qianxiang.forge_table.slot.core";
+                    case 6, 7, 8, 11, 13, 16, 17, 18 -> "qianxiang.forge_table.slot.aux";
                     default -> "qianxiang.forge_table.slot.base";
                 };
                 g.renderTooltip(this.font, Component.translatable(key), mouseX, mouseY);
@@ -1102,13 +1113,13 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         return new ItemStack(item).getHoverName().getString();
     }
 
-    /** 半字号提示行：填在输入框↔状态条、状态条↔材料槽的两条缝隙里。 */
+    /** 半字号提示行：填在右列按钮组下方的两条缝隙里。 */
     private void renderKeywordHints(GuiGraphics g) {
         for (int i = 0; i < hintLines.size() && i < HINT_MAX_LINES; i++) {
             float y = i == 0 ? HINT_LINE1_Y : HINT_LINE2_Y;
             String text = hintLines.get(i).getString();
-            text = this.font.plainSubstrByWidth(text, (int) (STATUS_W / HINT_SCALE));
-            drawTinyString(g, text, leftPos + STATUS_X, topPos + y, 0xFF7FE3C0, HINT_SCALE);
+            text = this.font.plainSubstrByWidth(text, (int) (HINT_W / HINT_SCALE));
+            drawTinyString(g, text, leftPos + HINT_X, topPos + y, 0xFF7FE3C0, HINT_SCALE);
         }
     }
 
@@ -1263,24 +1274,28 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
         boolean hasConfirm = lastAiResult != null && !lastAiResult.confirmMessage().isBlank();
 
-        // 确认消息优先显示（标题行左侧，截断避免压到操作按钮区）
+        // 标题行（y-10）：左标题/空态文案，右侧接确认消息——25 槽布局下标题行只有一条。
+        int headerY = y - 10;
+        int cursorX = x;
+        boolean noProposals = lastAiResult == null || lastAiResult.proposals().isEmpty();
+        if (noProposals) {
+            Component emptyText = Component.translatable("qianxiang.forge_table.cards.empty");
+            g.drawString(this.font, emptyText, cursorX, headerY, 0xFF666666, false);
+            cursorX += this.font.width(emptyText) + 6;
+            this.hoveredCard = -1;
+        } else {
+            Component title = Component.translatable("qianxiang.forge_table.cards.title");
+            g.drawString(this.font, title, cursorX, headerY, 0xFFFFFFFF, false);
+            cursorX += this.font.width(title) + 6;
+        }
         if (hasConfirm) {
             String msg = "✓ " + localizeText(lastAiResult.confirmMessage()).getString();
-            msg = this.font.plainSubstrByWidth(msg, 132);
-            g.drawString(this.font, msg, x, y - 18, 0xFF55FF55, false);
+            msg = this.font.plainSubstrByWidth(msg, Math.max(20, leftPos + 248 - cursorX));
+            g.drawString(this.font, msg, cursorX, headerY, 0xFF55FF55, false);
         }
-
-        if (lastAiResult == null || lastAiResult.proposals().isEmpty()) {
-            g.drawString(this.font,
-                    Component.translatable("qianxiang.forge_table.cards.empty"),
-                    x, y - (hasConfirm ? 8 : 10), 0xFF666666, false);
-            this.hoveredCard = -1;
+        if (noProposals) {
             return;
         }
-
-        g.drawString(this.font,
-                Component.translatable("qianxiang.forge_table.cards.title"),
-                x, y - 10, 0xFFFFFFFF, false);
 
         List<PhaseAIRecipeService.RecipeProposal> proposals = lastAiResult.proposals();
         this.hoveredCard = -1;
@@ -1297,11 +1312,11 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
             // 产物图标（按类型预估）
             ItemStack product = estimateProductIcon(TYPES[typeIndex]);
-            g.renderItem(product, cx + 4, cy + 6);
+            g.renderItem(product, cx + 4, cy + 2);
 
             // 材料小图标（产物图标右上侧一排）
             int iconX = cx + 24;
-            int iconY = cy + 4;
+            int iconY = cy + 3;
             List<String> materials = proposal.materialNames();
             for (int j = 0; j < materials.size() && j < 4; j++) {
                 ItemStack matStack = resolveItemStack(materials.get(j));
@@ -1319,11 +1334,11 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             String power = String.format("%.1f", proposal.estimatedPower());
             g.drawString(this.font,
                     Component.translatable("qianxiang.forge_table.card.power", power),
-                    cx + 62, cy + 4, 0xFFFFD700, false);
+                    cx + 62, cy + 3, 0xFFFFD700, false);
             // 说明（下方一行，按像素宽度截断）
             String summaryText = localizeText(proposal.summary()).getString();
             summaryText = this.font.plainSubstrByWidth(summaryText, CARD_W - 28);
-            g.drawString(this.font, summaryText, cx + 24, cy + 17, 0xFFC8C8C8, false);
+            g.drawString(this.font, summaryText, cx + 24, cy + 10, 0xFFC8C8C8, false);
         }
     }
 

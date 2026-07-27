@@ -37,7 +37,9 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     /** PARSING 超时：AI 最长等 5 秒 + 余量，超过即认定回包丢失，自动复位。 */
     private static final int PARSING_TIMEOUT_TICKS = 400;
 
-    private final NonNullList<ItemStack> items = NonNullList.withSize(11, ItemStack.EMPTY); // 0-9 材料槽, 10 结果槽
+    private final NonNullList<ItemStack> items =
+            NonNullList.withSize(com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS + 1,
+                    ItemStack.EMPTY); // 0-24 材料槽, 25 结果槽
 
     private int craftingState = STATE_IDLE;
     private int completeTicks = 0;

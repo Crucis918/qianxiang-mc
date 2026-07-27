@@ -1,0 +1,16 @@
+{
+  "parent": "qianxiang:story/forge_table",
+  "display": {
+    "icon": {"id": "qianxiang:alchemy_table"},
+    "title": {"translate": "advancement.qianxiang.alchemy_table.title"},
+    "description": {"translate": "advancement.qianxiang.alchemy_table.desc"},
+    "frame": "task"
+  },
+  "rewards": {"experience": 10},
+  "criteria": {
+    "has_alchemy_table": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {"items": [{"items": ["qianxiang:alchemy_table"]}]}
+    }
+  }
+}

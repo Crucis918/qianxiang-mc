@@ -16,6 +16,7 @@ public final class ClientSetup {
     @SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(QianxiangMenus.FORGE_TABLE.get(), ForgeTableScreen::new);
+        event.register(QianxiangMenus.ALCHEMY_TABLE.get(), AlchemyTableScreen::new);
     }
 
     @SubscribeEvent

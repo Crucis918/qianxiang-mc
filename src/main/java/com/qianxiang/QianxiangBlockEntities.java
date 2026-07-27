@@ -13,4 +13,9 @@ public final class QianxiangBlockEntities {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ForgeTableBlockEntity>> FORGE_TABLE =
             BLOCK_ENTITIES.register("forge_table", () -> BlockEntityType.Builder
                     .of(ForgeTableBlockEntity::new, QianxiangBlocks.FORGE_TABLE.get()).build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<com.qianxiang.block.AlchemyTableBlockEntity>> ALCHEMY_TABLE =
+            BLOCK_ENTITIES.register("alchemy_table", () -> BlockEntityType.Builder
+                    .of(com.qianxiang.block.AlchemyTableBlockEntity::new,
+                            QianxiangBlocks.ALCHEMY_TABLE.get()).build(null));
 }

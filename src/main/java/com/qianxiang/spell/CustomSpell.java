@@ -28,7 +28,8 @@ import java.util.Map;
  * <ul>
  *   <li>预置法术：{@link #FIREBALL}/{@link #NATURE_HEAL}/{@link #ARCANE_MISSILES}（新法术书的默认内容，
  *       见 {@link SpellBookData#withDefaults()}），登记在 {@link #registry()}。</li>
- *   <li>材料映射：锻造台按材料算子生成的 qianxiang:forged_* 法术（见 ForgeComposer#buildSpellBook）。</li>
+ *   <li>材料映射/迁移：旧锻造台按材料算子生成的 qianxiang:forged_* 法术
+ *       （锻造成法已改为增幅器化，旧产物经 {@code LegacySpellMigration} 迁入已学列表）。</li>
  *   <li>AI 自由法术：AI 响应的 spellJson 经 {@link #fromSpellJson(String, int)} 解析而来。</li>
  * </ul>
  * <h3>spellJson 格式（AI 输出）</h3>
@@ -244,7 +245,7 @@ public record CustomSpell(ResourceLocation id, String element, String form, Stri
      * 为什么需要它：模组的核心理念是「强度靠材料」，而此前法术轨是漏的——
      * 材料档位只决定 power 的<b>下限</b>，上限是全局常量 {@link #MAX_POWER}=10。
      * 于是拿一堆垃圾材料 + 客户端/AI 报 power=10 完全合法，法术强度与材料脱钩。
-     * 现在由调用方按材料最高档位换算预算（见 {@code ForgeComposer.applyAiSpell}），
+     * 现在由调用方按材料最高档位换算预算（炼金台法术铭刻链路复用同一预算口径），
      * power 被夹在 [minPower, maxPower] 内。
      *
      * @param maxPower 本次锻造的材料预算上限（会再夹进 [1, {@link #MAX_POWER}]）

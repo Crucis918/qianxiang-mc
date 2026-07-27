@@ -24,6 +24,9 @@ import java.util.Set;
  * <ul>
  *   <li>数值属性：attackDamage / attackSpeed / durability / armor / armorToughness /
  *       knockbackResistance / moveSpeed / maxHealth —— 由 EDGE/DEFENSE/BASE_* 等贡献。</li>
+ *   <li>增幅器数值：spellPowerPercent（法术伤害 +%）/ manaBonus（法力上限 +X）——
+ *       由攻击向算子/MANA 算子贡献，法杖/魔法书等法系产物的「增幅器化」兑现
+ *       （见 {@link com.qianxiang.spell.AmplifierHelper}）。</li>
  *   <li>特殊效果等级（int）：igniteLevel / lifestealLevel / thornsLevel / slowLevel / healLevel
  *       —— 由 IGNITE/LIFESTEAL/REFLECT/SLOW/HEAL 贡献，等级 ≥1 才生效。</li>
  *   <li>外观驱动：{@link AppearanceData}（主导相性/效果/外观键）——
@@ -53,6 +56,8 @@ public record ComposedAttributes(
         int thornsLevel,
         int slowLevel,
         int healLevel,
+        double spellPowerPercent,
+        int manaBonus,
         double powerScore,
         AppearanceData appearance,
         ExtraEffects extraEffects
@@ -294,7 +299,17 @@ public record ComposedAttributes(
 
     // ============================ Codec ============================
 
-    public static final Codec<ComposedAttributes> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+    /** 增幅器两字段的结构化 Codec：optionalFieldOf 缺省 0，旧产物解码为无加成。 */
+    private static final Codec<AmpFields> AMP_CODEC = RecordCodecBuilder.create(instance -> instance.group(
+            Codec.doubleRange(0.0, Double.MAX_VALUE).optionalFieldOf("spell_power_percent", 0.0).forGetter(AmpFields::spellPowerPercent),
+            Codec.intRange(0, Integer.MAX_VALUE).optionalFieldOf("mana_bonus", 0).forGetter(AmpFields::manaBonus)
+    ).apply(instance, AmpFields::new));
+
+    /** Codec 中间层：增幅器两字段（record 本体是扁平字段，拆层只因 DFU group 上限 16 元）。 */
+    private record AmpFields(double spellPowerPercent, int manaBonus) {}
+
+    /** 既有 16 字段的结构化 Codec（DFU RecordCodecBuilder.group 上限 16 元，增幅器两字段由 {@link #CODEC} 叠加）。 */
+    private static final Codec<ComposedAttributes> BASE_CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.doubleRange(0.0, Double.MAX_VALUE).optionalFieldOf("attack_damage", 0.0).forGetter(ComposedAttributes::attackDamage),
             Codec.doubleRange(0.0, Double.MAX_VALUE).optionalFieldOf("attack_speed", 0.0).forGetter(ComposedAttributes::attackSpeed),
             Codec.intRange(0, Integer.MAX_VALUE).optionalFieldOf("durability", 0).forGetter(ComposedAttributes::durability),
@@ -311,7 +326,33 @@ public record ComposedAttributes(
             Codec.doubleRange(0.0, Double.MAX_VALUE).optionalFieldOf("power_score", 0.0).forGetter(ComposedAttributes::powerScore),
             AppearanceData.CODEC.optionalFieldOf("appearance", AppearanceData.empty()).forGetter(ComposedAttributes::appearance),
             ExtraEffects.CODEC.optionalFieldOf("effects", ExtraEffects.empty()).forGetter(ComposedAttributes::extraEffects)
-    ).apply(instance, ComposedAttributes::new));
+    ).apply(instance, (attackDamage, attackSpeed, durability, armor, armorToughness, knockbackResistance,
+                       moveSpeed, maxHealth, igniteLevel, lifestealLevel, thornsLevel, slowLevel, healLevel,
+                       powerScore, appearance, extraEffects) ->
+            new ComposedAttributes(attackDamage, attackSpeed, durability, armor, armorToughness,
+                    knockbackResistance, moveSpeed, maxHealth, igniteLevel, lifestealLevel, thornsLevel,
+                    slowLevel, healLevel, 0.0, 0, powerScore, appearance, extraEffects)));
+
+    /**
+     * 完整 Codec：{@link #BASE_CODEC} 编解码既有 16 字段，再叠加增幅器两字段
+     * （spell_power_percent/mana_bonus，缺省 0，旧存档兼容）。
+     * 手写叠加与 {@link ExtraEffects#CODEC} 同一思路——group 超限后拆层编解码。
+     */
+    public static final Codec<ComposedAttributes> CODEC = new Codec<>() {
+        @Override
+        public <T> DataResult<Pair<ComposedAttributes, T>> decode(DynamicOps<T> ops, T input) {
+            return BASE_CODEC.decode(ops, input).flatMap(base ->
+                    AMP_CODEC.decode(ops, input).map(amp ->
+                            base.mapFirst(b -> b.withAmplifier(amp.getFirst().spellPowerPercent(),
+                                    amp.getFirst().manaBonus()))));
+        }
+
+        @Override
+        public <T> DataResult<T> encode(ComposedAttributes value, DynamicOps<T> ops, T prefix) {
+            return BASE_CODEC.encode(value, ops, prefix).flatMap(map ->
+                    AMP_CODEC.encode(new AmpFields(value.spellPowerPercent(), value.manaBonus()), ops, map));
+        }
+    };
 
     /** 全零起点。 */
     public static ComposedAttributes empty() {
@@ -320,6 +361,7 @@ public record ComposedAttributes(
                 0.0, 0.0, 0.0,
                 0.0, 0.0,
                 0, 0, 0, 0, 0,
+                0.0, 0,
                 0.0,
                 AppearanceData.empty(),
                 ExtraEffects.empty()
@@ -329,7 +371,8 @@ public record ComposedAttributes(
     /**
      * 合并两条属性：
      * <ul>
-     *   <li>数值字段：相加（耐久也相加——多材料补强，符合「材料即零件」）。</li>
+     *   <li>数值字段：相加（耐久也相加——多材料补强，符合「材料即零件」；
+ *       增幅器两值同理相加）。</li>
      *   <li>特殊效果等级：取大（同种效果不无限叠加，避免数值失控）。</li>
      *   <li>powerScore：相加（强度本身就是累加估算）。</li>
      *   <li>外观字段：相性取并集；主导效果按合并后的等级重新判定。</li>
@@ -353,6 +396,8 @@ public record ComposedAttributes(
                 this.moveSpeed + other.moveSpeed,
                 this.maxHealth + other.maxHealth,
                 ignite, lifesteal, thorns, slow, heal,
+                this.spellPowerPercent + other.spellPowerPercent,
+                this.manaBonus + other.manaBonus,
                 this.powerScore + other.powerScore,
                 mergeAppearance(other, dominantEffect),
                 extra
@@ -384,6 +429,7 @@ public record ComposedAttributes(
                 this.armor, this.armorToughness, this.knockbackResistance,
                 this.moveSpeed, this.maxHealth,
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
                 new AppearanceData(copyPhases(phases), dominantEffect, appearanceKey),
                 this.extraEffects
@@ -401,6 +447,7 @@ public record ComposedAttributes(
                 this.armor, this.armorToughness, this.knockbackResistance,
                 this.moveSpeed, this.maxHealth,
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
                 this.appearance,
                 new ExtraEffects(this.effects(), mergeGrantedEffects(this.grantedEffects(), extra),
@@ -419,6 +466,7 @@ public record ComposedAttributes(
                 this.armor, this.armorToughness, this.knockbackResistance,
                 this.moveSpeed, this.maxHealth,
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
                 this.appearance,
                 new ExtraEffects(this.effects(), this.grantedEffects(), this.drawbacks().max(drawbacks),
@@ -438,6 +486,7 @@ public record ComposedAttributes(
                 this.armor, this.armorToughness, this.knockbackResistance,
                 this.moveSpeed, this.maxHealth,
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
                 this.appearance,
                 new ExtraEffects(this.effects(), this.grantedEffects(), this.drawbacks(), true)
@@ -445,6 +494,36 @@ public record ComposedAttributes(
     }
 
     // ============================ 便捷访问 ============================
+
+    /** 写入增幅器两值，其余字段保持不变（{@link #CODEC} 分层解码用）。 */
+    public ComposedAttributes withAmplifier(double spellPowerPercent, int manaBonus) {
+        if (this.spellPowerPercent == spellPowerPercent && this.manaBonus == manaBonus) return this;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, this.durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                spellPowerPercent, manaBonus,
+                this.powerScore,
+                this.appearance,
+                this.extraEffects
+        );
+    }
+
+    /** 覆盖强度总分，其余字段保持不变（ForgeComposer 的零件数软化护栏用）。 */
+    public ComposedAttributes withPowerScore(double powerScore) {
+        if (this.powerScore == powerScore) return this;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, this.durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
+                powerScore,
+                this.appearance,
+                this.extraEffects
+        );
+    }
 
     /** 固定 13 算子的扩展效果等级（ExtraEffects 子记录的便捷直达）。 */
     public EffectLevels effects() {

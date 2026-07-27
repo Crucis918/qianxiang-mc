@@ -2,7 +2,6 @@ package com.qianxiang.item;
 
 import com.qianxiang.QianxiangDataComponents;
 import com.qianxiang.phase.ComposedAttributes;
-import com.qianxiang.spell.Spell;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -125,20 +124,17 @@ public class QianxiangWeaponItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
         ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
-        // 铭刻法术（相杖等法器）：AI 自由法术（CUSTOM_SPELL）优先于旧硬编码法术（SPELL）
-        com.qianxiang.spell.CustomSpell customSpell =
-                stack.get(QianxiangDataComponents.CUSTOM_SPELL.get());
-        ResourceLocation spellId = stack.get(QianxiangDataComponents.SPELL.get());
-        if (customSpell != null) {
-            tooltip.add(Component.translatable("qianxiang.tooltip.spell",
-                    customSpell.displayName()).withStyle(ChatFormatting.LIGHT_PURPLE));
-        } else if (spellId != null) {
-            Spell spell = Spell.byId(spellId);
-            tooltip.add(Component.translatable("qianxiang.tooltip.spell",
-                    Component.translatable(spell.translationKey())).withStyle(ChatFormatting.LIGHT_PURPLE));
-        }
         if (attr == null) {
             return;
+        }
+        // 增幅器数值（相杖/魔法书等法系产物）：法术伤害加成 / 法力上限加成，非 0 才显示
+        if (attr.spellPowerPercent() > 0) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.spell_power",
+                    String.format("%.0f", attr.spellPowerPercent())).withStyle(ChatFormatting.LIGHT_PURPLE));
+        }
+        if (attr.manaBonus() > 0) {
+            tooltip.add(Component.translatable("qianxiang.tooltip.mana_bonus",
+                    attr.manaBonus()).withStyle(ChatFormatting.AQUA));
         }
         // 相之形：外观来源
         AppearanceProfile profile = AppearanceProfile.of(stack);

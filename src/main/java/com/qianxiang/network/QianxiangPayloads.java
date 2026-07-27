@@ -56,15 +56,27 @@ public final class QianxiangPayloads {
 
         registrar.playToClient(DamageNumberPayload.TYPE, DamageNumberPayload.STREAM_CODEC, handler);
 
-        // 客户端→服务端：锻造台 AI 请求。
+        // 客户端→服务端：功能台 AI 请求。按「玩家当前打开的菜单类型」分派：
+        // 炼金台 → AlchemyTableAIHandler；其余（锻造台）→ ForgeTableAIHandler（原有行为不变）。
         registrar.playToServer(AiRequestPayload.TYPE, AiRequestPayload.STREAM_CODEC,
-                (payload, context) -> ForgeTableAIHandler.handle(payload, context));
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.player().containerMenu instanceof com.qianxiang.menu.AlchemyTableMenu) {
+                        com.qianxiang.ai.AlchemyTableAIHandler.handleOnMainThread(payload, context);
+                    } else {
+                        ForgeTableAIHandler.handle(payload, context);
+                    }
+                }));
 
-        // 服务端→客户端：AI 推荐结果。
+        // 服务端→客户端：AI 推荐结果。按当前打开的界面分派给对应的监听器。
         registrar.playToClient(AiResponsePayload.TYPE, AiResponsePayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.flow() == PacketFlow.CLIENTBOUND) {
-                        ClientForgeTableAI.receive(payload);
+                        if (net.minecraft.client.Minecraft.getInstance().screen
+                                instanceof com.qianxiang.client.AlchemyTableScreen) {
+                            com.qianxiang.client.ClientAlchemyTableAI.receive(payload);
+                        } else {
+                            ClientForgeTableAI.receive(payload);
+                        }
                     }
                 }));
 

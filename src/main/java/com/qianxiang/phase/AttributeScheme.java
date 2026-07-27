@@ -86,9 +86,16 @@ public final class AttributeScheme {
     public static final double DEFENSE_ARMOR = 3.0;
     public static final double DEFENSE_POWER = 1.0;
 
-    // MANA：法力 → 护甲韧性（魔抗感）
+    // MANA：法力 → 护甲韧性（魔抗感）+ 法力上限加成（增幅器数值，见 AmplifierHelper）
     public static final double MANA_ARMOR_TOUGHNESS = 2.0;
+    /** 每份 MANA 算子贡献的法力上限加成基底（× 档位系数取整）：增幅器化后 MANA 材料的主收益。 */
+    public static final double MANA_BONUS = 8.0;
     public static final double MANA_POWER = 1.0;
+
+    // 攻击向算子（EDGE/IGNITE/LIFESTEAL/POISON/FROST/STRENGTH/LEVITATION，
+    // 与 ForgeComposer.hasWeaponTrait 同口径）→ 法术伤害加成 %（增幅器数值）
+    /** 每份攻击向算子贡献的法术伤害加成基底 %（× 档位系数）。 */
+    public static final double SPELL_POWER_PERCENT = 6.0;
 
     // HEAL：治疗术 → 特殊效果等级（每出现一次 +1 级）+ 少量生命
     public static final double HEAL_MAX_HEALTH_BONUS = 2.0;
@@ -147,6 +154,8 @@ public final class AttributeScheme {
     public static final double POWER_WEIGHT_ATTACK_SPEED = 1.0;
     public static final double POWER_WEIGHT_MAX_HEALTH = 0.5;
     public static final double POWER_WEIGHT_SPECIAL_LEVEL = 3.0;  // 每点特殊效果等级贡献
+    public static final double POWER_WEIGHT_SPELL_POWER_PERCENT = 0.15;  // 每点法术伤害加成 % 贡献
+    public static final double POWER_WEIGHT_MANA_BONUS = 0.1;  // 每点法力上限加成贡献
 
     // ===================== MaterialInput（外部调用方传的小 record） =====================
 
@@ -203,6 +212,7 @@ public final class AttributeScheme {
                 0.0, 0.0, (int) Math.round(FORMLESS_BASE_DURABILITY),
                 0.0, 0.0, 0.0, 0.0, 0.0,
                 0, 0, 0, 0, 0,
+                0.0, 0,
                 0.0,
                 ComposedAttributes.AppearanceData.empty(),
                 ComposedAttributes.ExtraEffects.empty()
@@ -227,6 +237,8 @@ public final class AttributeScheme {
         int thornsLevel = 0;
         int slowLevel = 0;
         int healLevel = 0;
+        double spellPowerPercent = 0.0;
+        int manaBonus = 0;
         int poison = 0;
         int frost = 0;
         int levitation = 0;
@@ -265,6 +277,7 @@ public final class AttributeScheme {
                 }
                 case EDGE -> {
                     attackDamage += scaledF(EDGE_ATTACK_DAMAGE, mult);
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += EDGE_POWER * mult;
                 }
                 case DEFENSE -> {
@@ -273,15 +286,18 @@ public final class AttributeScheme {
                 }
                 case MANA -> {
                     armorToughness += scaledF(MANA_ARMOR_TOUGHNESS, mult);
+                    manaBonus += scaledI(MANA_BONUS, mult);
                     powerScore += MANA_POWER * mult;
                 }
                 case IGNITE -> {
                     igniteLevel += 1;
                     attackDamage += scaledF(IGNITE_ATTACK_DAMAGE_BONUS, mult);
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += IGNITE_POWER * mult;
                 }
                 case LIFESTEAL -> {
                     lifestealLevel += 1;
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += LIFESTEAL_POWER * mult;
                 }
                 case REFLECT -> {
@@ -299,18 +315,22 @@ public final class AttributeScheme {
                 }
                 case POISON -> {
                     poison += 1;
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += POISON_POWER * mult;
                 }
                 case FROST -> {
                     frost += 1;
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += FROST_POWER * mult;
                 }
                 case LEVITATION -> {
                     levitation += 1;
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += LEVITATION_POWER * mult;
                 }
                 case STRENGTH -> {
                     strength += 1;
+                    spellPowerPercent += scaledF(SPELL_POWER_PERCENT, mult);
                     powerScore += STRENGTH_POWER * mult;
                 }
                 case NIGHT_VISION -> {
@@ -366,6 +386,8 @@ public final class AttributeScheme {
         powerScore += knockbackResistance * POWER_WEIGHT_KNOCKBACK_RESISTANCE;
         powerScore += maxHealth * POWER_WEIGHT_MAX_HEALTH;
         powerScore += (igniteLevel + lifestealLevel + thornsLevel + slowLevel + healLevel) * POWER_WEIGHT_SPECIAL_LEVEL;
+        powerScore += spellPowerPercent * POWER_WEIGHT_SPELL_POWER_PERCENT;
+        powerScore += manaBonus * POWER_WEIGHT_MANA_BONUS;
 
         ComposedAttributes.EffectLevels effects = new ComposedAttributes.EffectLevels(
                 poison, frost, levitation, strength, nightVision, speedBoost,
@@ -380,6 +402,7 @@ public final class AttributeScheme {
                 armor, armorToughness, knockbackResistance,
                 moveSpeed, maxHealth,
                 igniteLevel, lifestealLevel, thornsLevel, slowLevel, healLevel,
+                spellPowerPercent, manaBonus,
                 powerScore,
                 new ComposedAttributes.AppearanceData(Set.of(), dominantEffect, appearanceKey),
                 new ComposedAttributes.ExtraEffects(effects, Map.of())

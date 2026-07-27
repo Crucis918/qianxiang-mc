@@ -26,14 +26,15 @@ import java.util.List;
 
 /**
  * 自定义台容器菜单。
- * 槽位：0-9 材料（玩家放，2 行 5 列），10 结果（只读），之后是玩家背包。
+ * 槽位：0-24 材料（玩家放，5×5 网格；中心 12=核心，内圈 8=辅助，外圈 16=基底），
+ * 25 结果（只读），之后是玩家背包。
  * 合成逻辑：材料槽变化时，收集材料栈 → {@link ForgeComposer#compose} 动态组合 → 填结果槽。
  * 取出结果时消耗每个材料槽 1 个。
  * 动态组合：原版物品（铁锭/煤炭等）也能当零件——万物皆零件，强度靠材料稀有度。
  */
 public class ForgeTableMenu extends AbstractContainerMenu {
-    public static final int MATERIAL_SLOTS = 10;
-    public static final int RESULT_SLOT = 10;
+    public static final int MATERIAL_SLOTS = 25;
+    public static final int RESULT_SLOT = MATERIAL_SLOTS;
 
     /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连锻一次点击刷满位格。 */
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
@@ -55,9 +56,9 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         super(QianxiangMenus.FORGE_TABLE.get(), containerId);
         this.container = container;
         this.playerInventory = playerInventory;
-        checkContainerSize(container, 11);
-        // 材料槽 0-9：2 行 5 列，与 forge_table.png 左上凹槽对齐（间距 18）
-        //   第 1 行 y=17：x = 8/26/44/62/80；第 2 行 y=35：同 x
+        checkContainerSize(container, MATERIAL_SLOTS + 1);
+        // 材料槽 0-24：5×5 网格，与 forge_table.png 左上材料区对齐（间距 18）
+        //   行 y = 17/35/53/71/89，列 x = 8/26/44/62/80；索引 12=中心核心槽
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
             addSlot(new Slot(container, i, 8 + (i % 5) * 18, 17 + (i / 5) * 18));
         }
@@ -71,7 +72,7 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     }
 
     public ForgeTableMenu(int containerId, Inventory playerInventory) {
-        this(containerId, playerInventory, new SimpleContainer(11));
+        this(containerId, playerInventory, new SimpleContainer(MATERIAL_SLOTS + 1));
     }
 
     /** 暴露底层容器，供网络包在服务端直接操作材料槽。 */
@@ -216,24 +217,27 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     }
 
     /** 如果产物铭刻了法术，让玩家学会它（不消耗，用于施法环/面板）。覆盖三种载体：
-     *  相杖 CUSTOM_SPELL、法术书 SPELLBOOK（全部法术）、旧存档物品的 SPELL。 */
+     *  相杖 CUSTOM_SPELL（单个）、法术书 SPELLBOOK（全部法术）、旧存档物品的 SPELL（id 查预置注册表转换）。 */
     private void learnSpellFromResult(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
-            java.util.List<ResourceLocation> ids = new java.util.ArrayList<>();
+            java.util.List<com.qianxiang.spell.CustomSpell> spells = new java.util.ArrayList<>();
             var custom = resultStack.get(QianxiangDataComponents.CUSTOM_SPELL.get());
-            if (custom != null) ids.add(custom.id());
+            if (custom != null) spells.add(custom);
             var book = resultStack.get(QianxiangDataComponents.SPELLBOOK.get());
             if (book != null) {
-                for (var s : book.spells()) ids.add(s.id());
+                spells.addAll(book.spells());
             }
             ResourceLocation legacy = resultStack.get(QianxiangDataComponents.SPELL.get());
-            if (legacy != null) ids.add(legacy);
-            if (ids.isEmpty()) return;
+            if (legacy != null) {
+                var preset = com.qianxiang.spell.CustomSpell.byId(legacy);
+                if (preset != null) spells.add(preset);
+            }
+            if (spells.isEmpty()) return;
 
             PlayerSpellData data = player.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
-            for (ResourceLocation id : ids) {
-                data = data.learn(id);
+            for (var spell : spells) {
+                data = data.learn(spell);
             }
             player.setData(QianxiangAttachments.PLAYER_SPELL_DATA, data);
         } catch (Throwable t) {

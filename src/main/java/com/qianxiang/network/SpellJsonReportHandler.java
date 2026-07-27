@@ -26,6 +26,20 @@ public final class SpellJsonReportHandler {
             Player player = context.player();
             if (player == null) return;
             if (player.level().isClientSide) return;
+
+            // 炼金台分支：同一「只回传索引」信任边界，提案表在 AlchemyTableBlockEntity。
+            if (player.containerMenu instanceof com.qianxiang.menu.AlchemyTableMenu alchemyMenu) {
+                if (!(alchemyMenu.getContainer()
+                        instanceof com.qianxiang.block.AlchemyTableBlockEntity alchemyBe)) return;
+                boolean selectedAlchemy = alchemyBe.selectProposal(player.getUUID(), payload.proposalIndex());
+                if (!selectedAlchemy && payload.proposalIndex() != SpellJsonReportPayload.NONE) {
+                    Qianxiang.LOGGER.warn("[Qianxiang] 玩家 {} 选择了不存在的炼金 AI 提案 #{}，已忽略",
+                            player.getName().getString(), payload.proposalIndex());
+                }
+                alchemyMenu.slotsChanged(alchemyMenu.getContainer());
+                return;
+            }
+
             if (!(player.containerMenu instanceof ForgeTableMenu menu)) return;
             if (!(menu.getContainer() instanceof ForgeTableBlockEntity be)) return;
 

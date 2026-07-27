@@ -25,7 +25,7 @@ public final class SpellHudRenderer {
 
         PlayerSpellData data = mc.player.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
         Component text = Component.translatable("qianxiang.hud.mana",
-                data.currentMana(), data.maxMana());
+                data.currentMana(), ClientSpellData.effectiveMaxMana(mc.player));
 
         GuiGraphics graphics = event.getGuiGraphics();
         int x = 10;
@@ -38,6 +38,21 @@ public final class SpellHudRenderer {
         graphics.drawString(mc.font, text, x, y, 0x00FFFF, false);
 
         renderCooldownBar(graphics, mc.player, x, y + 11);
+        renderLastCast(graphics, mc, data, x, y + 20);
+    }
+
+    /** 「上次施放：X」行（无记录不显示；法术已忘记则只显示 id 路径）。 */
+    private static void renderLastCast(GuiGraphics graphics, Minecraft mc, PlayerSpellData data, int x, int y) {
+        String lastId = ClientSpellData.lastCastSpellId();
+        if (lastId == null) return;
+        var id = net.minecraft.resources.ResourceLocation.tryParse(lastId);
+        if (id == null) return;
+        Component name = data.findLearned(id)
+                .map(spell -> Component.translatable("qianxiang.hud.last_cast",
+                        spell.displayName()))
+                .orElseGet(() -> Component.translatable("qianxiang.hud.last_cast",
+                        Component.literal(id.getPath())));
+        graphics.drawString(mc.font, name, x, y, 0xAAAAAA, false);
     }
 
     /**

@@ -96,12 +96,13 @@ def generate_gui_texture() -> Image.Image:
 
     布局（与 ForgeTableScreen / ForgeTableMenu 坐标一致）：
       * 标题条 y 4..13
-      * 材料槽 2 行 5 列：y=17 / y=35，x = 8/26/44/62/80（间距 18，色环 18×18）
+      * 材料槽 5×5 网格：行 y = 17/35/53/71/89，列 x = 8/26/44/62/80（间距 18，色环 18×18）
+        索引 12=中心核心（青环），内圈 8 格=辅助（紫环），外圈 16 格=基底（橙环）
       * 输入框 (104,17,144×14)，类型按钮 (104,35,24×14)，档位按钮 (132,35,24×14)
-      * 状态条 (8,56,132×10)
+      * 状态条 (8,108,132×10)
       * 操作按钮 (146,50/66/82, 58×13)
       * 结果槽 32×32 框 (214,46)-(246,78)，逻辑槽 (222,54)
-      * AI 推荐卡片 2×2 网格：(8|132, 102|132, 116×28)
+      * AI 推荐卡片 2×2 网格：(8|132, 132|154, 116×20)
       * 玩家背包 9×3 (8,176) 间距 18，快捷栏 (8,234)
     """
     W, H = 256, 256
@@ -155,27 +156,32 @@ def generate_gui_texture() -> Image.Image:
         draw.rectangle(rect, fill=slot_dark, outline=metal_light, width=1)
         draw_glow_line(draw, rect[0] + 1, rect[3] - 1, rect[2] - 1, rect[3] - 1, gold, 1)
 
-    # 5. 状态条凹槽（材料槽下方，10px 高，状态文字绘制在条内）
-    status_rect = (8, 56, 8 + 132 - 1, 56 + 10 - 1)
+    # 5. 状态条凹槽（材料网格下方，10px 高，状态文字绘制在条内）
+    status_rect = (8, 108, 8 + 132 - 1, 108 + 10 - 1)
     draw.rectangle(status_rect, fill=slot_dark, outline=metal_light, width=1)
 
-    # 6. 左上材料槽面板（2 行 5 列）
-    draw.rectangle([4, 14, 101, 54], fill=panel, outline=metal, width=1)
-    draw_glow_line(draw, 6, 18, 6, 50, rune_glow_dim, 1)
-    draw_glow_line(draw, 99, 18, 99, 50, rune_glow_dim, 1)
+    # 6. 左上材料槽面板（5×5 网格）
+    draw.rectangle([4, 14, 97, 108], fill=panel, outline=metal, width=1)
+    draw_glow_line(draw, 6, 18, 6, 104, rune_glow_dim, 1)
+    draw_glow_line(draw, 95, 18, 95, 104, rune_glow_dim, 1)
 
-    # 10 个材料槽凹槽（2 行 5 列，间距 18，与 ForgeTableMenu 一致）
-    slot_positions = [(8 + (i % 5) * 18, 17 + (i // 5) * 18) for i in range(10)]
-    slot_ring_colors = (
-        [(0, 255, 255, 120)] +      # 槽0 核心 - 青
-        [(168, 85, 247, 100)] * 4 +  # 槽1-4 辅助 - 紫
-        [(249, 115, 22, 100)] * 5    # 槽5-9 基底 - 橙
-    )
-    for (sx, sy), ring_color in zip(slot_positions, slot_ring_colors):
+    # 25 个材料槽凹槽（5×5，间距 18，与 ForgeTableMenu 一致）
+    slot_positions = [(8 + (i % 5) * 18, 17 + (i // 5) * 18) for i in range(25)]
+
+    def ring_color(i: int):
+        """索引 12=中心核心（青），内圈 8 格=辅助（紫），外圈 16 格=基底（橙）。"""
+        if i == 12:
+            return (0, 255, 255, 120)
+        if i in (6, 7, 8, 11, 13, 16, 17, 18):
+            return (168, 85, 247, 100)
+        return (249, 115, 22, 100)
+
+    for sx, sy in slot_positions:
+        i = slot_positions.index((sx, sy))
         # 槽位背景
         draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal_light, width=1)
         # 色环暗示（外扩 1px，18×18，与屏幕端色环一致）
-        draw.rectangle([sx - 1, sy - 1, sx + 16, sy + 16], outline=ring_color, width=1)
+        draw.rectangle([sx - 1, sy - 1, sx + 16, sy + 16], outline=ring_color(i), width=1)
 
     # 7. 中部操作按钮面板
     draw.rectangle([142, 46, 209, 97], fill=panel, outline=metal, width=1)
@@ -197,11 +203,11 @@ def generate_gui_texture() -> Image.Image:
         px, py = frame_rect[0] + ox, frame_rect[1] + oy
         draw.rectangle([px, py, px + 1, py + 1], fill=rune_glow)
 
-    # 9. 下方 AI 推荐卡片区（2×2 网格）
-    draw.rectangle([4, 90, 251, 164], fill=panel, outline=metal, width=1)
+    # 9. 下方 AI 推荐卡片区（2×2 网格，材料网格与状态条下方、背包上方）
+    draw.rectangle([4, 124, 251, 176], fill=panel, outline=metal, width=1)
     for card_x in (8, 132):
-        for card_y in (102, 132):
-            draw.rectangle([card_x, card_y, card_x + 116 - 1, card_y + 28 - 1],
+        for card_y in (132, 154):
+            draw.rectangle([card_x, card_y, card_x + 116 - 1, card_y + 20 - 1],
                            outline=metal, width=1)
             draw_glow_line(draw, card_x + 2, card_y + 1, card_x + 20, card_y + 1,
                            rune_glow_dim, 1)

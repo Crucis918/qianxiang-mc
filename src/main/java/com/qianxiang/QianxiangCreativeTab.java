@@ -58,6 +58,8 @@ public final class QianxiangCreativeTab {
 
                         // —— 自由法术载体 ——
                         output.accept(QianxiangItems.SPELL_BOOK.get());
+                        // —— 魔法卷轴（炼金台产物，右键学习）——
+                        output.accept(QianxiangItems.MAGIC_SCROLL.get());
 
                         // —— 防具产物（相盾 + 四件可穿戴护甲）——
                         output.accept(QianxiangItems.PHASE_SHIELD.get());
@@ -68,6 +70,8 @@ public final class QianxiangCreativeTab {
 
                         // —— 锻造台（相之凝结台）——
                         output.accept(QianxiangBlocks.FORGE_TABLE_ITEM.get());
+                        // —— 炼金台 ——
+                        output.accept(QianxiangBlocks.ALCHEMY_TABLE_ITEM.get());
 
                         // —— 万象森罗维度 MVP ——
                         output.accept(QianxiangItems.MYRIAD_FRAGMENT.get());

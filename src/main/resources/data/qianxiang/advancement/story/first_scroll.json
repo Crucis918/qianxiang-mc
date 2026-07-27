@@ -1,0 +1,13 @@
+{
+  "parent": "qianxiang:story/alchemy_table",
+  "display": {
+    "icon": {"id": "qianxiang:magic_scroll"},
+    "title": {"translate": "advancement.qianxiang.first_scroll.title"},
+    "description": {"translate": "advancement.qianxiang.first_scroll.desc"},
+    "frame": "task"
+  },
+  "rewards": {"experience": 25},
+  "criteria": {
+    "learn_scroll": {"trigger": "minecraft:impossible"}
+  }
+}

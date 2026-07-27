@@ -39,6 +39,8 @@ public final class ClientStateReset {
     private static void resetAll() {
         try {
             ClientForgeTableAI.resetForWorldChange();
+            ClientAlchemyTableAI.resetForWorldChange();
+            SpellWheelOverlay.resetForWorldChange();
             ClientSpellData.clear();
             ClientDamageNumbers.clearAll();
             ClientBlueprintCache.clear();

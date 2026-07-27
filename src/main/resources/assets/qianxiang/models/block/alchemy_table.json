@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "qianxiang:block/alchemy_table",
+    "down": "qianxiang:block/alchemy_table",
+    "up": "qianxiang:block/alchemy_table",
+    "north": "qianxiang:block/alchemy_table",
+    "south": "qianxiang:block/alchemy_table",
+    "east": "qianxiang:block/alchemy_table",
+    "west": "qianxiang:block/alchemy_table"
+  }
+}

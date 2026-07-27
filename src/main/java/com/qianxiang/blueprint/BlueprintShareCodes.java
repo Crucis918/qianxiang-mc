@@ -48,8 +48,8 @@ public final class BlueprintShareCodes {
     /** spellJson / movesetJson 字符数上限。 */
     public static final int MAX_JSON_CHARS = 8192;
 
-    /** 蓝图材料数上限（锻造台就 10 个槽）。 */
-    public static final int MAX_MATERIALS = 10;
+    /** 蓝图材料数上限（跟随锻造台槽位数）。 */
+    public static final int MAX_MATERIALS = com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS;
 
     private BlueprintShareCodes() {}
 

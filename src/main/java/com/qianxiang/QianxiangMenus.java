@@ -18,4 +18,11 @@ public final class QianxiangMenus {
                 // 1.21.1 MenuType 构造器需 (MenuSupplier, FeatureFlagSet)
                 return new MenuType<>(factory, FeatureFlagSet.of());
             });
+
+    public static final DeferredHolder<MenuType<?>, MenuType<com.qianxiang.menu.AlchemyTableMenu>> ALCHEMY_TABLE =
+            MENUS.register("alchemy_table", () -> {
+                MenuSupplier<com.qianxiang.menu.AlchemyTableMenu> factory =
+                        (id, inv) -> new com.qianxiang.menu.AlchemyTableMenu(id, inv);
+                return new MenuType<>(factory, FeatureFlagSet.of());
+            });
 }

@@ -4,8 +4,6 @@ import com.qianxiang.Qianxiang;
 import com.qianxiang.QianxiangDataComponents;
 import com.qianxiang.QianxiangItems;
 import com.qianxiang.spell.CustomSpell;
-import com.qianxiang.spell.Spell;
-import com.qianxiang.spell.SpellBookData;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -48,6 +46,15 @@ public final class ForgeComposer {
     /** 一条材料的解析结果：功能算子 + 档位。 */
     public record MaterialPart(Set<PhaseFunction> functions, PhaseTier tier) {}
 
+    /**
+     * 零件数软上限（25 槽扩容的平衡护栏）：超过此数的零件，其 powerScore 按
+     * {@link #FORGE_EXCESS_WEIGHT} 计入——{@code effectiveParts = min(n,10) + (n-10)*0.5}。
+     * 槽位从 10 涨到 25 是摆放自由度，不等于强度可以线性 ×2.5。调平只动这两个常量。
+     */
+    public static final int FORGE_PART_SOFT_CAP = 10;
+    /** 超出软上限零件的 powerScore 权重（见 {@link #FORGE_PART_SOFT_CAP}）。 */
+    public static final double FORGE_EXCESS_WEIGHT = 0.5;
+
     /** 组合结果：产物栈 + 组合属性（供 UI 预览/将来 AI 协商用）。 */
     public record Composition(ItemStack result, ComposedAttributes attributes) {
         /** 空结果：无产物、无属性。 */
@@ -77,9 +84,8 @@ public final class ForgeComposer {
      * 把材料槽的 stacks 组合成产物，可附带最近一次 AI 响应的输出覆盖。
      *
      * @param materialStacks 材料槽内容（含空栈也安全）
-     * @param aiSpellJson    最近一次 AI 响应附带的 spellJson（可空）；
-     *                       仅当产物为法系（相杖/法术书）且 JSON 有效时生效，
-     *                       无效时回退按材料算子的映射表逻辑
+     * @param aiSpellJson    最近一次 AI 响应附带的 spellJson（可空）；法术铭刻已迁往炼金台，
+     *                       锻造台不再消费它，仅在 aiCustomName 为空时回退取其 name 字段
      * @param aiCustomName   AI 给产物起的自定义名（可空；空时尝试取 spellJson 的 name 字段）
      * @return 组合结果；{@link Composition#valid()} 为 false 即不可锻造
      */
@@ -91,9 +97,8 @@ public final class ForgeComposer {
      * 把材料槽的 stacks 组合成产物，可附带最近一次 AI 响应的输出覆盖（含 EF 动作定制）。
      *
      * @param materialStacks 材料槽内容（含空栈也安全）
-     * @param aiSpellJson    最近一次 AI 响应附带的 spellJson（可空）；
-     *                       仅当产物为法系（相杖/法术书）且 JSON 有效时生效，
-     *                       无效时回退按材料算子的映射表逻辑
+     * @param aiSpellJson    最近一次 AI 响应附带的 spellJson（可空）；锻造台不再消费它，
+     *                       仅在 aiCustomName 为空时回退取其 name 字段
      * @param aiCustomName   AI 给产物起的自定义名（可空；空时尝试取 spellJson 的 name 字段）
      * @param aiMovesetJson  最近一次 AI 响应附带的 movesetJson（可空，契约：category/combos/collider）；
      *                       JSON 有效且运行环境有动作集支持时写入产物 CUSTOM_MOVESET 组件
@@ -131,12 +136,20 @@ public final class ForgeComposer {
         boolean hasBase = hasBase(union);
 
         // 3. MaterialPart → MaterialInput → ComposedAttributes
-        List<AttributeScheme.MaterialInput> inputs = new ArrayList<>(parts.size());
+        //    逐零件单独 compose 再累加：超过 FORGE_PART_SOFT_CAP 的零件 powerScore 减半
+        //    （软化护栏，见常量注释）；属性/效果等级不受影响，足额累加。
+        ComposedAttributes attr = ComposedAttributes.empty();
+        int partIndex = 0;
         for (MaterialPart p : parts) {
-            inputs.add(AttributeScheme.MaterialInput.of(p.tier(),
-                    p.functions().toArray(new PhaseFunction[0])));
+            var input = AttributeScheme.MaterialInput.of(p.tier(),
+                    p.functions().toArray(new PhaseFunction[0]));
+            ComposedAttributes part = AttributeScheme.compose(List.of(input));
+            if (partIndex >= FORGE_PART_SOFT_CAP) {
+                part = part.withPowerScore(part.powerScore() * FORGE_EXCESS_WEIGHT);
+            }
+            attr = attr.add(part);
+            partIndex++;
         }
-        ComposedAttributes attr = AttributeScheme.compose(inputs);
 
         // 3.5 无相骨架兜底：无 BASE_* 时手动补一个虚拟基底贡献——
         //     相当于 COMMON BASE_WOOD 的 60% 耐久（36 点），无攻击速度等其他加成，
@@ -166,75 +179,30 @@ public final class ForgeComposer {
         }
 
         // 5. 产物栈：按材料并集选原型（自定义广度），写入 composed_attributes + 数值 modifiers
-        //    特例：法系组合（含 MANA）且材料含裂隙精髓 → 产物改为「千相法术书」，
-        //    按材料算子生成 1~3 个 CustomSpell 写入（见 buildSpellBook）。
+        //    特例：法系组合（含 MANA）且材料含裂隙精髓 → 产物改为「千相法术书」。
+        //    法杖/法术书已「增幅器化」：不再铭刻法术，只凭 COMPOSED_ATTRIBUTES 的
+        //    spellPowerPercent/manaBonus 为施法提供加成（见 AmplifierHelper）。
         boolean makeSpellBook = union.contains(PhaseFunction.MANA) && containsRiftEssence(materialStacks);
         ItemStack out = makeSpellBook
-                ? buildSpellBook(parts, union)
+                ? new ItemStack(QianxiangItems.SPELL_BOOK.get())
                 : new ItemStack(pickArchetype(union).get());
         out.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(), attr);
         // 防具产物（QianxiangArmorItem）不写 MAINHAND 槽的 ATTRIBUTE_MODIFIERS——
         // 栈上组件会覆盖物品默认修饰符，而穿戴属性由
         // QianxiangArmorItem#getDefaultAttributeModifiers(ItemStack) 按护甲槽动态提供。
-        // 法术书同理：属性全部在 SPELLBOOK 组件里，不需要武器修饰符。
+        // 法术书同理：它是纯增幅器（非武器），加成由 AmplifierHelper 读 COMPOSED_ATTRIBUTES 结算。
         if (!makeSpellBook && !(out.getItem() instanceof com.qianxiang.item.QianxiangArmorItem)) {
             AttributeScheme.applyModifiersToStack(out, attr);
         }
 
-        // 6. 法系产物（相杖）铭刻默认法术：有疗伤材料则写治愈系，有迟缓材料则写霜冻系，否则火球。
-        //    统一走 CustomSpell（自由法术引擎）；旧 SPELL 组件只在旧存档物品上继续被读取。
-        if (out.is(QianxiangItems.PHASE_STAFF.get())) {
-            CustomSpell defaultSpell = attr.healLevel() > 0 ? CustomSpell.NATURE_HEAL
-                    : (attr.slowLevel() > 0 ? CustomSpell.FROST_NOVA : CustomSpell.FIREBALL);
-            out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), defaultSpell);
-        }
-
-        // 7. AI 输出驱动：最近一次 AI 响应带 spellJson 且产物为法系（相杖/法术书）→
-        //    解析为 CustomSpell 写入 CUSTOM_SPELL/SPELLBOOK；无效则保留上面的材料映射结果。
-        applyAiSpell(out, aiSpellJson, parts);
-
-        // 8. AI 自定义名称：写 CUSTOM_NAME（任意产物类型均可，不限法系）。
+        // 6. AI 自定义名称：写 CUSTOM_NAME（任意产物类型均可，不限法系）。
         applyAiName(out, aiCustomName, aiSpellJson);
 
-        // 9. AI 动作定制：movesetJson 有效且环境有动作集支持时 → 写 CUSTOM_MOVESET 组件
+        // 7. AI 动作定制：movesetJson 有效且环境有动作集支持时 → 写 CUSTOM_MOVESET 组件
         //    （任意产物类型都写；动作集子代理未合并时静默跳过，不影响产物）。
         applyAiMoveset(out, aiMovesetJson);
 
         return new Composition(out, attr);
-    }
-
-    /**
-     * AI 自由法术覆盖：spellJson 有效且产物为法系时，把 AI 法术写进产物组件。
-     * <ul>
-     *   <li>相杖 → {@code CUSTOM_SPELL} 组件（单个 CustomSpell）。</li>
-     *   <li>法术书 → {@code SPELLBOOK} 组件（单法术 SpellBookData，覆盖材料映射的 1~3 个法术）。</li>
-     * </ul>
-     * power 联动材料档位：最终 power = max(spellJson.power, 最高材料 tier.ordinal()+1)。
-     * 任何异常吞掉记日志——AI 输出不可信，不能拖垮合成。
-     */
-    private static void applyAiSpell(ItemStack out, String spellJson, List<MaterialPart> parts) {
-        if (spellJson == null || spellJson.isBlank() || out.isEmpty()) return;
-        boolean staff = out.is(QianxiangItems.PHASE_STAFF.get());
-        boolean spellBook = out.is(QianxiangItems.SPELL_BOOK.get());
-        if (!staff && !spellBook) return;
-        try {
-            int maxTier = 0;
-            for (MaterialPart p : parts) {
-                maxTier = Math.max(maxTier, p.tier().ordinal());
-            }
-            // 材料预算：COMMON=4 / RARE=6 / EPIC=8 / LEGENDARY=10。
-            // 下限仍是 maxTier+1，上限从此也由材料决定——垃圾材料再也报不出 power=10。
-            int powerBudget = 4 + 2 * maxTier;
-            CustomSpell spell = CustomSpell.fromSpellJson(spellJson, maxTier + 1, powerBudget);
-            if (spell == null) return;  // 无效 spellJson → 回退材料映射逻辑（不动已写入的默认结果）
-            if (spellBook) {
-                out.set(QianxiangDataComponents.SPELLBOOK.get(), new SpellBookData(List.of(spell), 0));
-            } else {
-                out.set(QianxiangDataComponents.CUSTOM_SPELL.get(), spell); // 覆盖步骤 6 的默认法术
-            }
-        } catch (Throwable t) {
-            Qianxiang.LOGGER.warn("[Qianxiang] 应用 AI spellJson 失败（保留材料映射结果）", t);
-        }
     }
 
     /** AI 自定义名称：优先显式 customName，缺省时取 spellJson 的 name 字段；空白则不写。 */
@@ -356,7 +324,7 @@ public final class ForgeComposer {
         return PhaseFunctionResolver.resolveTier(stack);
     }
 
-    // ============================ 法术书生成（裂隙精髓 + MANA 组合） ============================
+    // ============================ 法术书产物判定（裂隙精髓 + MANA 组合） ============================
 
     /** 材料槽中是否含裂隙精髓（万法之根 → 法系组合升格为法术书）。 */
     private static boolean containsRiftEssence(List<ItemStack> materialStacks) {
@@ -383,70 +351,6 @@ public final class ForgeComposer {
             }
         }
         return false;
-    }
-
-    /**
-     * 材料功能算子 → 法术模板 映射表（按优先级取前 3 个）。
-     * 每条：算子 → (id 路径, 元素, 形式, 效果, 修饰)。
-     * 参考 Iron's Spells 的自由组合思路：同一算子只决定主题，
-     * 元素/形式/效果仍可随后续材料扩展——当前 MVP 用固定映射保证可读性。
-     */
-    private record SpellTemplate(String path, String element, String form, String effect, List<String> modifiers) {}
-
-    private static final List<Map.Entry<PhaseFunction, SpellTemplate>> SPELL_TEMPLATES = List.of(
-            Map.entry(PhaseFunction.IGNITE, new SpellTemplate("forged_fireball", "fire", "projectile", "damage", List.of())),
-            Map.entry(PhaseFunction.HEAL, new SpellTemplate("forged_nature_heal", "nature", "self", "heal", List.of())),
-            Map.entry(PhaseFunction.SLOW, new SpellTemplate("forged_ice_shard", "frost", "projectile", "damage", List.of("piercing"))),
-            Map.entry(PhaseFunction.REFLECT, new SpellTemplate("forged_holy_ward", "holy", "self", "buff", List.of("extended"))),
-            Map.entry(PhaseFunction.LIFESTEAL, new SpellTemplate("forged_blood_drain", "blood", "touch", "damage", List.of())),
-            Map.entry(PhaseFunction.FROST, new SpellTemplate("forged_frost_nova", "frost", "aoe", "debuff", List.of("extended"))),
-            Map.entry(PhaseFunction.POISON, new SpellTemplate("forged_venom", "nature", "touch", "debuff", List.of())),
-            Map.entry(PhaseFunction.LEVITATION, new SpellTemplate("forged_levitate", "ender", "self", "utility", List.of())),
-            Map.entry(PhaseFunction.GROWTH, new SpellTemplate("forged_growth", "nature", "aoe", "utility", List.of())),
-            // MANA 兜底放最后：纯裂隙精髓+基底也给一个可用的奥术飞弹。
-            Map.entry(PhaseFunction.MANA, new SpellTemplate("forged_arcane_bolt", "arcane", "projectile", "damage", List.of("homing")))
-    );
-
-    /**
-     * 生成「千相法术书」产物：按材料算子映射生成 1~3 个 CustomSpell。
-     * <p>
-     * 强度规则与武器一致——强度靠材料：power = 最高材料档位序数 + 1
-     * （普通=1 … 传奇=4），耗魔/冷却随 power 线性增长。
-     * 生成的法术 id 为 qianxiang:forged_*，不入预置注册表，
-     * 数据完整存在 SPELLBOOK 组件里，施放时无需查表。
-     * </p>
-     */
-    private static ItemStack buildSpellBook(List<MaterialPart> parts, Set<PhaseFunction> union) {
-        int maxTier = 0;
-        for (MaterialPart p : parts) {
-            maxTier = Math.max(maxTier, p.tier().ordinal());
-        }
-        int power = maxTier + 1;
-        int manaCost = 8 + power * 6;
-        int cooldown = 30 + power * 15;
-
-        List<com.qianxiang.spell.CustomSpell> spells = new ArrayList<>(3);
-        for (Map.Entry<PhaseFunction, SpellTemplate> entry : SPELL_TEMPLATES) {
-            if (spells.size() >= 3) break;
-            if (!union.contains(entry.getKey())) continue;
-            SpellTemplate t = entry.getValue();
-            spells.add(new com.qianxiang.spell.CustomSpell(
-                    ResourceLocation.fromNamespaceAndPath("qianxiang", t.path()),
-                    t.element(), t.form(), t.effect(), t.modifiers(),
-                    manaCost, cooldown, power));
-        }
-        // 理论上不会空（调用处保证 union 含 MANA），仍兜底一发奥术飞弹。
-        if (spells.isEmpty()) {
-            spells.add(new com.qianxiang.spell.CustomSpell(
-                    ResourceLocation.fromNamespaceAndPath("qianxiang", "forged_arcane_bolt"),
-                    "arcane", "projectile", "damage", List.of("homing"),
-                    manaCost, cooldown, power));
-        }
-
-        ItemStack book = new ItemStack(QianxiangItems.SPELL_BOOK.get());
-        book.set(QianxiangDataComponents.SPELLBOOK.get(),
-                new com.qianxiang.spell.SpellBookData(spells, 0));
-        return book;
     }
 
     /** 是否含至少一个 BASE_* 骨架功能算子。 */

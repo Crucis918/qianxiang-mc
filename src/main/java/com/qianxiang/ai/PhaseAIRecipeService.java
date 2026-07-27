@@ -4,7 +4,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.qianxiang.Qianxiang;
-import com.qianxiang.menu.ForgeTableMenu;
 import com.qianxiang.network.AiRequestPayload;
 import com.qianxiang.phase.AttributeScheme;
 import com.qianxiang.phase.EffectGlossary;
@@ -60,12 +59,14 @@ public final class PhaseAIRecipeService {
     static final String MOVESET_ANIM_PATH_PREFIX = "biped/combat/";
 
     /**
-     * 单个方案允许的最大材料数：材料槽位数 - 1（给玩家留一个自由槽），至少 4。
-     * 材料槽由 {@link ForgeTableMenu#MATERIAL_SLOTS} 统一定义，槽位扩展后这里自动放大，
-     * 「全部负面/全部增益」这类全集组合（见 {@link EffectGlossary}）才放得下。
+     * 单个方案允许的最大材料数：<b>独立于槽位数</b>——25 槽是玩家的摆放自由度，
+     * 不是让 AI 一次推 24 个材料（prompt 预算与方案可读性约束）。
+     * 「全部负面/全部增益」这类全集组合（见 {@link EffectGlossary}）12 个也足够覆盖。
      */
+    private static final int MAX_PROPOSAL_MATERIALS = 12;
+
     static int maxProposalMaterials() {
-        return Math.max(4, ForgeTableMenu.MATERIAL_SLOTS - 1);
+        return MAX_PROPOSAL_MATERIALS;
     }
 
     /**

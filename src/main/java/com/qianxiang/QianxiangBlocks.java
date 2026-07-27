@@ -25,6 +25,15 @@ public final class QianxiangBlocks {
     public static final DeferredHolder<Item, BlockItem> FORGE_TABLE_ITEM =
             BLOCK_ITEMS.register("forge_table", () -> new BlockItem(FORGE_TABLE.get(), new Item.Properties()));
 
+    // 炼金台（6 材料槽 + 1 卷轴产物槽，带 AI 方案）
+    public static final DeferredHolder<Block, com.qianxiang.block.AlchemyTableBlock> ALCHEMY_TABLE =
+            BLOCKS.register("alchemy_table", () -> new com.qianxiang.block.AlchemyTableBlock(
+                    BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.COLOR_PURPLE).strength(3.5f)));
+
+    public static final DeferredHolder<Item, BlockItem> ALCHEMY_TABLE_ITEM =
+            BLOCK_ITEMS.register("alchemy_table", () -> new BlockItem(ALCHEMY_TABLE.get(), new Item.Properties()));
+
     // —— 万象森罗维度 MVP 方块 ——
 
     // 裂隙岩：传送门框材料，用裂隙精髓右键可往返万象森罗

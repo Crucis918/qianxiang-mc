@@ -51,6 +51,18 @@ public final class SpellEffectEngine {
 
     /** 施放一枚自由法术。只在服务端执行；任何失败仅记日志。 */
     public static void cast(CustomSpell spell, ServerPlayer player) {
+        cast(spell, player, 1.0f);
+    }
+
+    /**
+     * 施放一枚自由法术，附带增幅器伤害倍率。
+     *
+     * @param damageMult 增幅器倍率（1 + 主副手 spellPowerPercent/100，
+     *                   见 {@link AmplifierHelper#damageMultiplier}）；
+     *                   只放大 damage/heal 结算（power×2.0 那一跳），
+     *                   不影响效果时长/半径等其他派生量
+     */
+    public static void cast(CustomSpell spell, ServerPlayer player, float damageMult) {
         try {
             if (spell == null || player == null || player.level().isClientSide) {
                 return;
@@ -63,17 +75,18 @@ public final class SpellEffectEngine {
             if (mods.contains("amplified")) {
                 power *= 1.5f;
             }
+            float mult = damageMult <= 0.0f ? 1.0f : damageMult;
 
             ServerLevel level = player.serverLevel();
             level.playSound(null, player.blockPosition(), castSoundFor(form),
                     SoundSource.PLAYERS, 0.6f, pitchFor(element));
             resetTally();
             switch (form) {
-                case "self" -> castSelf(level, player, element, effect, power, mods);
-                case "aoe" -> castAoe(level, player, element, effect, power, mods);
-                case "beam" -> castBeam(level, player, element, effect, power, mods);
-                case "touch" -> castTouch(level, player, element, effect, power, mods);
-                default -> castProjectile(level, player, element, effect, power, mods);
+                case "self" -> castSelf(level, player, element, effect, power, mods, mult);
+                case "aoe" -> castAoe(level, player, element, effect, power, mods, mult);
+                case "beam" -> castBeam(level, player, element, effect, power, mods, mult);
+                case "touch" -> castTouch(level, player, element, effect, power, mods, mult);
+                default -> castProjectile(level, player, element, effect, power, mods, mult);
             }
             // projectile 形式的命中发生在若干 tick 之后，本次同步结算里必然是 0/0，
             // settleCast 的「零受益且有无效目标」条件自然不成立，不会误退款。
@@ -87,25 +100,25 @@ public final class SpellEffectEngine {
 
     /** projectile：发射一枚法术弹体，命中逻辑在 {@link SpellProjectileEntity} 中回调 resolveHit。 */
     private static void castProjectile(ServerLevel level, ServerPlayer player, String element,
-                                       String effect, float power, Set<String> mods) {
+                                       String effect, float power, Set<String> mods, float damageMult) {
         Vec3 look = player.getLookAngle();
         Vec3 eye = player.getEyePosition(1.0f);
         SpellProjectileEntity bolt = new SpellProjectileEntity(
                 com.qianxiang.entity.QianxiangEntities.SPELL_PROJECTILE.get(), level);
         bolt.setOwner(player);
         bolt.setPos(eye.x + look.x * 0.5, eye.y - 0.1, eye.z + look.z * 0.5);
-        bolt.configure(element, effect, power, mods);
+        bolt.configure(element, effect, power, mods, damageMult);
         bolt.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.6F, 0.0F);
         level.addFreshEntity(bolt);
         burst(level, element, eye.x, eye.y, eye.z, 6, 0.15);
     }
 
-    /** self：对自身结算。heal 回血 power×2；buff 按元素给正面状态 220tick；damage 自身周围 3 格小 aoe。 */
+    /** self：对自身结算。heal 回血 power×2×增幅倍率；buff 按元素给正面状态 220tick；damage 自身周围 3 格小 aoe。 */
     private static void castSelf(ServerLevel level, ServerPlayer player, String element,
-                                 String effect, float power, Set<String> mods) {
+                                 String effect, float power, Set<String> mods, float damageMult) {
         switch (effect) {
             case "heal" -> {
-                player.heal(power * 2.0f);
+                player.heal(power * 2.0f * damageMult);
                 burst(level, element, player.getX(), player.getY() + 1.0, player.getZ(), 14, 0.4);
             }
             case "buff" -> {
@@ -120,7 +133,7 @@ public final class SpellEffectEngine {
                         player.getBoundingBox().inflate(3.0),
                         e -> e.isAlive() && e != player);
                 for (LivingEntity target : targets) {
-                    resolveHit(level, player, player, target, element, effect, power, mods);
+                    resolveHit(level, player, player, target, element, effect, power, mods, damageMult);
                 }
                 burst(level, element, player.getX(), player.getY() + 0.5, player.getZ(), 24, 2.0);
             }
@@ -129,7 +142,7 @@ public final class SpellEffectEngine {
 
     /** aoe：以玩家前方 4 格为圆心，(2+power) 半径范围结算，外加环形粒子。 */
     private static void castAoe(ServerLevel level, ServerPlayer player, String element,
-                                String effect, float power, Set<String> mods) {
+                                String effect, float power, Set<String> mods, float damageMult) {
         Vec3 look = player.getLookAngle();
         Vec3 flat = new Vec3(look.x, 0.0, look.z);
         if (flat.lengthSqr() < 0.0025) {
@@ -143,7 +156,7 @@ public final class SpellEffectEngine {
                 AABB.ofSize(new Vec3(center.x, y, center.z), radius * 2.0, 4.0, radius * 2.0),
                 e -> e.isAlive() && e != player && e.distanceToSqr(center.x, y, center.z) <= radius * radius);
         for (LivingEntity target : targets) {
-            resolveHit(level, player, player, target, element, effect, power, mods);
+            resolveHit(level, player, player, target, element, effect, power, mods, damageMult);
         }
 
         // 环形粒子圈
@@ -159,7 +172,7 @@ public final class SpellEffectEngine {
 
     /** beam：视线 raycast 20 格，路径粒子 + 命中结算。 */
     private static void castBeam(ServerLevel level, ServerPlayer player, String element,
-                                 String effect, float power, Set<String> mods) {
+                                 String effect, float power, Set<String> mods, float damageMult) {
         Vec3 eye = player.getEyePosition(1.0f);
         Vec3 look = player.getLookAngle();
         Vec3 maxEnd = eye.add(look.scale(20.0));
@@ -183,13 +196,13 @@ public final class SpellEffectEngine {
         }
 
         if (entityHit != null && entityHit.getEntity() instanceof LivingEntity target) {
-            resolveHit(level, player, player, target, element, effect, power, mods);
+            resolveHit(level, player, player, target, element, effect, power, mods, damageMult);
         }
     }
 
     /** touch：准星指向 4 格内最近实体结算。 */
     private static void castTouch(ServerLevel level, ServerPlayer player, String element,
-                                  String effect, float power, Set<String> mods) {
+                                  String effect, float power, Set<String> mods, float damageMult) {
         Vec3 eye = player.getEyePosition(1.0f);
         Vec3 look = player.getLookAngle();
         Vec3 end = eye.add(look.scale(4.0));
@@ -199,7 +212,7 @@ public final class SpellEffectEngine {
                 e -> e instanceof LivingEntity && e.isAlive() && e != player);
 
         if (entityHit != null && entityHit.getEntity() instanceof LivingEntity target) {
-            resolveHit(level, player, player, target, element, effect, power, mods);
+            resolveHit(level, player, player, target, element, effect, power, mods, damageMult);
         } else {
             burst(level, element, end.x, end.y, end.z, 6, 0.2);
         }
@@ -208,19 +221,32 @@ public final class SpellEffectEngine {
     // ---------- 命中结算（投射物与各形式共用） ----------
 
     /**
-     * 对单个目标按 effect + element + power 结算。
+     * 对单个目标按 effect + element + power 结算（无增幅倍率的旧入口，等价于 mult=1）。
      *
      * @param direct 伤害的直接来源实体（投射物或玩家自身），可为 null
      */
     public static void resolveHit(ServerLevel level, @Nullable ServerPlayer caster, @Nullable Entity direct,
                                   LivingEntity target, String element, String effect,
                                   float power, Set<String> mods) {
+        resolveHit(level, caster, direct, target, element, effect, power, mods, 1.0f);
+    }
+
+    /**
+     * 对单个目标按 effect + element + power 结算，附带增幅器伤害倍率。
+     *
+     * @param direct     伤害的直接来源实体（投射物或玩家自身），可为 null
+     * @param damageMult 增幅器倍率（见 {@link AmplifierHelper#damageMultiplier}），
+     *                   只放大 damage/heal 结算，不影响效果时长等派生量
+     */
+    public static void resolveHit(ServerLevel level, @Nullable ServerPlayer caster, @Nullable Entity direct,
+                                  LivingEntity target, String element, String effect,
+                                  float power, Set<String> mods, float damageMult) {
         try {
             int durMul = mods.contains("extended") ? 2 : 1;
             switch (effect) {
                 case "heal" -> {
                     if (isAlly(caster, target)) {
-                        target.heal(power * 2.0f);
+                        target.heal(power * 2.0f * damageMult);
                         burstAt(level, element, target, 12);
                         markEffective();
                     } else {
@@ -243,18 +269,18 @@ public final class SpellEffectEngine {
                     burstAt(level, element, target, 12);
                 }
                 case "utility" -> resolveUtility(level, caster, target.blockPosition(), target, element);
-                default -> resolveDamage(level, caster, direct, target, element, power, mods, durMul);
+                default -> resolveDamage(level, caster, direct, target, element, power, mods, durMul, damageMult);
             }
         } catch (Throwable t) {
             Qianxiang.LOGGER.error("[Qianxiang] 法术命中结算失败 element={} effect={}", element, effect, t);
         }
     }
 
-    /** damage：power×2.0 魔法伤害 + 元素附加。 */
+    /** damage：power×2.0×增幅倍率 魔法伤害 + 元素附加。 */
     private static void resolveDamage(ServerLevel level, @Nullable ServerPlayer caster, @Nullable Entity direct,
                                       LivingEntity target, String element, float power,
-                                      Set<String> mods, int durMul) {
-        float dmg = power * 2.0f;
+                                      Set<String> mods, int durMul, float damageMult) {
+        float dmg = power * 2.0f * damageMult;
         if (caster != null) {
             target.hurt(caster.damageSources().indirectMagic(direct != null ? direct : caster, caster), dmg);
         } else {

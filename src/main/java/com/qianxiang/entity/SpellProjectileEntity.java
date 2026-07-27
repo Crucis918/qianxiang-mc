@@ -47,6 +47,8 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
     private String effect = "damage";
     private float power = 1.0f;
     private Set<String> mods = Set.of();
+    /** 增幅器伤害倍率（发射瞬间快照，命中经 resolveHit 放大 damage/heal）。 */
+    private float damageMult = 1.0f;
     private boolean homing;
     private int pierceRemaining;
     /** 已经命中过的实体 id，穿透时避免对同一目标反复结算。 */
@@ -58,10 +60,16 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
 
     /** 发射前由引擎写入法术参数（仅服务端有意义）。 */
     public void configure(String element, String effect, float power, Set<String> mods) {
+        configure(element, effect, power, mods, 1.0f);
+    }
+
+    /** 发射前由引擎写入法术参数 + 增幅器伤害倍率（仅服务端有意义）。 */
+    public void configure(String element, String effect, float power, Set<String> mods, float damageMult) {
         this.element = element == null ? "arcane" : element;
         this.effect = effect == null ? "damage" : effect;
         this.power = power;
         this.mods = mods == null ? Set.of() : Set.copyOf(mods);
+        this.damageMult = damageMult <= 0.0f ? 1.0f : damageMult;
         this.homing = this.mods.contains("homing");
         this.pierceRemaining = this.mods.contains("piercing") ? Math.max(0, (int) power) : 0;
     }
@@ -169,7 +177,7 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
             ServerPlayer caster = getOwner() instanceof ServerPlayer sp ? sp : null;
             if (level() instanceof ServerLevel serverLevel) {
                 SpellEffectEngine.resolveHit(serverLevel, caster, this, target,
-                        element, effect, power, mods);
+                        element, effect, power, mods, damageMult);
             }
 
             // piercing：还能穿就不消失，否则消散
@@ -196,14 +204,17 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
         tag.putString("qx_element", element);
         tag.putString("qx_effect", effect);
         tag.putFloat("qx_power", power);
+        tag.putFloat("qx_dmg_mult", damageMult);
         tag.putString("qx_mods", String.join(",", mods));
     }
 
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
+        // 旧存档无 qx_dmg_mult 键，缺省 1.0（无增幅）。
+        float mult = tag.contains("qx_dmg_mult") ? tag.getFloat("qx_dmg_mult") : 1.0f;
         configure(tag.getString("qx_element"), tag.getString("qx_effect"),
-                tag.getFloat("qx_power"), parseMods(tag.getString("qx_mods")));
+                tag.getFloat("qx_power"), parseMods(tag.getString("qx_mods")), mult);
     }
 
     private static Set<String> parseMods(String csv) {
