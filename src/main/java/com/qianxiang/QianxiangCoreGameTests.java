@@ -86,7 +86,7 @@ public final class QianxiangCoreGameTests {
     /** 烬铁（BASE_METAL+IGNITE）应锻出产物且带 ComposedAttributes。 */
     @GameTest(template = "item_concept")
     public static void forgeComposesWeapon(GameTestHelper helper) {
-        List<ItemStack> materials = padTo10(
+        List<ItemStack> materials = padToSlots(
                 new ItemStack(QianxiangMaterials.EMBER_IRON.get()),
                 new ItemStack(QianxiangItems.BEAST_FANG.get()));
         ForgeComposer.Composition c = ForgeComposer.compose(materials);
@@ -100,7 +100,7 @@ public final class QianxiangCoreGameTests {
     /** 皮革（BASE_HIDE）+ 恶魂之泪（REGENERATION）应锻出相胫——四件套可配齐的回归锁。 */
     @GameTest(template = "item_concept")
     public static void forgeComposesLeggings(GameTestHelper helper) {
-        List<ItemStack> materials = padTo10(
+        List<ItemStack> materials = padToSlots(
                 new ItemStack(Items.LEATHER),
                 new ItemStack(Items.GHAST_TEAR));
         ForgeComposer.Composition c = ForgeComposer.compose(materials);
@@ -113,25 +113,34 @@ public final class QianxiangCoreGameTests {
     /** 空材料/纯空气不应产出任何东西。 */
     @GameTest(template = "item_concept")
     public static void forgeRejectsEmpty(GameTestHelper helper) {
-        ForgeComposer.Composition c = ForgeComposer.compose(padTo10());
+        ForgeComposer.Composition c = ForgeComposer.compose(padToSlots());
         helper.assertTrue(!c.valid() || c.result().isEmpty(), "空材料不应锻出产物");
         helper.succeed();
     }
 
-    /** 相杖默认法术走 CustomSpell 组件（法术双轨收敛后的契约）。 */
+    /** 相杖是增幅器：产物的增幅字段必须按材料算子推导（增幅器化契约，替代旧「杖带法术」）。 */
     @GameTest(template = "item_concept")
-    public static void staffCarriesCustomSpell(GameTestHelper helper) {
-        // 木骨架 + 法力 → 相杖原型
-        List<ItemStack> materials = padTo10(
-                new ItemStack(QianxiangMaterials.GLIMMER_WOOD_SAP.get()),
-                new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get()),
+    public static void staffCarriesAmplifierStats(GameTestHelper helper) {
+        // 法力（森罗残片 RARE MANA）+ 火（余烬石 COMMON IGNITE）+ 木骨架 → 相杖原型
+        List<ItemStack> materials = padToSlots(
+                new ItemStack(QianxiangItems.MYRIAD_FRAGMENT.get()),
+                new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()),
                 new ItemStack(Items.STICK));
         ForgeComposer.Composition c = ForgeComposer.compose(materials);
-        if (c.valid() && c.result().is(QianxiangItems.PHASE_STAFF.get())) {
-            var custom = c.result().get(QianxiangDataComponents.CUSTOM_SPELL.get());
-            helper.assertTrue(custom != null, "相杖产物应带 CUSTOM_SPELL 组件（双轨收敛契约）");
-        }
-        // 未出相杖（出了法术书等）不算失败——本测试只锁「出相杖必带 CustomSpell」
+        helper.assertTrue(c.valid(), "法力+火+木骨架应能组合出产物");
+        helper.assertTrue(c.result().is(QianxiangItems.PHASE_STAFF.get()),
+                "含 MANA 的组合应出相杖，实际 " + c.result());
+        var attr = c.result().get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        helper.assertTrue(attr != null, "相杖产物应带 COMPOSED_ATTRIBUTES 组件");
+        // MANA(RARE，档位系数 1.5)：manaBonus = round(8 × 1.5) = 12
+        helper.assertTrue(attr.manaBonus() == 12,
+                "RARE MANA 应给出 manaBonus=12，实际 " + attr.manaBonus());
+        // IGNITE(COMMON，档位系数 1.0)：spellPowerPercent = 6 × 1.0 = 6
+        helper.assertTrue(attr.spellPowerPercent() == 6.0,
+                "COMMON IGNITE 应给出 spellPowerPercent=6，实际 " + attr.spellPowerPercent());
+        // 增幅器化后产物不再写法术组件（法术产出收口到炼金台卷轴）
+        helper.assertTrue(c.result().get(QianxiangDataComponents.CUSTOM_SPELL.get()) == null,
+                "增幅器化后相杖不应再带 CUSTOM_SPELL 组件");
         helper.succeed();
     }
 
@@ -155,15 +164,18 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
-    /** 恶意/超限蓝图导入必须被消毒：材料截断到 10、名称截断 64。 */
+    /** 恶意/超限蓝图导入必须被消毒：材料截断到槽位上限、名称截断 64。 */
     @GameTest(template = "item_concept")
     public static void shareCodeSanitizesOversized(GameTestHelper helper) {
         BlueprintData oversized = new BlueprintData(
                 Collections.nCopies(50, "minecraft:stick"), "weapon",
                 Double.POSITIVE_INFINITY, "超".repeat(300), null, null);
         BlueprintData clean = BlueprintShareCodes.decode(BlueprintShareCodes.encode(oversized));
-        helper.assertTrue(clean.materials().size() <= 10,
-                "材料应截断到 ≤10，实际 " + clean.materials().size());
+        helper.assertTrue(clean.materials().size() <= BlueprintShareCodes.MAX_MATERIALS,
+                "材料应截断到 ≤" + BlueprintShareCodes.MAX_MATERIALS
+                        + "，实际 " + clean.materials().size());
+        helper.assertTrue(clean.materials().size() > 0,
+                "消毒不应把材料清空，实际 " + clean.materials().size());
         helper.assertTrue(clean.name().length() <= 64,
                 "名称应截断到 ≤64，实际 " + clean.name().length());
         helper.assertTrue(Double.isFinite(clean.power()), "非法 power 应被修正为有限值");
@@ -561,24 +573,29 @@ public final class QianxiangCoreGameTests {
         var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
         ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
 
-        // 木骨架 + 法力 → 相杖（能承载 CUSTOM_SPELL 的产物）
-        be.setItem(0, new ItemStack(QianxiangMaterials.GLIMMER_WOOD_SAP.get()));
-        be.setItem(1, new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get()));
+        // 法力 + 火 + 木骨架 → 相杖（无裂隙精髓，不会升格法术书）
+        be.setItem(0, new ItemStack(QianxiangItems.MYRIAD_FRAGMENT.get()));
+        be.setItem(1, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()));
+        be.setItem(2, new ItemStack(Items.STICK));
         menu.slotsChanged(be);
 
-        // 材料保持不变，只改该玩家的 AI 选择 —— 必须触发重算并把法术写进产物
+        // 材料保持不变，只改该玩家的 AI 选择 —— 指纹必须包含 AI 暂存，
+        // 触发重算并把自定义名写进产物（增幅器化后 spellJson 不再消费，
+        // 产物不得再出现 CUSTOM_SPELL 组件）。
         be.setSelection(player.getUUID(), new com.qianxiang.block.ForgeTableBlockEntity.AiProposal(
                 "{\"element\":\"frost\",\"form\":\"projectile\",\"effect\":\"damage\",\"power\":2}",
                 "霜牙", ""));
         menu.slotsChanged(be);
 
         ItemStack result = be.getItem(ForgeTableMenu.RESULT_SLOT);
-        if (result.is(QianxiangItems.PHASE_STAFF.get())) {
-            var spell = result.get(QianxiangDataComponents.CUSTOM_SPELL.get());
-            helper.assertTrue(spell != null && "frost".equals(spell.element()),
-                    "AI 暂存变化后产物应带上新法术（指纹短路吞掉了重算），实际 "
-                            + (spell == null ? "无法术" : spell.element()));
-        }
+        helper.assertTrue(result.is(QianxiangItems.PHASE_STAFF.get()),
+                "法力组合应出相杖，实际 " + result);
+        var customName = result.get(net.minecraft.core.component.DataComponents.CUSTOM_NAME);
+        helper.assertTrue(customName != null && "霜牙".equals(customName.getString()),
+                "AI 暂存变化后产物应带上自定义名（指纹短路吞掉了重算），实际 "
+                        + (customName == null ? "无名称" : customName.getString()));
+        helper.assertTrue(result.get(QianxiangDataComponents.CUSTOM_SPELL.get()) == null,
+                "增幅器化后锻造台不应再把 spellJson 写进产物组件");
         level.removeBlock(pos, false);
         helper.succeed();
     }
@@ -655,10 +672,10 @@ public final class QianxiangCoreGameTests {
         helper.assertTrue(entry.data().tier() == com.qianxiang.phase.PhaseTier.LEGENDARY,
                 "森罗之核应为 LEGENDARY 档，实际 " + entry.data().tier());
 
-        ForgeComposer.Composition withCore = ForgeComposer.compose(padTo10(
+        ForgeComposer.Composition withCore = ForgeComposer.compose(padToSlots(
                 new ItemStack(QianxiangMaterials.EMBER_IRON.get()),
                 new ItemStack(QianxiangItems.WARDEN_CORE.get())));
-        ForgeComposer.Composition without = ForgeComposer.compose(padTo10(
+        ForgeComposer.Composition without = ForgeComposer.compose(padToSlots(
                 new ItemStack(QianxiangMaterials.EMBER_IRON.get())));
         helper.assertTrue(withCore.valid(), "含核组合应能锻出产物");
         helper.assertTrue(withCore.attributes().powerScore() > without.attributes().powerScore(),
@@ -716,7 +733,7 @@ public final class QianxiangCoreGameTests {
     /** 锻造出的产物耐久应来自材料（ComposedAttributes.durability），而非注册时的占位值。 */
     @GameTest(template = "item_concept")
     public static void forgedDurabilityComesFromMaterials(GameTestHelper helper) {
-        ForgeComposer.Composition c = ForgeComposer.compose(padTo10(
+        ForgeComposer.Composition c = ForgeComposer.compose(padToSlots(
                 new ItemStack(QianxiangMaterials.EMBER_IRON.get()),
                 new ItemStack(QianxiangItems.BEAST_FANG.get())));
         helper.assertTrue(c.valid(), "烬铁+兽牙应能锻出产物");
@@ -804,12 +821,328 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 增幅器（WQ-57 玩法改造） ============================
+
+    /** 副手增幅杖让同一发法术掉血更多（完整 cast 路径：校验→增幅倍率→效果引擎）。 */
+    @GameTest(template = "item_concept")
+    public static void amplifierBoostsSpellDamage(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        CustomSpell spell = new CustomSpell(
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("qianxiang", "test_fire_aoe"),
+                "fire", "aoe", "damage", List.of(), 10, 0, 2);
+        player.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA).learn(spell));
+
+        // yRot=0 视线朝 +Z，aoe 中心在玩家前方 4 格；假人放 3 格处必中
+        var absPos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 2, 2));
+        player.moveTo(absPos.getX() + 0.5, absPos.getY(), absPos.getZ() + 0.5, 0, 0);
+
+        var pig1 = helper.spawn(net.minecraft.world.entity.EntityType.PIG,
+                new net.minecraft.core.BlockPos(2, 2, 5));
+        float before1 = pig1.getHealth();
+        helper.assertTrue(com.qianxiang.spell.SpellCastHandler.castCustomSpell(spell, player),
+                "空手无增幅施法应成功");
+        float dmg1 = before1 - pig1.getHealth();
+        helper.assertTrue(dmg1 > 0.0f, "无增幅时假人也应掉血，实际 " + dmg1);
+
+        // 副手增幅杖：LEGENDARY IGNITE → spellPowerPercent = 6 × 3.2 = 19.2（倍率 1.192）
+        ItemStack staff = new ItemStack(QianxiangItems.PHASE_STAFF.get());
+        staff.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                com.qianxiang.phase.AttributeScheme.compose(List.of(
+                        com.qianxiang.phase.AttributeScheme.MaterialInput.of(
+                                com.qianxiang.phase.PhaseTier.LEGENDARY,
+                                com.qianxiang.phase.PhaseFunction.IGNITE))));
+        player.setItemSlot(net.minecraft.world.entity.EquipmentSlot.OFFHAND, staff);
+
+        var pig2 = helper.spawn(net.minecraft.world.entity.EntityType.PIG,
+                new net.minecraft.core.BlockPos(2, 2, 5));
+        float before2 = pig2.getHealth();
+        helper.assertTrue(com.qianxiang.spell.SpellCastHandler.castCustomSpell(spell, player),
+                "带增幅施法应成功");
+        float dmg2 = before2 - pig2.getHealth();
+
+        helper.assertTrue(dmg2 > dmg1,
+                "副手增幅杖应放大掉血：无增幅 " + dmg1 + " vs 增幅 " + dmg2);
+        helper.assertTrue(Math.abs(dmg2 / dmg1 - 1.192f) < 0.02f,
+                "掉血比应贴合增幅倍率 1.192，实际 " + (dmg2 / dmg1));
+        helper.succeed();
+    }
+
+    /** 法力上限加成：主副手叠加；回复钳制用「有效上限」，基础上限字段不变。 */
+    @GameTest(template = "item_concept")
+    public static void manaBonusStacksAcrossHands(GameTestHelper helper) {
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        // LEGENDARY MANA → manaBonus = round(8 × 3.2) = 26；COMMON MANA → 8
+        ItemStack staff = new ItemStack(QianxiangItems.PHASE_STAFF.get());
+        staff.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                com.qianxiang.phase.AttributeScheme.compose(List.of(
+                        com.qianxiang.phase.AttributeScheme.MaterialInput.of(
+                                com.qianxiang.phase.PhaseTier.LEGENDARY,
+                                com.qianxiang.phase.PhaseFunction.MANA))));
+        ItemStack book = new ItemStack(QianxiangItems.SPELL_BOOK.get());
+        book.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                com.qianxiang.phase.AttributeScheme.compose(List.of(
+                        com.qianxiang.phase.AttributeScheme.MaterialInput.of(
+                                com.qianxiang.phase.PhaseTier.COMMON,
+                                com.qianxiang.phase.PhaseFunction.MANA))));
+        player.setItemSlot(net.minecraft.world.entity.EquipmentSlot.OFFHAND, staff);
+
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+        int oneHand = com.qianxiang.spell.AmplifierHelper.effectiveMaxMana(player, data);
+        helper.assertTrue(oneHand == 126, "单副手有效上限应为 100+26=126，实际 " + oneHand);
+
+        player.setItemSlot(net.minecraft.world.entity.EquipmentSlot.MAINHAND, book);
+        int twoHands = com.qianxiang.spell.AmplifierHelper.effectiveMaxMana(player, data);
+        helper.assertTrue(twoHands == 134, "主副手应叠加为 100+26+8=134，实际 " + twoHands);
+
+        helper.assertTrue(data.withMana(150, twoHands).currentMana() == twoHands,
+                "回复应钳到有效上限 " + twoHands + "，实际 "
+                        + data.withMana(150, twoHands).currentMana());
+        helper.assertTrue(data.withMana(150).currentMana() == 100,
+                "无 cap 的旧钳制仍按基础上限 100，实际 " + data.withMana(150).currentMana());
+        helper.succeed();
+    }
+
+    // ============================ 卷轴学习与施法白名单 ============================
+
+    /** 右键卷轴学习：进已学列表且消耗 1；同学法术再用不消耗且走失败分支。 */
+    @GameTest(template = "item_concept")
+    public static void scrollLearningConsumesOnce(GameTestHelper helper) {
+        var level = helper.getLevel();
+        var player = mockServerPlayer(helper);
+        ItemStack scroll = new ItemStack(QianxiangItems.MAGIC_SCROLL.get(), 2);
+        scroll.set(QianxiangDataComponents.CUSTOM_SPELL.get(), CustomSpell.FIREBALL);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, scroll);
+
+        var first = QianxiangItems.MAGIC_SCROLL.get()
+                .use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+        helper.assertTrue(data.hasLearned(CustomSpell.FIREBALL.id()),
+                "学习后已学列表应含火球术");
+        helper.assertTrue(data.learnedSpells().size() == 1,
+                "已学列表应恰有 1 个法术，实际 " + data.learnedSpells().size());
+        helper.assertTrue(player.getMainHandItem().getCount() == 1,
+                "学习应消耗 1 张卷轴，实际剩余 " + player.getMainHandItem().getCount());
+        helper.assertTrue(first.getResult() == net.minecraft.world.InteractionResult.CONSUME,
+                "成功学习应走 consume 分支，实际 " + first.getResult());
+
+        var second = QianxiangItems.MAGIC_SCROLL.get()
+                .use(level, player, net.minecraft.world.InteractionHand.MAIN_HAND);
+        helper.assertTrue(player.getMainHandItem().getCount() == 1,
+                "已学会的法术不应再消耗卷轴，实际剩余 " + player.getMainHandItem().getCount());
+        helper.assertTrue(second.getResult() == net.minecraft.world.InteractionResult.FAIL,
+                "重复学习应走 fail 分支，实际 " + second.getResult());
+        helper.assertTrue(player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA)
+                        .learnedSpells().size() == 1,
+                "重复学习不应产生重复条目");
+        helper.succeed();
+    }
+
+    /** 施法白名单：未学/非法 id 零变化；已学 id 法力净变化 == -manaCost（正+负双断言）。 */
+    @GameTest(template = "item_concept")
+    public static void castWhitelistRejectsUnlearned(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        player.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA)
+                        .learn(CustomSpell.FIREBALL));
+
+        helper.assertTrue(!com.qianxiang.spell.SpellCastHandler.castLearnedSpell(
+                        player, "qianxiang:not_learned"),
+                "未学 spellId 应被拒绝");
+        helper.assertTrue(!com.qianxiang.spell.SpellCastHandler.castLearnedSpell(
+                        player, "not_an_id"),
+                "非法 spellId 应被拒绝");
+        var afterBad = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+        helper.assertTrue(afterBad.currentMana() == 100,
+                "被拒施法不得扣蓝，实际 " + afterBad.currentMana());
+        helper.assertTrue(afterBad.cooldowns().isEmpty(),
+                "被拒施法不得写冷却，实际 " + afterBad.cooldowns());
+
+        helper.assertTrue(com.qianxiang.spell.SpellCastHandler.castLearnedSpell(
+                        player, CustomSpell.FIREBALL.id().toString()),
+                "已学 spellId 应放行");
+        var afterCast = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA);
+        helper.assertTrue(afterCast.currentMana() == 100 - CustomSpell.FIREBALL.manaCost(),
+                "法力净变化应为 -" + CustomSpell.FIREBALL.manaCost()
+                        + "，实际 " + afterCast.currentMana());
+        helper.assertTrue(afterCast.cooldownOf(CustomSpell.FIREBALL.id())
+                        == CustomSpell.FIREBALL.cooldownTicks(),
+                "施放后应写入对应冷却，实际 " + afterCast.cooldownOf(CustomSpell.FIREBALL.id()));
+        helper.succeed();
+    }
+
+    // ============================ 炼金台 ============================
+
+    /** 炼金台：材料→卷轴预览（法术字段全部落在白名单）；onTake 消耗材料；关 GUI 产物槽清空。 */
+    @GameTest(template = "item_concept")
+    public static void alchemyBrewsScrollAndConsumesMaterials(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        level.setBlockAndUpdate(pos, QianxiangBlocks.ALCHEMY_TABLE.get().defaultBlockState());
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.AlchemyTableBlockEntity be)) {
+            helper.fail("炼金台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var menu = new com.qianxiang.menu.AlchemyTableMenu(1, player.getInventory(), be);
+
+        // 余烬石（IGNITE）→ 火焰卷轴预览
+        be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()));
+        menu.slotsChanged(be);
+        ItemStack preview = be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT);
+        helper.assertTrue(preview.is(QianxiangItems.MAGIC_SCROLL.get()),
+                "材料槽有余烬石时产物槽应出卷轴，实际 " + preview);
+        CustomSpell spell = preview.get(QianxiangDataComponents.CUSTOM_SPELL.get());
+        helper.assertTrue(spell != null, "卷轴应带 CUSTOM_SPELL 组件");
+        helper.assertTrue(CustomSpell.ELEMENTS.contains(spell.element())
+                        && CustomSpell.FORMS.contains(spell.form())
+                        && CustomSpell.EFFECTS.contains(spell.effect()),
+                "卷轴法术字段应全部落在白名单，实际 " + spell.element()
+                        + "/" + spell.form() + "/" + spell.effect());
+
+        // onTake：产物入包 + 材料消耗
+        ItemStack moved = menu.quickMoveStack(player, com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT);
+        helper.assertTrue(moved.is(QianxiangItems.MAGIC_SCROLL.get()), "取出应得卷轴，实际 " + moved);
+        helper.assertTrue(be.getItem(0).isEmpty(), "取走卷轴应消耗材料槽 0，实际 " + be.getItem(0));
+        boolean inInv = false;
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            if (player.getInventory().getItem(i).is(QianxiangItems.MAGIC_SCROLL.get())) inInv = true;
+        }
+        helper.assertTrue(inInv, "卷轴应进入玩家背包");
+
+        // 关 GUI：实时预览必须清空（防零成本残留）
+        be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()));
+        menu.slotsChanged(be);
+        helper.assertTrue(!be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
+                "重新放料后产物槽应再次出预览");
+        menu.removed(player);
+        helper.assertTrue(be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
+                "关闭界面后产物槽必须清空（预览非实体库存）");
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 炼金台自动化边界：只暴露 6 材料槽、产物槽禁塞禁抽、材料槽只进不出（正+负双断言）。 */
+    @GameTest(template = "item_concept")
+    public static void alchemyTableAutomationBoundary(GameTestHelper helper) {
+        var be = new com.qianxiang.block.AlchemyTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.ALCHEMY_TABLE.get().defaultBlockState());
+        for (net.minecraft.core.Direction side : net.minecraft.core.Direction.values()) {
+            int[] slots = be.getSlotsForFace(side);
+            helper.assertTrue(slots.length == com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS,
+                    side + " 面应只暴露 " + com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS
+                            + " 个材料槽，实际 " + slots.length);
+            for (int s : slots) {
+                helper.assertTrue(s != com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT,
+                        "产物槽不应出现在自动化可见槽位里");
+            }
+        }
+        ItemStack probe = new ItemStack(Items.STICK);
+        helper.assertTrue(!be.canTakeItemThroughFace(
+                        com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT, probe,
+                        net.minecraft.core.Direction.DOWN),
+                "漏斗不应能从产物槽抽走卷轴（否则零成本无限炼金）");
+        helper.assertTrue(!be.canTakeItemThroughFace(0, probe, net.minecraft.core.Direction.DOWN),
+                "材料槽同样只进不出（防界面开着换料的脱钩利用）");
+        helper.assertTrue(be.canPlaceItemThroughFace(0, probe, net.minecraft.core.Direction.UP),
+                "材料槽应允许自动化塞入");
+        helper.assertTrue(!be.canPlaceItemThroughFace(
+                        com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT, probe,
+                        net.minecraft.core.Direction.UP),
+                "产物槽应禁止塞入");
+        helper.assertTrue(!be.canPlaceItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT, probe),
+                "Container 层产物槽同样禁放");
+        helper.succeed();
+    }
+
+    // ============================ 25 格与软化护栏 ============================
+
+    /** 同种材料 10 件 vs 25 件：powerScore 应为 ×1.75 口径（min(n,10)+(n-10)*0.5），非线性 ×2.5。 */
+    @GameTest(template = "item_concept")
+    public static void partCountSoftCapHalves(GameTestHelper helper) {
+        ItemStack[] ten = new ItemStack[10];
+        ItemStack[] twentyFive = new ItemStack[25];
+        for (int i = 0; i < 10; i++) ten[i] = new ItemStack(QianxiangMaterials.EMBER_IRON.get());
+        for (int i = 0; i < 25; i++) twentyFive[i] = new ItemStack(QianxiangMaterials.EMBER_IRON.get());
+
+        ForgeComposer.Composition c10 = ForgeComposer.compose(padToSlots(ten));
+        ForgeComposer.Composition c25 = ForgeComposer.compose(padToSlots(twentyFive));
+        helper.assertTrue(c10.valid() && c25.valid(), "10 件与 25 件同种材料都应能组合");
+        double p10 = c10.attributes().powerScore();
+        double p25 = c25.attributes().powerScore();
+        helper.assertTrue(p25 > p10,
+                "25 件应强于 10 件：p10=" + p10 + " p25=" + p25);
+        helper.assertTrue(p25 < p10 * 2.5,
+                "软化护栏下 25 件不得线性 ×2.5：p10=" + p10 + " p25=" + p25);
+        helper.assertTrue(Math.abs(p25 - p10 * 1.75) < 0.01,
+                "口径应为 ×1.75（min(n,10)+(n-10)*0.5）：p10=" + p10 + " p25=" + p25);
+
+        // 顺带锁槽数：WorldlyContainer 暴露 25 材料槽
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        helper.assertTrue(be.getSlotsForFace(net.minecraft.core.Direction.UP).length
+                        == ForgeTableMenu.MATERIAL_SLOTS,
+                "锻造台应暴露 " + ForgeTableMenu.MATERIAL_SLOTS + " 个材料槽");
+        helper.succeed();
+    }
+
+    // ============================ 旧存档迁移 ============================
+
+    /** 旧格式 NBT（learned=id 列表）读入：预置 id 正确转换、未知 id 丢弃、mana/cooldowns 原样。 */
+    @GameTest(template = "item_concept")
+    public static void legacyLearnedIdsMigrate(GameTestHelper helper) {
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        tag.putInt("current_mana", 80);
+        tag.putInt("max_mana", 100);
+        net.minecraft.nbt.ListTag learned = new net.minecraft.nbt.ListTag();
+        learned.add(net.minecraft.nbt.StringTag.valueOf("qianxiang:fireball"));
+        learned.add(net.minecraft.nbt.StringTag.valueOf("qianxiang:ghost_spell"));
+        tag.put("learned", learned);
+        tag.put("cooldowns", new net.minecraft.nbt.CompoundTag());
+
+        var data = com.qianxiang.cap.PlayerSpellData.CODEC
+                .parse(net.minecraft.nbt.NbtOps.INSTANCE, tag).result().orElse(null);
+        helper.assertTrue(data != null, "旧格式 NBT 应能解码");
+        helper.assertTrue(data.learnedSpells().size() == 1,
+                "未知 id 应被丢弃，已学应只剩 1 个，实际 " + data.learnedSpells().size());
+        helper.assertTrue(data.learnedSpells().get(0).id().equals(CustomSpell.FIREBALL.id()),
+                "预置 id 应转换为预置法术，实际 " + data.learnedSpells().get(0).id());
+        helper.assertTrue(data.learnedSpells().get(0).equals(CustomSpell.FIREBALL),
+                "转换结果应与预置注册表条目完全一致");
+        helper.assertTrue(data.currentMana() == 80 && data.maxMana() == 100,
+                "mana 字段应原样保留，实际 " + data.currentMana() + "/" + data.maxMana());
+        helper.assertTrue(data.cooldowns().isEmpty(), "cooldowns 应原样保留（空表）");
+        helper.succeed();
+    }
+
     // ============================ 工具 ============================
 
-    /** 锻造台是 10 槽：不足补空气。 */
-    private static List<ItemStack> padTo10(ItemStack... stacks) {
+    /**
+     * 构造带「吞包假连接」的 ServerPlayer，但<b>不走 placeNewPlayer</b>：
+     * 登录流程会触发 OnDatapackSync 推 phase_material_sync，NeoForge 对未协商
+     * payload 通道的假连接直接抛错（纯测试环境假象）。vanilla 包（聊天/声音）
+     * 进 EmbeddedChannel 无害；mod payload 由 SpellCastHandler.sync 的防御兜住。
+     */
+    private static net.minecraft.server.level.ServerPlayer mockServerPlayer(GameTestHelper helper) {
+        var cookie = net.minecraft.server.network.CommonListenerCookie.createInitial(
+                new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(), "test-mock-player"), false);
+        var player = new net.minecraft.server.level.ServerPlayer(
+                helper.getLevel().getServer(), helper.getLevel(),
+                cookie.gameProfile(), cookie.clientInformation());
+        net.minecraft.network.Connection connection =
+                new net.minecraft.network.Connection(net.minecraft.network.protocol.PacketFlow.SERVERBOUND);
+        new io.netty.channel.embedded.EmbeddedChannel(connection);
+        player.connection = new net.minecraft.server.network.ServerGamePacketListenerImpl(
+                helper.getLevel().getServer(), connection, player, cookie);
+        return player;
+    }
+
+    /** 锻造台槽位数（{@link ForgeTableMenu#MATERIAL_SLOTS}）：不足补空气。 */
+    private static List<ItemStack> padToSlots(ItemStack... stacks) {
         List<ItemStack> list = new java.util.ArrayList<>(List.of(stacks));
-        while (list.size() < 10) list.add(ItemStack.EMPTY);
+        while (list.size() < ForgeTableMenu.MATERIAL_SLOTS) list.add(ItemStack.EMPTY);
         return list;
     }
 }

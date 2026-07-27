@@ -1053,6 +1053,41 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 
 ---
 
+## WQ-57 [x] 完成(待提交) 【大·玩法改造】法术系统六步改造：已学列表 + 增幅器 + 炼金台卷轴 + 轮盘施法 + 锻造台 25 格
+
+**范围**：①`PlayerSpellData.learned`（id 列表死字段）升级为 `learnedSpells`（存完整
+`CustomSpell`，CODEC 双向兼容旧 NBT，未知 id 丢弃），`LegacySpellMigration` 登录时把背包里
+旧法杖/法术书的法术组件迁入已学列表并剥离；②法杖/魔法书**增幅器化**——`ComposedAttributes`
+新增 `spellPowerPercent`/`manaBonus`（MANA 算子 ×8、攻击向算子 ×6%，均乘档位系数），
+不再承载/施放法术，锻造台法术铭刻链路（默认法术/applyAiSpell/buildSpellBook/SPELL_TEMPLATES）
+整体迁往炼金台；③新增魔法卷轴（`magic_scroll`，CUSTOM_SPELL 单法术，右键消耗学习）与
+炼金台（`alchemy_table`，6 材料槽 + 1 卷轴槽，AI 链路复用锻造台四包按菜单类型分派）；
+④**轮盘施法**——`CastSpellPayload(spellId)`，按住 V 出 8 扇区轮盘（滚轮翻页），
+松开指向即施放、点按快速施放上次法术，服务端只认已学列表里的明确 id；
+⑤锻造台材料格 10 → 25（5×5：中心核心/内圈辅助/外圈基底，GUI 重排）；
+⑥成就/文档/GameTest 收口（本单）。
+
+**关键决策**：
+- 增幅器主手+副手同时生效、效果叠加（一手杖一手书双倍收益），伤害倍率只放大
+  damage/heal 结算，不影响效果时长；法力回复与 HUD 用「有效上限」（含换手检测同步）。
+- 轮盘「松开即施放」：客户端永远发具体 spellId，服务端无空包/快捷语义；
+  「上次施放」与逐法术冷却置灰均为客户端本地估算，服务端权威。
+- 25 格软化护栏：超过 10 件的零件 powerScore 按 50% 权重计入
+  （`FORGE_PART_SOFT_CAP=10` / `FORGE_EXCESS_WEIGHT=0.5`，ForgeComposer 常量，调平只动这两个值）。
+- AI 提案材料上限独立于槽位数（`MAX_PROPOSAL_MATERIALS=12`）——25 槽是摆放自由度，
+  不是让 AI 一次推 24 个。
+- AI 网络包零新增：四个现有 payload 按「玩家当前 openMenu/screen 类型」分派锻造台/炼金台。
+
+**遗留观察项**：
+- 轮盘开启期间未屏蔽左键攻击（指针释放后点击仍会挥武器），需要时加 InputEvent 拦截。
+- 轮盘冷却置灰是客户端估算：服务端拒放（如蓝不够）后该法术可能短暂误置灰，无功能影响。
+- WQ-2/18 那批旧单的验收语境已变：法术不再写在产物组件上（CUSTOM_SPELL/SPELLBOOK 的
+  写入路径只剩炼金台卷轴），旧单中「产物带法术」类措辞按新语义（增幅器 + 已学列表）理解；
+  服务端权威提案表（WQ-2 信任边界）在两台子上均保留。
+- 旧 SPELL 双轨（`spell/Spell.java`）仍保留只读兼容，施法入口已不再读它。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）
