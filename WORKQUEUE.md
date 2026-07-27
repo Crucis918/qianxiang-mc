@@ -1088,6 +1088,39 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 
 ---
 
+## WQ-58 [x] 完成(待提交) 【中·表现层+数值对标】法术引擎填格、伤害对标武器、模板扩容与元素音效
+
+**范围**：①伤害标定——`resolveDamage` power×2.0 → **power×3.0**（对标武器 EDGE 件 3.0×档倍），
+heal 两处 ×2.0 → ×2.5；卷轴模板 power `maxTier+1` → **`2×(maxTier+1)`**（COMMON 2/RARE 4/
+EPIC 6/LEGENDARY 8，材料预算钳制不变），10 个预置法术 power 同步上调（manaCost 按
+「现值符合 10+5×power 口径才重算」逐条处理）；②debuff 塌缩修复——抽 `resolveDebuff`
+按 9 元素分派（点燃/冻结/减速虚弱/毒+反胃/致盲+黑暗/发光+虚弱/凋零/漂浮/反胃+虚弱）；
+③utility 空转格补全——fire/frost/lightning/shadow/arcane 自身状态 + **blood 血换蓝**
+（>4 血自伤 4 换 20 蓝，≤4 血提示不发动）；④卷轴模板 10 → 26：单算子 +8（血怒/石肤/
+疾风/轻羽/鹰眼/再生/潮汐/余烬披风），新增**双算子组合表** 8 条（先扫组合再扫单算子）；
+⑤法术真名：26 条模板全配 `qianxiang.spell.name.*`（中英），`ClientSpellNames` 三级回退
+（真名 > spell.* 键 > 元素·效果），轮盘与卷轴 tooltip 接入；⑥每元素专属施法音/命中音
+（form 微调音高）、弹体轨迹加密（power>6 加层）。
+
+**关键决策**：
+- `castCustomSpell` 扣蓝改为重读引擎结算后的 attachment——旧快照扣减会把 blood +20
+  与 settleCast 退款整个抹掉（GameTest 抓出的真实 bug）。
+- 音效字段按 1.21.1 实测修正：frost=GLASS_BREAK（无 BLOCK_GLASS_BREAK）、
+  shadow 施法=SCULK_CLICKING（无 SCULK_CLICK）、命中=SCULK_BLOCK_BREAK（无 SCULK_BREAK）、
+  lightning=TRIDENT_THUNDER.value()（该字段是 Holder）。
+
+**遗留观察项**：
+- 血换蓝 HP 扣减在 GameTest 环境不可观测：Epic Fight 接管 LivingIncomingDamageEvent
+  取消 vanilla hurt，对无 EF 状态的 mock 玩家不实际扣血（法力侧已锁断言）；真实服务端
+  经 EF 结算路径正常扣血。不做 hurt 失败回退 setHealth——真机会双重扣血。
+- 「IGNITE+LIGHTNING→雷炎弹」实际用 `SPEED_BOOST` 代表雷侧：`PhaseFunction` 无
+  LIGHTNING 枚举（雷石=STRENGTH+SPEED_BOOST，STRENGTH 已分配给烈焰打击），代码注释已注明。
+- 法术 DPS 仍低于武器平砍连击（单发对标 ×3.0，但有冷却与耗蓝），当前靠元素附加/范围/
+  功能补偿，待实机调平（平衡常量在 AttributeScheme/SpellScrollComposer 注释处）。
+- 音效音量分级（雷 0.4/0.3、图腾 0.5）是拍脑袋值，待实机听感调。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）
