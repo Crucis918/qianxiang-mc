@@ -88,6 +88,10 @@ public final class QianxiangPayloads {
         registrar.playToServer(SpellJsonReportPayload.TYPE, SpellJsonReportPayload.STREAM_CODEC,
                 (payload, context) -> SpellJsonReportHandler.handle(payload, context));
 
+        // 客户端→服务端：功能台材料列表点选取回（锻造/炼金按 openMenu 分派）。
+        registrar.playToServer(TableRetrievePayload.TYPE, TableRetrievePayload.STREAM_CODEC,
+                (payload, context) -> TableRetrieveHandler.handle(payload, context));
+
         // 客户端→服务端：蓝图保存 / 使用 / 列表请求。
         registrar.playToServer(BlueprintSavePayload.TYPE, BlueprintSavePayload.STREAM_CODEC,
                 (payload, context) -> BlueprintServerHandler.handleSave(payload, context));

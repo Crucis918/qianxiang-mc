@@ -10,7 +10,7 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 注册千相客户端按键：V 键施放当前手持法器的法术。
+ * 注册千相客户端按键：G 键施放法术（默认绑定，可在键位设置更改）。
  */
 @EventBusSubscriber(modid = Qianxiang.MOD_ID, value = Dist.CLIENT)
 public final class SpellKeybinds {
@@ -18,7 +18,7 @@ public final class SpellKeybinds {
     public static final KeyMapping CAST_SPELL = new KeyMapping(
             "key.qianxiang.cast_spell",
             InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_V,
+            GLFW.GLFW_KEY_G,
             "key.categories.qianxiang"
     );
 

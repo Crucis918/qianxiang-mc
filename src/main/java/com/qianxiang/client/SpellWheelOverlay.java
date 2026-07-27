@@ -22,10 +22,10 @@ import java.util.List;
  * <p>
  * 交互状态机（按下/松开沿由 {@link ClientSpellInput} 检出后调 {@link #onPress}/{@link #onRelease}）：
  * <ul>
- *   <li>按下 V：已学 0 个 → actionbar 提示（去炼金台学卷轴）；1 个 → 直接施放；
+ *   <li>按下 G：已学 0 个 → actionbar 提示（去炼金台学卷轴）；1 个 → 直接施放；
  *       ≥2 个 → 开轮盘（释放鼠标指针，游戏不暂停）。</li>
  *   <li>轮盘开着：鼠标移出中心死区指向某扇区 = 选中（高亮）；滚轮翻页（每页 8 个）。</li>
- *   <li>松开 V：有选中 → 施放该法术；无选中且「按下到松开未指出死区且时长 &lt; {@link #TAP_MS}」
+ *   <li>松开 G：有选中 → 施放该法术；无选中且「按下到松开未指出死区且时长 &lt; {@link #TAP_MS}」
  *       → 点按语义，快速施放上次施放的法术（无上次记录则提示）；否则 = 取消。</li>
  *   <li>无论哪条路径，客户端都把<b>具体 spellId</b> 发给服务端（{@link CastSpellPayload}），
  *       服务端只认明确 id；「上次施放」纯客户端记忆，服务端无此语义。</li>
@@ -55,7 +55,7 @@ public final class SpellWheelOverlay {
 
     // ============================ 按键沿（ClientSpellInput 调用） ============================
 
-    /** 按下 V：按已学数量分派——0 提示 / 1 直接放 / ≥2 开轮盘。 */
+    /** 按下 G：按已学数量分派——0 提示 / 1 直接放 / ≥2 开轮盘。 */
     public static void onPress(Minecraft mc) {
         if (mc.player == null) return;
         List<CustomSpell> learned = learnedSpells(mc);
@@ -75,7 +75,7 @@ public final class SpellWheelOverlay {
         mc.mouseHandler.releaseMouse();
     }
 
-    /** 松开 V：结算选中/点按/取消（见类文档状态机）。 */
+    /** 松开 G：结算选中/点按/取消（见类文档状态机）。 */
     public static void onRelease(Minecraft mc) {
         if (!active) return;
         active = false;

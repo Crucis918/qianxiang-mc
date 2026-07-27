@@ -15,11 +15,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 服务端处理「把 AI 推荐材料放入锻造台材料槽」的请求。
+ * 服务端处理「把 AI 推荐材料放入功能台材料槽」的请求（锻造台/炼金台共用，按菜单类型分派）。
+ * <p>
+ * 放料核心抽成 {@link #placeMaterials}（GameTest 可直接断言）：
+ * 返回放入数与「请求了但没放进」的缺料名单（背包没有 / 材料槽满），
+ * 缺料不再静默——handler 拼 hoverName 名单发 actionbar 提示。
+ * </p>
  */
 public final class AiPlaceMaterialsHandler {
 
     private AiPlaceMaterialsHandler() {}
+
+    /** 放料结果：放入数量 + 已放入物品 + 缺料名单（请求了但没放进的）。 */
+    public record PlaceResult(int placedCount, List<Item> placed, List<Item> missing) {}
 
     public static void handle(AiPlaceMaterialsPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
@@ -31,17 +39,14 @@ public final class AiPlaceMaterialsHandler {
             net.minecraft.world.Container container;
             int materialSlots;
             String noMaterialsKey;
-            String slotsFullKey;
             if (menu instanceof ForgeTableMenu forgeMenu) {
                 container = forgeMenu.getContainer();
                 materialSlots = ForgeTableMenu.MATERIAL_SLOTS;
                 noMaterialsKey = "qianxiang.forge_table.msg.no_materials";
-                slotsFullKey = "qianxiang.forge_table.msg.slots_full";
             } else if (menu instanceof com.qianxiang.menu.AlchemyTableMenu alchemyMenu) {
                 container = alchemyMenu.getContainer();
                 materialSlots = com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS;
                 noMaterialsKey = "qianxiang.alchemy_table.msg.no_materials";
-                slotsFullKey = "qianxiang.alchemy_table.msg.slots_full";
             } else {
                 Qianxiang.LOGGER.warn("[Qianxiang] 玩家发送 AI 放料请求时未打开功能台菜单");
                 return;
@@ -62,37 +67,9 @@ public final class AiPlaceMaterialsHandler {
                 return;
             }
 
-            boolean anyPlaced = false;
-            for (Item item : wanted) {
-                int invSlot = findInInventory(player, item);
-                if (invSlot < 0) continue;
+            PlaceResult result = placeMaterials(player, container, materialSlots, wanted);
 
-                int materialSlot = findMaterialSlot(container, item, materialSlots);
-                if (materialSlot < 0) {
-                    // 材料槽已满，提示背包高亮（由客户端自己画）
-                    player.displayClientMessage(Component.translatable(slotsFullKey), false);
-                    continue;
-                }
-
-                ItemStack invStack = player.getInventory().getItem(invSlot);
-                if (invStack.isEmpty()) continue;
-
-                ItemStack move = invStack.split(1);
-                ItemStack existing = container.getItem(materialSlot);
-                if (existing.isEmpty()) {
-                    container.setItem(materialSlot, move);
-                } else if (ItemStack.isSameItemSameComponents(existing, move)
-                        && existing.getCount() < existing.getMaxStackSize()) {
-                    existing.grow(1);
-                    container.setItem(materialSlot, existing);
-                } else {
-                    invStack.grow(1); // 不可堆叠，撤销
-                    continue;
-                }
-                anyPlaced = true;
-            }
-
-            if (anyPlaced) {
+            if (result.placedCount() > 0) {
                 // 闭合「建议 → 采纳」链路：玩家真的把 AI 推荐的材料放上台了。
                 // 这是判断 AI 质量的唯一客观信号（调用次数说明不了任何问题）。
                 com.qianxiang.ai.AIGateway.logAdoption(
@@ -103,7 +80,59 @@ public final class AiPlaceMaterialsHandler {
                 container.setChanged();
                 player.getInventory().setChanged();
             }
+            // 缺料明示：请求了但没放进（背包没有/材料槽满）逐名列出，不再静默。
+            if (!result.missing().isEmpty()) {
+                var names = Component.literal("");
+                for (int i = 0; i < result.missing().size(); i++) {
+                    if (i > 0) names.append(", ");
+                    names.append(new ItemStack(result.missing().get(i)).getHoverName());
+                }
+                player.displayClientMessage(
+                        Component.translatable("qianxiang.table.missing", names), true);
+            }
         });
+    }
+
+    /**
+     * 把 wanted 逐件从玩家主背包移入材料槽（每件 1 个）。
+     * <p>纯逻辑无发包，GameTest 可直接断言返回值与容器状态。
+     */
+    public static PlaceResult placeMaterials(Player player, net.minecraft.world.Container container,
+                                             int materialSlots, List<Item> wanted) {
+        List<Item> placed = new ArrayList<>();
+        List<Item> missing = new ArrayList<>();
+        for (Item item : wanted) {
+            int invSlot = findInInventory(player, item);
+            if (invSlot < 0) {
+                missing.add(item);
+                continue;
+            }
+            int materialSlot = findMaterialSlot(container, item, materialSlots);
+            if (materialSlot < 0) {
+                missing.add(item); // 材料槽已满
+                continue;
+            }
+            ItemStack invStack = player.getInventory().getItem(invSlot);
+            if (invStack.isEmpty()) {
+                missing.add(item);
+                continue;
+            }
+            ItemStack move = invStack.split(1);
+            ItemStack existing = container.getItem(materialSlot);
+            if (existing.isEmpty()) {
+                container.setItem(materialSlot, move);
+            } else if (ItemStack.isSameItemSameComponents(existing, move)
+                    && existing.getCount() < existing.getMaxStackSize()) {
+                existing.grow(1);
+                container.setItem(materialSlot, existing);
+            } else {
+                invStack.grow(1); // 不可堆叠，撤销
+                missing.add(item);
+                continue;
+            }
+            placed.add(item);
+        }
+        return new PlaceResult(placed.size(), List.copyOf(placed), List.copyOf(missing));
     }
 
     /** 只扫主背包 36 格：getContainerSize() 是 41，会把身上穿的盔甲/副手也当材料取走。 */

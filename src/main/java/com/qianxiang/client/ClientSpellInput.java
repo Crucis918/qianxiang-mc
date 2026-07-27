@@ -7,7 +7,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /**
- * 客户端按键监听：V 键（法术键）的<b>按压/释放沿</b>检测。
+ * 客户端按键监听：G 键（法术键）的<b>按压/释放沿</b>检测。
  * <p>
  * 轮盘施法需要「按住开轮盘、松开来施放」的两段语义，consumeClick 只有
  * 离散点击，给不了沿——改为每 tick 对比 {@code KeyMapping.isDown()} 与上一帧，
@@ -20,7 +20,7 @@ public final class ClientSpellInput {
 
     private ClientSpellInput() {}
 
-    /** 上一帧 V 键是否按住。 */
+    /** 上一帧 G 键是否按住。 */
     private static boolean wasDown;
 
     @SubscribeEvent

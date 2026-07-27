@@ -117,7 +117,6 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int CARD_GAP_X = 8;
     private static final int CARD_GAP_Y = 2;
     private static final int CARD_COLS = 2;
-    private static final int CARD_MAT_ICON_SIZE = 9;
     private static final int MAX_CARDS = 4;
 
     /** 材料即时预览面板（结果槽右下方始终空闲的窄带，x=205..253，y=79..102）。 */
@@ -586,9 +585,22 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                 applySuggestion(suggestion);
                 return true;
             }
+            // 材料条目区域优先于整张卡：点单个材料 = 只放入该材料
+            int[] cardMaterial = hitTestCardMaterial(mouseX, mouseY);
+            if (cardMaterial != null) {
+                applyProposalMaterial(cardMaterial[0], cardMaterial[1]);
+                return true;
+            }
             int clickedCard = hitTestCard(mouseX, mouseY);
             if (clickedCard >= 0 && lastAiResult != null && clickedCard < lastAiResult.proposals().size()) {
                 applyProposal(clickedCard);
+                return true;
+            }
+            // 材料列表行点击 = 取回该槽材料
+            int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
+            if (retrieveSlot >= 0) {
+                PacketDistributor.sendToServer(
+                        new com.qianxiang.network.TableRetrievePayload(retrieveSlot));
                 return true;
             }
             if (extPanelExpanded && hitTestHistoryHeader(mouseX, mouseY)) {
@@ -736,32 +748,66 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         super.renderSlot(g, slot);
     }
 
+    /** 材料列表行：真实槽位下标 + 物品栈（取回 payload 要用槽位下标，不能用行号）。 */
+    private record MatRow(int slot, ItemStack stack) {}
+
     /** 当前非空材料槽的物品列表（展示/命中测试共用，按槽序）。 */
-    private List<ItemStack> materialListRows() {
-        List<ItemStack> rows = new ArrayList<>();
+    private List<MatRow> materialListRows() {
+        List<MatRow> rows = new ArrayList<>();
         for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
             ItemStack s = this.menu.getSlot(i).getItem();
-            if (!s.isEmpty()) rows.add(s);
+            if (!s.isEmpty()) rows.add(new MatRow(i, s));
         }
         return rows;
     }
 
-    /** 材料区文字列表：材料名×数量，超出省略；底部投入提示行。 */
+    /** 材料区文字列表：材料名×数量，超出省略；行 hover 高亮（点击取回）；底部投入提示行。 */
     private void renderMaterialList(GuiGraphics g) {
-        List<ItemStack> rows = materialListRows();
+        List<MatRow> rows = materialListRows();
         int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
         for (int i = 0; i < shown; i++) {
-            ItemStack s = rows.get(i);
+            int rx = leftPos + MATLIST_X;
+            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
+            boolean hover = this.minecraft != null
+                    && mouseInRect(rx, ry, 92, MATLIST_ROW_H);
+            if (hover) {
+                g.fill(rx - 1, ry - 1, rx + 92, ry + MATLIST_ROW_H, 0x20FFFFFF);
+            }
+            ItemStack s = rows.get(i).stack();
             String line = s.getHoverName().getString() + " ×" + s.getCount();
             g.drawString(this.font, this.font.plainSubstrByWidth(line, 88),
-                    leftPos + MATLIST_X, topPos + MATLIST_Y + i * MATLIST_ROW_H, 0xE0E0E0, false);
+                    rx, ry, hover ? 0xFFFFFF : 0xE0E0E0, false);
         }
         if (rows.size() > shown) {
             g.drawString(this.font, "… +" + (rows.size() - shown),
                     leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
         }
-        g.drawString(this.font, Component.translatable("qianxiang.table.hint_insert"),
+        g.drawString(this.font, this.font.plainSubstrByWidth(
+                        Component.translatable("qianxiang.table.hint_insert").getString(), 240),
                 leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
+    }
+
+    /** 当前鼠标是否在给定矩形内（相对窗口坐标）。 */
+    private boolean mouseInRect(int x, int y, int w, int h) {
+        double mx = this.minecraft.mouseHandler.xpos() * this.minecraft.getWindow().getGuiScaledWidth()
+                / this.minecraft.getWindow().getScreenWidth();
+        double my = this.minecraft.mouseHandler.ypos() * this.minecraft.getWindow().getGuiScaledHeight()
+                / this.minecraft.getWindow().getScreenHeight();
+        return mx >= x && mx < x + w && my >= y && my < y + h;
+    }
+
+    /** 命中材料列表行 → 该行的真实槽位下标；未命中 -1。 */
+    private int hitTestMaterialRow(double mouseX, double mouseY) {
+        List<MatRow> rows = materialListRows();
+        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
+        for (int i = 0; i < shown; i++) {
+            int rx = leftPos + MATLIST_X;
+            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
+            if (mouseX >= rx && mouseX < rx + 92 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
+                return rows.get(i).slot();
+            }
+        }
+        return -1;
     }
 
     /**
@@ -769,13 +815,13 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
      * （名称/稀有度档位/相性/功能算子+用途/自由状态效果/概念/贡献预估）。
      */
     private void renderMaterialSlotTooltips(GuiGraphics g, int mouseX, int mouseY) {
-        List<ItemStack> rows = materialListRows();
+        List<MatRow> rows = materialListRows();
         int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
         for (int i = 0; i < shown; i++) {
             int rx = leftPos + MATLIST_X;
             int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
             if (mouseX >= rx && mouseX < rx + 92 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
-                ItemStack stack = rows.get(i);
+                ItemStack stack = rows.get(i).stack();
                 try {
                     MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
                     List<Component> card = MaterialCardHelper.buildCard(stack, info);
@@ -1305,20 +1351,32 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             ItemStack product = estimateProductIcon(TYPES[typeIndex]);
             g.renderItem(product, cx + 4, cy + 2);
 
-            // 材料小图标（产物图标右上侧一排）
-            int iconX = cx + 24;
-            int iconY = cy + 3;
+            // 材料条目：图标 + 背包实时状态（持有=×n 绿，缺失=压暗+红「缺」），
+            // 逐条可点击（单材料放入，见 hitTestCardMaterial）
             List<String> materials = proposal.materialNames();
             for (int j = 0; j < materials.size() && j < 4; j++) {
+                int entryX = cx + 24 + j * 14;
+                int entryY = cy + 1;
                 ItemStack matStack = resolveItemStack(materials.get(j));
-                if (!matStack.isEmpty()) {
-                    g.pose().pushPose();
-                    g.pose().translate(iconX, iconY, 0);
-                    g.pose().scale(0.5f, 0.5f, 0.5f);
-                    g.renderItem(matStack, 0, 0);
-                    g.pose().popPose();
+                if (matStack.isEmpty()) continue;
+                boolean entryHover = mouseX >= entryX - 1 && mouseX < entryX + 13
+                        && mouseY >= cy && mouseY < cy + 10;
+                if (entryHover) {
+                    g.fill(entryX - 1, cy, entryX + 13, cy + 10, 0x30FFFFFF);
                 }
-                iconX += CARD_MAT_ICON_SIZE;
+                g.pose().pushPose();
+                g.pose().translate(entryX, entryY, 0);
+                g.pose().scale(0.5f, 0.5f, 0.5f);
+                g.renderItem(matStack, 0, 0);
+                g.pose().popPose();
+                int held = countInClientInventory(matStack.getItem());
+                if (held > 0) {
+                    drawTinyString(g, "×" + held, entryX + 9, cy + 2, 0xFF7FE3C0, 0.45f);
+                } else {
+                    g.fill(entryX, entryY, entryX + 8, entryY + 8, 0xA0000000);
+                    drawTinyString(g, Component.translatable("qianxiang.table.missing_mark").getString(),
+                            entryX + 9, cy + 2, 0xFFFF5555, 0.45f);
+                }
             }
 
             // 强度（材料图标右侧，金色）
@@ -1347,6 +1405,38 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             }
         }
         return -1;
+    }
+
+    /** 命中的卡片材料条目 → [卡片下标, 材料名]；条目区域优先于整张卡。未命中 null。 */
+    private int[] hitTestCardMaterial(double mouseX, double mouseY) {
+        if (lastAiResult == null) return null;
+        int x = leftPos + CARD_X;
+        int y = topPos + CARD_Y;
+        var proposals = lastAiResult.proposals();
+        for (int i = 0; i < proposals.size() && i < MAX_CARDS; i++) {
+            int cx = x + (i % CARD_COLS) * (CARD_W + CARD_GAP_X);
+            int cy = y + (i / CARD_COLS) * (CARD_H + CARD_GAP_Y);
+            var materials = proposals.get(i).materialNames();
+            for (int j = 0; j < materials.size() && j < 4; j++) {
+                int entryX = cx + 24 + j * 14;
+                if (mouseX >= entryX - 1 && mouseX < entryX + 13
+                        && mouseY >= cy && mouseY < cy + 10) {
+                    return new int[]{i, j};
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 玩家背包（主背包 36 格）里某物品的实时数量（卡片有/缺显示用）。 */
+    private int countInClientInventory(net.minecraft.world.item.Item item) {
+        if (this.minecraft == null || this.minecraft.player == null) return 0;
+        int total = 0;
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            ItemStack s = this.minecraft.player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.is(item)) total += s.getCount();
+        }
+        return total;
     }
 
     // ========================== AI 反问选项 chips ==========================
@@ -1441,6 +1531,16 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         // 服务端放料触发 slotsChanged 时产物即按该提案的法术/名称组合。
         ClientForgeTableAI.reportProposalIndex(index);
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(proposal.materialNames()));
+    }
+
+    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料。 */
+    private void applyProposalMaterial(int cardIndex, int materialIndex) {
+        if (lastAiResult == null) return;
+        var proposal = lastAiResult.proposals().get(cardIndex);
+        if (materialIndex < 0 || materialIndex >= proposal.materialNames().size()) return;
+        ClientForgeTableAI.reportProposalIndex(cardIndex);
+        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
+                List.of(proposal.materialNames().get(materialIndex))));
     }
 
     private int countEmptyMaterialSlots() {

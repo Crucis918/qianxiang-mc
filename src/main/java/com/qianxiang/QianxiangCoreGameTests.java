@@ -1449,6 +1449,57 @@ public final class QianxiangCoreGameTests {
         return sb.append(']').toString();
     }
 
+    /** 列表点选取回：发取回逻辑 → 该槽清空、材料回背包。 */
+    @GameTest(template = "item_concept")
+    public static void retrieveOneMaterialViaPayload(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        be.setItem(3, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 2));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+
+        helper.assertTrue(com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 3),
+                "槽 3 有材料，取回应成功");
+        helper.assertTrue(be.getItem(3).isEmpty(), "取回后槽 3 应为空");
+        helper.assertTrue(countInInventory(player, QianxiangItems.EMBER_CRYSTAL.get()) == 2,
+                "余烬石 ×2 应回背包");
+
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 3),
+                "空槽取回应失败（无副作用）");
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 99),
+                "越界槽位应被拒");
+        helper.succeed();
+    }
+
+    /** AI 放料缺料明示：背包只有 2/3 材料 → 放入 2、missing 名单含第 3 个。 */
+    @GameTest(template = "item_concept")
+    public static void aiPlaceReportsMissing(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var inv = player.getInventory();
+        inv.clearContent();
+        inv.setItem(0, new ItemStack(Items.IRON_INGOT));
+        inv.setItem(1, new ItemStack(Items.DIAMOND));
+
+        var result = com.qianxiang.network.AiPlaceMaterialsHandler.placeMaterials(player, be,
+                ForgeTableMenu.MATERIAL_SLOTS,
+                List.of(Items.IRON_INGOT, Items.DIAMOND, Items.EMERALD));
+        helper.assertTrue(result.placedCount() == 2,
+                "应放入 2 件持有材料，实际 " + result.placedCount());
+        helper.assertTrue(result.missing().size() == 1 && result.missing().get(0) == Items.EMERALD,
+                "缺料名单应恰含绿宝石，实际 " + result.missing());
+        helper.assertTrue(be.getItem(0).is(Items.IRON_INGOT) && be.getItem(1).is(Items.DIAMOND),
+                "铁锭与钻石应已入材料槽");
+        helper.assertTrue(countInInventory(player, Items.EMERALD) == 0
+                        && countInInventory(player, Items.IRON_INGOT) == 0,
+                "已放材料应从背包扣除");
+        helper.succeed();
+    }
+
     // ============================ 工具 ============================
 
     /**

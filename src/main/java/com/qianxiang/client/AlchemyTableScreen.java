@@ -114,16 +114,19 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         super.renderSlot(g, slot);
     }
 
-    /** 材料区文字列表：材料名×数量，超出省略；下方投入提示行。 */
+    /** 材料列表行：真实槽位下标 + 物品栈（取回 payload 要用槽位下标）。 */
+    private record MatRow(int slot, net.minecraft.world.item.ItemStack stack) {}
+
+    /** 材料区文字列表：材料名×数量，超出省略；行 hover 高亮（点击取回）；下方投入提示行。 */
     private void renderMaterialList(GuiGraphics g) {
-        List<net.minecraft.world.item.ItemStack> rows = new ArrayList<>();
+        List<MatRow> rows = new ArrayList<>();
         for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
             var s = this.menu.getSlot(i).getItem();
-            if (!s.isEmpty()) rows.add(s);
+            if (!s.isEmpty()) rows.add(new MatRow(i, s));
         }
         int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
         for (int i = 0; i < shown; i++) {
-            var s = rows.get(i);
+            var s = rows.get(i).stack();
             String line = s.getHoverName().getString() + " ×" + s.getCount();
             g.drawString(this.font, this.font.plainSubstrByWidth(line, 60),
                     leftPos + MATLIST_X, topPos + MATLIST_Y + i * MATLIST_ROW_H, 0xE0E0E0, false);
@@ -132,8 +135,47 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
             g.drawString(this.font, "… +" + (rows.size() - shown),
                     leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
         }
-        g.drawString(this.font, Component.translatable("qianxiang.table.hint_insert"),
+        g.drawString(this.font, this.font.plainSubstrByWidth(
+                        Component.translatable("qianxiang.table.hint_insert").getString(), 240),
                 leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
+    }
+
+    /** 命中材料列表行 → 该行的真实槽位下标；未命中 -1。 */
+    private int hitTestMaterialRow(double mouseX, double mouseY) {
+        List<MatRow> rows = new ArrayList<>();
+        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
+            var s = this.menu.getSlot(i).getItem();
+            if (!s.isEmpty()) rows.add(new MatRow(i, s));
+        }
+        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
+        for (int i = 0; i < shown; i++) {
+            int rx = leftPos + MATLIST_X;
+            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
+            if (mouseX >= rx && mouseX < rx + 64 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
+                return rows.get(i).slot();
+            }
+        }
+        return -1;
+    }
+
+    /** 缩放绘制小字（卡片材料状态标签用）。 */
+    private void drawTinyString(GuiGraphics g, String text, float x, float y, int color, float scale) {
+        g.pose().pushPose();
+        g.pose().translate(x, y, 0);
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(this.font, text, 0, 0, color, false);
+        g.pose().popPose();
+    }
+
+    /** 玩家背包（主背包 36 格）里某物品的实时数量（卡片有/缺显示用）。 */
+    private int countInClientInventory(net.minecraft.world.item.Item item) {
+        if (this.minecraft == null || this.minecraft.player == null) return 0;
+        int total = 0;
+        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
+            var s = this.minecraft.player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.is(item)) total += s.getCount();
+        }
+        return total;
     }
 
     @Override
@@ -191,7 +233,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                 leftPos + STATUS_X, topPos + STATUS_Y + 1, color, false);
     }
 
-    /** 3 张方案卡：摘要 + 强度 + 材料数；悬停高亮，点击放料。 */
+    /** 3 张方案卡：摘要 + 强度 + 材料条目（持有=×n 绿 / 缺失=压暗+红「缺」，逐条可点击）。 */
     private void renderCards(GuiGraphics g, int mouseX, int mouseY) {
         if (lastAiResult == null) return;
         var proposals = lastAiResult.proposals();
@@ -210,27 +252,84 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                     Component.translatable("qianxiang.forge_table.preview.power",
                             String.format("%.1f", proposal.estimatedPower())),
                     x + 2, y + 14, 0xFFAA00, false);
-            g.drawString(this.font,
-                    this.font.plainSubstrByWidth(String.join(", ",
-                                    proposal.materialNames().stream().limit(3).toList()),
-                            CARD_W - 4),
-                    x + 2, y + 25, 0x888888, false);
+
+            // 材料条目：图标 + 背包实时状态（条目区域优先于整张卡）
+            var materials = proposal.materialNames();
+            for (int j = 0; j < materials.size() && j < 4; j++) {
+                int entryX = x + 2 + j * 14;
+                int entryY = y + 25;
+                var matStack = resolveItemStack(materials.get(j));
+                if (matStack.isEmpty()) continue;
+                boolean entryHover = mouseX >= entryX - 1 && mouseX < entryX + 13
+                        && mouseY >= entryY - 1 && mouseY < entryY + 9;
+                if (entryHover) {
+                    g.fill(entryX - 1, entryY - 1, entryX + 13, entryY + 9, 0x30FFFFFF);
+                }
+                g.pose().pushPose();
+                g.pose().translate(entryX, entryY, 0);
+                g.pose().scale(0.5f, 0.5f, 0.5f);
+                g.renderItem(matStack, 0, 0);
+                g.pose().popPose();
+                int held = countInClientInventory(matStack.getItem());
+                if (held > 0) {
+                    drawTinyString(g, "×" + held, entryX + 9, entryY + 1, 0xFF7FE3C0, 0.45f);
+                } else {
+                    g.fill(entryX, entryY, entryX + 8, entryY + 8, 0xA0000000);
+                    drawTinyString(g, Component.translatable("qianxiang.table.missing_mark").getString(),
+                            entryX + 9, entryY + 1, 0xFFFF5555, 0.45f);
+                }
+            }
         }
+    }
+
+    /** 命中的卡片材料条目 → [卡片下标, 材料下标]；条目区域优先于整张卡。未命中 null。 */
+    private int[] hitTestCardMaterial(double mouseX, double mouseY) {
+        if (lastAiResult == null) return null;
+        var proposals = lastAiResult.proposals();
+        for (int i = 0; i < Math.min(proposals.size(), CARD_XS.length); i++) {
+            int x = leftPos + CARD_XS[i];
+            int y = topPos + CARD_Y;
+            var materials = proposals.get(i).materialNames();
+            for (int j = 0; j < materials.size() && j < 4; j++) {
+                int entryX = x + 2 + j * 14;
+                int entryY = y + 25;
+                if (mouseX >= entryX - 1 && mouseX < entryX + 13
+                        && mouseY >= entryY - 1 && mouseY < entryY + 9) {
+                    return new int[]{i, j};
+                }
+            }
+        }
+        return null;
     }
 
     // ============================ 交互 ============================
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (lastAiResult != null && button == 0) {
-            var proposals = lastAiResult.proposals();
-            for (int i = 0; i < Math.min(proposals.size(), CARD_XS.length); i++) {
-                int x = leftPos + CARD_XS[i];
-                int y = topPos + CARD_Y;
-                if (mouseX >= x && mouseX < x + CARD_W && mouseY >= y && mouseY < y + CARD_H) {
-                    applyProposal(i);
-                    return true;
+        if (button == 0) {
+            // 材料条目区域优先于整张卡：点单个材料 = 只放入该材料
+            int[] cardMaterial = hitTestCardMaterial(mouseX, mouseY);
+            if (cardMaterial != null) {
+                applyProposalMaterial(cardMaterial[0], cardMaterial[1]);
+                return true;
+            }
+            if (lastAiResult != null) {
+                var proposals = lastAiResult.proposals();
+                for (int i = 0; i < Math.min(proposals.size(), CARD_XS.length); i++) {
+                    int x = leftPos + CARD_XS[i];
+                    int y = topPos + CARD_Y;
+                    if (mouseX >= x && mouseX < x + CARD_W && mouseY >= y && mouseY < y + CARD_H) {
+                        applyProposal(i);
+                        return true;
+                    }
                 }
+            }
+            // 材料列表行点击 = 取回该槽材料
+            int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
+            if (retrieveSlot >= 0) {
+                PacketDistributor.sendToServer(
+                        new com.qianxiang.network.TableRetrievePayload(retrieveSlot));
+                return true;
             }
         }
         return super.mouseClicked(mouseX, mouseY, button);
@@ -284,6 +383,25 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
         ClientAlchemyTableAI.reportProposalIndex(index);
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(proposal.materialNames()));
+    }
+
+    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料。 */
+    private void applyProposalMaterial(int cardIndex, int materialIndex) {
+        if (lastAiResult == null) return;
+        var proposal = lastAiResult.proposals().get(cardIndex);
+        if (materialIndex < 0 || materialIndex >= proposal.materialNames().size()) return;
+        ClientAlchemyTableAI.reportProposalIndex(cardIndex);
+        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
+                List.of(proposal.materialNames().get(materialIndex))));
+    }
+
+    /** registry 名 → 物品栈（卡片材料图标用；不存在则空栈）。 */
+    private net.minecraft.world.item.ItemStack resolveItemStack(String registryName) {
+        var id = net.minecraft.resources.ResourceLocation.tryParse(registryName);
+        if (id == null) return net.minecraft.world.item.ItemStack.EMPTY;
+        var item = BuiltInRegistries.ITEM.get(id);
+        return item == null ? net.minecraft.world.item.ItemStack.EMPTY
+                : new net.minecraft.world.item.ItemStack(item);
     }
 
     /** 当前材料槽内物品的 registry name 列表（空槽跳过）。 */
