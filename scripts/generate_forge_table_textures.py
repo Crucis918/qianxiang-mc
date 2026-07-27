@@ -92,12 +92,11 @@ def add_noise(img: Image.Image, intensity: int = 8, seed: int = 42):
 # -----------------------------------------------------------------------------
 
 def generate_gui_texture() -> Image.Image:
-    """生成 256×256 的相之凝结台 GUI 背景。
+    """生成 256×256 的相之凝结台 GUI 背景（复古风：深木 + 深灰金属 + 少量铜）。
 
-    布局（与 ForgeTableScreen / ForgeTableMenu 坐标一致）：
+    布局坐标与代码硬约束一致（只换皮，不挪位置）：
       * 标题条 y 4..13
-      * 材料槽 5×5 网格：行 y = 17/35/53/71/89，列 x = 8/26/44/62/80（间距 18，色环 18×18）
-        索引 12=中心核心（青环），内圈 8 格=辅助（紫环），外圈 16 格=基底（橙环）
+      * 材料区（文字列表用木质告示板）(4,14)-(97,108)
       * 输入框 (104,17,144×14)，类型按钮 (104,35,24×14)，档位按钮 (132,35,24×14)
       * 状态条 (8,108,132×10)
       * 操作按钮 (146,50/66/82, 58×13)
@@ -106,133 +105,88 @@ def generate_gui_texture() -> Image.Image:
       * 玩家背包 9×3 (8,176) 间距 18，快捷栏 (8,234)
     """
     W, H = 256, 256
-    img = Image.new("RGBA", (W, H), hex_rgba("#0D0F14"))
+    img = Image.new("RGBA", (W, H), hex_rgba("#2A1E12"))
     draw = ImageDraw.Draw(img)
 
-    # 配色板
-    base = hex_rgba("#151821")          # 主底色
-    panel = hex_rgba("#1C1F2A")         # 面板色
-    metal = hex_rgba("#2A2E3B")         # 金属色
-    metal_light = hex_rgba("#3B4152")   # 亮金属
-    rune_glow = hex_rgba("#4ECDC4", 200)   # 青色符文发光
-    rune_glow_dim = hex_rgba("#4ECDC4", 80)
-    gold = hex_rgba("#C9A227", 180)     # 金色点缀
-    slot_dark = hex_rgba("#0B0C11")     # 槽位暗色
+    # 复古配色板：深云杉木 + 深灰金属 + 少量铜，低饱和无霓虹
+    wood_dark = hex_rgba("#3A2A1A")       # 主底色（深木）
+    wood = hex_rgba("#4A3423")            # 面板木色
+    wood_light = hex_rgba("#5C442E")      # 亮木（标题牌/告示板）
+    metal_dark = hex_rgba("#3C3C3C")      # 深灰金属
+    metal = hex_rgba("#565656")           # 金属
+    copper_dark = hex_rgba("#8A5A2B")     # 暗铜（描边点缀）
+    copper = hex_rgba("#B87333")          # 铜（铆钉）
+    cream = hex_rgba("#D8CDB0")           # 米白（标题衬线）
+    slot_dark = hex_rgba("#241A12")       # 凹槽深棕
 
-    # 1. 整体垂直渐变背景
+    # 1. 深木面板垂直渐变（低对比）
     for y in range(H):
         t = y / H
-        c = tuple(int(base[i] * (1 - t) + panel[i] * t) for i in range(4))
+        c = tuple(int(wood_dark[i] * (1 - t) + wood[i] * t) for i in range(4))
         draw.line([(0, y), (W, y)], fill=c)
 
-    # 2. 外边框 —— 暗金属 + 四角符文三角
-    draw.rectangle([0, 0, W - 1, H - 1], outline=metal_light, width=1)
-    draw.rectangle([1, 1, W - 2, H - 2], outline=metal, width=1)
+    # 2. 外边框：细金属线 + 四角包铁（装饰做减法）
+    draw.rectangle([0, 0, W - 1, H - 1], outline=metal, width=1)
+    for cx, cy in [(1, 1), (W - 5, 1), (1, H - 5), (W - 5, H - 5)]:
+        draw.rectangle([cx, cy, cx + 3, cy + 3], fill=metal_dark, outline=metal, width=1)
 
-    corner_size = 8
-    for cx, cy, sx, sy in [(0, 0, 1, 1), (W - 1, 0, -1, 1), (0, H - 1, 1, -1), (W - 1, H - 1, -1, -1)]:
-        pts = [
-            (cx + sx * corner_size, cy),
-            (cx, cy + sy * corner_size),
-            (cx + sx * 3, cy + sy * 3),
-        ]
-        draw.polygon(pts, fill=rune_glow_dim)
-        draw.line([(cx + sx * corner_size, cy), (cx, cy + sy * corner_size)], fill=rune_glow, width=1)
+    # 3. 顶部标题条：木牌 + 米白衬线
+    draw.rectangle([4, 4, W - 5, 13], fill=wood_light, outline=metal_dark, width=1)
+    draw.line([(8, 8), (W - 9, 8)], fill=cream, width=1)
 
-    # 3. 顶部标题条
-    draw.rectangle([4, 4, W - 5, 13], fill=panel, outline=metal_light, width=1)
-    draw_glow_line(draw, 8, 8, W - 9, 8, rune_glow, 1)
-
-    # 4. 输入框凹槽（材料槽右侧，与第一行材料槽同排）
+    # 4. 输入框凹槽（深棕描边）
     input_rect = (104, 17, 104 + 144 - 1, 17 + 14 - 1)
-    draw.rectangle(input_rect, fill=slot_dark, outline=metal_light, width=1)
-    draw_glow_line(draw, input_rect[0] + 1, input_rect[1] + 1,
-                   input_rect[0] + 1, input_rect[3] - 1, rune_glow_dim, 1)
+    draw.rectangle(input_rect, fill=slot_dark, outline=metal, width=1)
 
     # 类型 / 档位按钮凹槽（输入框下方，24×14）
-    type_rect = (104, 35, 104 + 24 - 1, 35 + 14 - 1)
-    tier_rect = (132, 35, 132 + 24 - 1, 35 + 14 - 1)
-    for rect in [type_rect, tier_rect]:
-        draw.rectangle(rect, fill=slot_dark, outline=metal_light, width=1)
-        draw_glow_line(draw, rect[0] + 1, rect[3] - 1, rect[2] - 1, rect[3] - 1, gold, 1)
+    for rect in [(104, 35, 104 + 24 - 1, 35 + 14 - 1),
+                 (132, 35, 132 + 24 - 1, 35 + 14 - 1)]:
+        draw.rectangle(rect, fill=slot_dark, outline=metal, width=1)
 
-    # 5. 状态条凹槽（材料网格下方，10px 高，状态文字绘制在条内）
+    # 5. 状态条凹槽（材料区下方，10px 高）
     status_rect = (8, 108, 8 + 132 - 1, 108 + 10 - 1)
-    draw.rectangle(status_rect, fill=slot_dark, outline=metal_light, width=1)
+    draw.rectangle(status_rect, fill=slot_dark, outline=metal, width=1)
 
-    # 6. 左上材料槽面板（5×5 网格）
-    draw.rectangle([4, 14, 97, 108], fill=panel, outline=metal, width=1)
-    draw_glow_line(draw, 6, 18, 6, 104, rune_glow_dim, 1)
-    draw_glow_line(draw, 95, 18, 95, 104, rune_glow_dim, 1)
-
-    # 25 个材料槽凹槽（5×5，间距 18，与 ForgeTableMenu 一致）
-    slot_positions = [(8 + (i % 5) * 18, 17 + (i // 5) * 18) for i in range(25)]
-
-    def ring_color(i: int):
-        """索引 12=中心核心（青），内圈 8 格=辅助（紫），外圈 16 格=基底（橙）。"""
-        if i == 12:
-            return (0, 255, 255, 120)
-        if i in (6, 7, 8, 11, 13, 16, 17, 18):
-            return (168, 85, 247, 100)
-        return (249, 115, 22, 100)
-
-    for sx, sy in slot_positions:
-        i = slot_positions.index((sx, sy))
-        # 槽位背景
-        draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal_light, width=1)
-        # 色环暗示（外扩 1px，18×18，与屏幕端色环一致）
-        draw.rectangle([sx - 1, sy - 1, sx + 16, sy + 16], outline=ring_color(i), width=1)
+    # 6. 左上材料区：木质告示板（文字列表用），板缝 + 一角铜铆钉
+    draw.rectangle([4, 14, 97, 108], fill=wood_light, outline=metal_dark, width=1)
+    for sy in (38, 62, 86):  # 木板横缝
+        draw.line([(5, sy), (96, sy)], fill=wood_dark, width=1)
+    draw.rectangle([91, 17, 93, 19], fill=copper)  # 右上角铜铆钉
 
     # 7. 中部操作按钮面板
-    draw.rectangle([142, 46, 209, 97], fill=panel, outline=metal, width=1)
-    ask_rect = (146, 50, 146 + 58 - 1, 50 + 13 - 1)
-    clear_rect = (146, 66, 146 + 58 - 1, 66 + 13 - 1)
-    confirm_rect = (146, 82, 146 + 58 - 1, 82 + 13 - 1)
-    for rect in [ask_rect, clear_rect, confirm_rect]:
-        draw.rectangle(rect, fill=slot_dark, outline=metal_light, width=1)
-        draw_glow_line(draw, rect[0] + 1, rect[3] - 1, rect[2] - 1, rect[3] - 1, rune_glow_dim, 1)
+    draw.rectangle([142, 46, 209, 97], fill=wood, outline=metal_dark, width=1)
+    for rect in [(146, 50, 146 + 58 - 1, 50 + 13 - 1),
+                 (146, 66, 146 + 58 - 1, 66 + 13 - 1),
+                 (146, 82, 146 + 58 - 1, 82 + 13 - 1)]:
+        draw.rectangle(rect, fill=slot_dark, outline=metal, width=1)
+        # 按钮下缘一线暗铜
+        draw.line([(rect[0] + 2, rect[3] - 1), (rect[2] - 2, rect[3] - 1)], fill=copper_dark, width=1)
 
-    # 8. 右侧结果槽面板（32×32 金边大槽，逻辑槽 16×16 居中）
-    draw.rectangle([212, 42, 250, 82], fill=panel, outline=metal, width=1)
-    frame_rect = (214, 46, 214 + 31, 46 + 31)   # 32×32 视觉框
-    draw.rectangle(frame_rect, fill=slot_dark, outline=gold, width=1)
-    result_rect = (222, 54, 222 + 15, 54 + 15)  # 逻辑槽
-    draw.rectangle(result_rect, outline=metal_light, width=1)
-    # 结果框四角小符文
-    for ox, oy in [(-2, -2), (33, -2), (-2, 33), (33, 33)]:
-        px, py = frame_rect[0] + ox, frame_rect[1] + oy
-        draw.rectangle([px, py, px + 1, py + 1], fill=rune_glow)
+    # 8. 右侧结果槽面板（32×32 暗铜边大槽，逻辑槽 16×16 居中）
+    draw.rectangle([212, 42, 250, 82], fill=wood, outline=metal_dark, width=1)
+    frame_rect = (214, 46, 214 + 31, 46 + 31)
+    draw.rectangle(frame_rect, fill=slot_dark, outline=copper_dark, width=1)
+    result_rect = (222, 54, 222 + 15, 54 + 15)
+    draw.rectangle(result_rect, outline=metal, width=1)
 
-    # 9. 下方 AI 推荐卡片区（2×2 网格，材料网格与状态条下方、背包上方）
-    draw.rectangle([4, 124, 251, 176], fill=panel, outline=metal, width=1)
+    # 9. 下方 AI 推荐卡片区（压暗木板，2×2 网格）
+    draw.rectangle([4, 124, 251, 176], fill=wood, outline=metal_dark, width=1)
     for card_x in (8, 132):
         for card_y in (132, 154):
             draw.rectangle([card_x, card_y, card_x + 116 - 1, card_y + 20 - 1],
-                           outline=metal, width=1)
-            draw_glow_line(draw, card_x + 2, card_y + 1, card_x + 20, card_y + 1,
-                           rune_glow_dim, 1)
+                           outline=metal_dark, width=1)
 
-    # 10. 底部玩家背包区（9×3 + 快捷栏，原版间距 18）
-    draw.rectangle([4, 170, 173, 254], fill=panel, outline=metal, width=1)
+    # 10. 底部玩家背包区（9×3 + 快捷栏，保持玩家熟悉的样子）
+    draw.rectangle([4, 170, 173, 254], fill=wood, outline=metal_dark, width=1)
     for r in range(3):
         for c in range(9):
             sx, sy = 8 + c * 18, 176 + r * 18
-            draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal, width=1)
+            draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal_dark, width=1)
     for c in range(9):
         sx, sy = 8 + c * 18, 234
-        draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal_light, width=1)
+        draw.rectangle([sx, sy, sx + 15, sy + 15], fill=slot_dark, outline=metal, width=1)
 
-    # 11. 边缘符文 —— 沿左右两侧绘制竖排神秘符号
-    for y in range(18, H - 18, 12):
-        draw.rectangle([2, y, 3, y + 4], fill=rune_glow_dim)
-        draw.rectangle([W - 4, y + 2, W - 3, y + 6], fill=rune_glow_dim)
-
-    # 12. 顶部与底部横向发光纹
-    draw_glow_line(draw, 20, 14, 60, 14, rune_glow_dim, 1)
-    draw_glow_line(draw, 150, 14, 190, 14, rune_glow_dim, 1)
-    draw_glow_line(draw, 180, H - 4, 248, H - 4, rune_glow_dim, 1)
-
-    # 13. 添加轻微噪点
+    # 11. 轻微噪点（质感）
     add_noise(img, intensity=6, seed=123)
 
     return img
@@ -243,63 +197,40 @@ def generate_gui_texture() -> Image.Image:
 # -----------------------------------------------------------------------------
 
 def generate_block_texture() -> Image.Image:
-    """生成 16×16 的相之凝结台方块纹理。"""
+    """生成 16×16 的相之凝结台方块纹理（复古风：木质台面 + 钢灰包边 + 铜铆钉，铁砧感）。"""
     SIZE = 16
-    img = Image.new("RGBA", (SIZE, SIZE), hex_rgba("#12141A"))
+    img = Image.new("RGBA", (SIZE, SIZE), hex_rgba("#3A2A1A"))
     draw = ImageDraw.Draw(img)
 
-    # 配色
-    base = hex_rgba("#181B24")
-    dark = hex_rgba("#0E1015")
-    metal = hex_rgba("#2E3342")
-    metal_light = hex_rgba("#40485A")
-    rune = hex_rgba("#4ECDC4", 200)
-    rune_dim = hex_rgba("#4ECDC4", 90)
-    gold = hex_rgba("#C9A227", 160)
+    wood = hex_rgba("#4A3423")
+    wood_dark = hex_rgba("#3A2A1A")
+    metal_dark = hex_rgba("#3C3C3C")
+    metal = hex_rgba("#565656")
+    copper = hex_rgba("#B87333")
+    copper_dark = hex_rgba("#8A5A2B")
 
-    # 1. 基础金属面板（略小于全图，留出边框）
-    draw.rectangle([1, 1, SIZE - 2, SIZE - 2], fill=base, outline=metal, width=1)
+    # 1. 木质台面基底
+    draw.rectangle([0, 0, SIZE - 1, SIZE - 1], fill=wood)
 
-    # 2. 中心凹槽（祭坛感）
-    draw.rectangle([5, 5, SIZE - 6, SIZE - 6], fill=dark, outline=metal_light, width=1)
-    draw.rectangle([7, 7, SIZE - 8, SIZE - 8], outline=rune_dim, width=1)
+    # 2. 木纹条（两条横缝，低对比）
+    draw.line([(1, 5), (SIZE - 2, 5)], fill=wood_dark, width=1)
+    draw.line([(1, 10), (SIZE - 2, 10)], fill=wood_dark, width=1)
 
-    # 3. 四角符文刻痕
-    corners = [(2, 2), (SIZE - 3, 2), (2, SIZE - 3), (SIZE - 3, SIZE - 3)]
-    for cx, cy in corners:
-        draw.rectangle([cx, cy, cx + 1, cy + 1], fill=rune)
-        # 向中心延伸的短线
-        if cx < SIZE // 2 and cy < SIZE // 2:
-            draw.line([(cx + 2, cy), (cx + 2, cy + 1)], fill=rune_dim, width=1)
-        elif cx >= SIZE // 2 and cy < SIZE // 2:
-            draw.line([(cx - 1, cy), (cx - 1, cy + 1)], fill=rune_dim, width=1)
-        elif cx < SIZE // 2 and cy >= SIZE // 2:
-            draw.line([(cx + 2, cy), (cx + 2, cy + 1)], fill=rune_dim, width=1)
-        else:
-            draw.line([(cx - 1, cy), (cx - 1, cy + 1)], fill=rune_dim, width=1)
+    # 3. 钢灰金属包边（外圈 1px）+ 四角包铁
+    draw.rectangle([0, 0, SIZE - 1, SIZE - 1], outline=metal, width=1)
+    for cx, cy in [(0, 0), (SIZE - 3, 0), (0, SIZE - 3), (SIZE - 3, SIZE - 3)]:
+        draw.rectangle([cx, cy, cx + 2, cy + 2], fill=metal_dark, outline=metal, width=1)
 
-    # 4. 四边中点金色铆钉/符文
-    midpoints = [(SIZE // 2, 1), (SIZE // 2, SIZE - 2), (1, SIZE // 2), (SIZE - 2, SIZE // 2)]
-    for mx, my in midpoints:
-        draw.rectangle([mx, my, mx + 1, my + 1], fill=gold)
+    # 4. 四角铜铆钉（每角 1px，压在最外圈内侧）
+    for px, py in [(3, 3), (SIZE - 4, 3), (3, SIZE - 4), (SIZE - 4, SIZE - 4)]:
+        draw.point([(px, py)], fill=copper)
 
-    # 5. 从四角到中心的小刻线
-    draw.line([(3, 3), (5, 5)], fill=rune_dim, width=1)
-    draw.line([(SIZE - 4, 3), (SIZE - 6, 5)], fill=rune_dim, width=1)
-    draw.line([(3, SIZE - 4), (5, SIZE - 6)], fill=rune_dim, width=1)
-    draw.line([(SIZE - 4, SIZE - 4), (SIZE - 6, SIZE - 6)], fill=rune_dim, width=1)
+    # 5. 中央砧面凹槽（铁砧感）：钢灰 6×6 + 暗铜一丝
+    draw.rectangle([5, 5, SIZE - 6, SIZE - 6], fill=metal_dark, outline=metal, width=1)
+    draw.line([(6, 7), (SIZE - 7, 7)], fill=metal, width=1)
+    draw.point([(7, 8)], fill=copper_dark)
 
-    # 5b. 绚丽化：中心凹槽内发光符文核（青色亮核 + 四向星芒 + 金点）
-    rune_hi = hex_rgba("#9FF5EC", 255)
-    draw.point([(8, 7), (7, 8), (8, 8), (9, 8), (8, 9)], fill=rune)
-    draw.point([(8, 8)], fill=rune_hi)                       # 白热符文心
-    draw.point([(6, 8), (10, 8), (8, 6), (8, 10)], fill=rune_dim)  # 四向星芒
-    draw.point([(7, 7), (9, 9)], fill=gold)                  # 对角金点
-    # 四角符文刻痕提亮（与中心核呼应）
-    for cx, cy in corners:
-        draw.point([(cx, cy)], fill=rune_hi)
-
-    # 6. 添加噪点
+    # 6. 添加噪点（质感）
     add_noise(img, intensity=8, seed=77)
 
     return img
