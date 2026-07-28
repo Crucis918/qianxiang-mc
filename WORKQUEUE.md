@@ -668,7 +668,10 @@ WQ-46 ✅（三次解析合一、缓存以 `PhaseMaterialRegistry.all()` 身份�
 
 **返工清单（按优先级）**：
 
-## WQ-62 [ ] 【严重·返工 WQ-40】默认超时 30 秒对所有玩家都不生效（侦察会话已亲自核实）
+## WQ-62 [x] 完成(7780628) 【严重·返工 WQ-40】默认超时 30 秒对所有玩家都不生效（侦察会话已亲自核实）
+
+> 修理备注：模板 `timeout_seconds` 已改 30 并引入 `config_version`；`AIConfig.parse` 一次性迁移
+> （无版本号且 ≤10 → 抬 30 写回 + INFO），GameTest `aiConfigMigratesLegacyTimeout` 覆盖读旧文件→写回 30。
 
 `AIConfig.java:48` 常量改成 30，但 `:73` 的 `DEFAULT_FILE` 模板里仍写死
 `"timeout_seconds": 5`——首次启动把模板写盘，下次读回来就是 5；常量 30 只在"文件缺该字段"
@@ -677,7 +680,11 @@ WQ-46 ✅（三次解析合一、缓存以 `PhaseMaterialRegistry.all()` 身份�
 抬到 30 并写回，写一条 INFO）；③配套：30s+重试=最坏 60 秒白等，而 `ForgeTableAIHandler:34`
 冷却只有 3 秒，等待期还能堆任务——建议 UI 侧加"AI 思考中/可取消"或把冷却提到超时同量级。
 
-## WQ-63 [ ] 【高·返工 WQ-40】熔断两处计数缺陷：交替故障永不开、非 2xx 完全不计数
+## WQ-63 [x] 完成(7780628) 【高·返工 WQ-40】熔断两处计数缺陷：交替故障永不开、非 2xx 完全不计数
+
+> 修理备注：`AIGateway.recordOutcomeClassified` 三类故障（CONNECT/TIMEOUT/ENDPOINT）各自独立计数、
+> 成功或「有响应但不可用」才清零；`AIClient` 非 2xx 置 LAST_ENDPOINT_ERROR 进 ENDPOINT 计数（阈值 3 开熔断）。
+> GameTest `breakerOpensOnAlternatingFailures` / `breakerOpensOnEndpointErrors` 覆盖。
 
 ①`AIGateway.java:207` 连接失败分支 `TIMEOUT_FAILS.set(0)`、`:216` 超时分支
 `CONNECT_FAILS.set(0)`——"连一次不上、超一次时"交替出现时两个计数器永远回不到阈值 3，
@@ -887,7 +894,11 @@ base 就是 RARE 档的 ember_iron）。
 spellJson/customName 一直生效到关界面——玩家"清空"后手动改材料，产物仍带着已被清空的
 AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportProposalIndex(NONE)`。
 
-## WQ-74 [ ] 【高】AI 请求被服务端静默限流 → 状态条永久卡在「思考中」，只能关界面重开
+## WQ-74 [x] 完成(7780628) 【高】AI 请求被服务端静默限流 → 状态条永久卡在「思考中」，只能关界面重开
+
+> 修理备注：两台 handler 限流命中即回空 AiResponsePayload（客户端空提案→退出 PARSING）+ actionbar
+> 「AI 正在思考中」（lang `qianxiang.ai.rate_limited`）；两 Screen 加 70s 本地超时兜底（30s×2+10s，
+> 替换炼金台按旧 5s 拍的 8s）。GameTest `aiRateLimitRejectsSecondCall` 覆盖闸门。
 
 `ForgeTableAIHandler:46-49` 的 `PlayerRateLimiter` 命中时直接 `return`，不回包不提示；而
 客户端 `ForgeTableScreen:636` 已置 `status=PARSING`，`updateStatusFromSlots()` 第一行就
@@ -1256,6 +1267,144 @@ cleaver/bow/wand/pickaxe/shovel）由 `upscale16to32` 最近邻 ×2 兜底；
   优先重做这三张。
 - 32×32 动态图标与 16×16 原版物品并排（背包/创造栏混放）的观感待实机验收。
 - 战吼 HUD 只有倒计时数字无图标，主动技可见性留待后续 UI 轮次。
+
+---
+
+## WQ-87 [x] 完成(待提交) 【大·交互重做 + 键位根治】合成台 GUI 完整操作面 + 键位避让 EF
+
+> 编号备注：本单初次登记误用 WQ-63（与旧熔断单撞号）改 WQ-81，又与 fc749c3 已回填的
+> WQ-81（法术六步改造）撞号，现统一重编为 WQ-87。
+
+**范围**：①GUI 背包左键投入——两 Screen `mouseClicked` 拦截背包/快捷栏槽位左键
+（非 Shift），发新 C2S `TableInsertPayload(menuSlotIndex, wholeStack)`；handler 按
+openMenu 分派、校验槽位属玩家背包区（RESULT_SLOT+1 起 36 格）、材料区未满、非仪式，
+复用 `TableInteractions.insert` 守恒 split，200ms 节流；Shift+左键不拦截保持 quickMove；
+②材料行取回语义扩展——`TableRetrievePayload` 加 `all` 字段：左键取 1 个 / Shift 取该槽
+全部，行 hover tooltip 加操作提示；③「全部取回」按钮（材料区标题旁，
+`slotIndex=-1+all=true` 走 `TableInteractions.retrieveAll`，材料为空/仪式启动窗口期置灰）；
+④提示行重写为三行 0.6 缩放小字（`hint_insert`/`_2`/`_3`，中英）；⑤仪式中投入/取回
+客户端禁用（awaitingRitual 窗口期标志）+ 服务端权威拒判不变；
+⑥键位根治——cast_spell 默认 G→**B**、skill_tree K→**O**（activate_skill 保持 J），
+`SpellKeybinds` 注释写明 EF 占用键清单（R/K/G/LAlt/Y/鼠标左右/空格/Shift）；
+⑦轮盘 5 秒看门狗——按下后收不到释放沿（键被抢/焦点丢失）自动取消不发包、收回指针。
+
+**关键决策**：
+- 左键投入不走原版 slotClicked（避免拿起物品），直接发包、服务端按 menu.slots 下标
+  校验——客户端坐标不可信，区间外（材料槽/越界）一律 warn+拒绝。
+- 取回/投入共用 openMenu 分派范式（与 AI 放料一致），零新增菜单代码。
+- 仪式中禁用做两层：客户端 awaitingRitual 窗口期（点「开始创作」到服务端关 GUI 之间），
+  服务端 RitualHost.ritualState().active() 权威拒判——后者才是护栏。
+- 轮盘看门狗放在 RenderGuiEvent.Post（每帧必跑），超时取消时主动 grabMouse
+  （与 cancelIfActive 不同——那是 Screen 接管指针的路径，不能抢）。
+
+**⚠️ 部署迁移（父会话执行）**：`run/options.txt` 里存有旧绑定
+`key_key.qianxiang.cast_spell:key.keyboard.v`——代码默认值对已有实例不生效，
+需手动改为 `key.keyboard.b`（skill_tree/activate_skill 无残留条目，自动吃新默认 O/J）。
+
+**遗留观察项**：
+- 背包左键被拦截为「投入」后，台子 GUI 开着时无法从背包拿起物品整理——
+  与快捷栏交换（数字键）/拖出丢弃仍可用；实机若嫌霸道可加修饰键反转。
+- 锻造台三行提示与 8 行材料列表全满时的「…+N」溢出指示有轻微视觉邻近，
+  实机确认可读性。
+- 旧 options.txt 实例在迁移前按 V 仍会施法（旧绑定优先于默认），属预期。
+
+---
+
+## WQ-88 [x] 完成(待提交) 【大·AI 健壮性 + 主动建议】WQ-62/63/74 三联修复 + 「能做啥」提示条
+
+**范围**：①WQ-62——`AIConfig` 默认文件模板 timeout 5→30、引入 `config_version`，
+`parse()` 一次性迁移（无版本号且 ≤10 → 抬 30 写回 + INFO，只迁移一次）；
+②WQ-63——`AIGateway.recordOutcomeClassified` 三类故障（CONNECT/TIMEOUT/ENDPOINT）
+各自独立计数（成功/「有响应但不可用」才清零，不再互清），`AIClient` 非 2xx 置
+LAST_ENDPOINT_ERROR 进 ENDPOINT 计数（阈值 3 开熔断）；
+③WQ-74——两台 AI handler 限流命中即回空 AiResponsePayload（客户端空提案→退出
+PARSING）+ actionbar「AI 正在思考中」，两 Screen 加 70s 本地超时兜底（30s×2+10s，
+替换炼金台按旧 5s 超时拍的 8s）；
+④AI 主动建议——两 menu 重写 `broadcastChanges`：材料指纹变化 → 30t（1.5s）防抖 →
+`TableSuggestion` 本地分析（复用 ForgeComposer/SpellScrollComposer 同一事实源，
+零 HTTP 零副作用）→ 内容变了才发 `TableSuggestionPayload`；客户端
+`ClientTableSuggestion` 缓存，锻造台渲染在状态条下、炼金台渲染在标题行右侧
+（状态条下空间不足，见遗留）。
+
+**关键决策**：
+- 主动建议走 menu.broadcastChanges（每 tick、仅容器开着）而非 BE tick——
+  天然拿到「正在看这台子的玩家」，单机暂停时计时天然暂停。
+- 本地分析永远先显示且**不调 HTTP、不占 AI 限流**；AI 在线增强（confirm 模式）
+  是可选项，留待后续（见遗留）。
+- 建议内容按 key 去重（itemId|form|value），同内容不重复发包；
+  材料清空发空 itemId 清行。
+
+**遗留观察项**：
+- AI 增强建议（在线且非熔断时 confirm 模式替换本地行）未做——本地行已覆盖
+  「能做啥」核心诉求，增强属锦上添花。
+- 炼金台建议行放在标题行右侧（x=104）而非任务设想的「状态条下」——
+  状态条下被三行操作提示与「开始创作」按钮占满，实机确认可见性。
+- WQ-74 客户端「收到空响应退出 PARSING」依赖既有监听映射（空提案→IDLE），
+  服务端无客户端类可测，实机点两次「问 AI」验证状态条不再卡死。
+- 广播每 tick 计算 25/6 槽指纹（整数混合），开销可忽略；若后续加自动取料
+  自动化再考虑缓存。
+
+---
+
+## WQ-89 [x] 完成(待提交) 【大·审计 + 工具】算子落地矩阵 + 手持生效链 + 数值复核 + 截图眼
+
+**范围**：①算子落地矩阵 GameTest（`QianxiangFunctionMatrixGameTests`）——25 个
+PhaseFunction 各挑代表物品（功能 tag/PhaseData），单材料走完整 compose，
+从产物栈 COMPOSED_ATTRIBUTES 组件逐字段断言，缺失一次性全报；
+②手持生效链——铁+燧石锻武器 → mock 玩家主手 → ATTACK_DAMAGE 1+4=5 /
+ATTACK_SPEED 4+0.4=4.4 落属性图，满力一击假人掉血 == 5.0；
+③数值复核——EDGE_ATTACK_DAMAGE 3.0→4.0、IGNITE_ATTACK_DAMAGE_BONUS 0.5→0.75
+（单件 COMMON 成品总攻 5，仍低于钻剑 7；powerScore 经 POWER_WEIGHT_DAMAGE 自动同步）；
+④`/qianxiang shot`（OP）——服务端发 ScreenshotRequestPayload，客户端
+`ClientScreenshot` 用原版 Screenshot.grab 抓整窗存 run/screenshots/qx_<时间戳>.png。
+
+**关键结论**：
+- 「吞功能」在 resolver→compose→产物组件链路**不成立**：矩阵 25/25 全部落地。
+  实机观感的主因更可能是 EDGE 3.0 数值偏弱（已 buff）与效果等级的消费者
+  （护甲被动/事件钩子）感知度低，而非属性丢失。
+- 1.21.1 装备属性刷新走 tick 的 detectEquipmentUpdates 私有管线且
+  lastHandItems 首调用即播种——测试需反射调两次（空手播种→装备检出），
+  setItemSlot/onEquipItem 都不改属性（onEquipItem 只管音效/游戏事件）。
+
+**遗留观察项**：
+- grantedEffects（自由效果 tag）通道未进矩阵（属效果 tag 消费者侧，
+  与 25 算子不同通道），如需同等审计再开单。
+- 效果等级（ignite 等）的武器侧消费者强度（点燃秒数/吸血比例）未做数值审计，
+  「材料能力感知弱」的另一半可能在这里，建议实机打完再定调平。
+- 截图命令发的是 S2C 请求，客户端渲染线程抓帧；无头/专用服务端环境无客户端
+  可抓（预期，开发工具）。
+
+---
+
+## WQ-90 [x] 完成(待提交) 【大·可达性】相师/商人自然刷新 + 首进世界指引 + 编号整顿
+
+**范围**：①流浪相师主世界自然刷新——`data/neoforge/biome_modifier/wandering_sage_overworld.json`
+（neoforge:add_spawns，五大村庄群系 plains/desert/savanna/taiga/snowy_plains，
+weight 3，creature 类别随实体 MobCategory）；②深渊商人下界自然刷新——
+`abyss_merchant_nether.json`（nether_wastes/crimson_forest/warped_forest，weight 2，
+同为 creature 类别，下界 creature 池有炽足兽先例）；③首进世界指引——
+`FirstJoinGuideHandler`（PlayerLoggedInEvent + PersistentData `qianxiang:greeted` 标志，
+每玩家一次，零新 attachment）：聊天提示找相师开修行（O/B/J 键位）；
+④文档收口——README 操作说明（左键投入/Shift 整组/材料行取回/全部取回按钮/
+AI 主动建议条/键位 B·O·J/shot 命令）+ 队列编号整顿。
+
+**关键决策**：
+- 两 NPC 刷新类别保持 CREATURE（实体 MobCategory 如此，add_spawns 类别随实体类型）：
+  改 MONSTER 会被 despawn 逻辑清掉——NPC 必须不消失；下界 creature 池有炽足兽先例可刷。
+- 刷新群系显式列村庄五群系而不用 `#minecraft:is_overworld`：全主世界太泛，
+  「云游四方但遇得到」的密度平衡是村庄周边。
+- 指引判定用 PersistentData 标志而非 SagaData entries 为空：后者对
+  「从不锻造的纯探索玩家」会每次登录重复刷屏。
+- 编号整顿：前几轮新单 WQ-81/82/83 与 fc749c3 已回填的旧 WQ-81~86 撞号，
+  统一重编为 WQ-87（交互重做）/WQ-88（AI 建议）/WQ-89（矩阵审计），
+  交叉引用已同步；WQ-62/63/74 的完成回填提交号留父会话。
+
+**遗留观察项**：
+- 相师 weight 3 是拍脑袋值：creature 池上限 10 易被动物占满，
+  实机若仍难遇可提到 5 或加村庄结构内定点刷新（需 structure_processor，复杂度高）。
+- 商人在下界 creature 池的实际刷新率未实机验证（下界 creature 刷新区块
+  依赖玩家附近可站立地表，玄武岩三角洲未列入）。
+- 首进指引只有一条聊天，玩家可能略过；后续 UX 轮次可考虑成就引导强化。
 
 ---
 
