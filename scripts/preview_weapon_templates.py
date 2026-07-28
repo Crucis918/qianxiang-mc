@@ -15,7 +15,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 JAVA = ROOT / "src/main/java/com/qianxiang/client/DynamicWeaponTexture.java"
 OUT = ROOT / "scripts/out"
-SIZE = 16
+SIZE = 32
 SCALE = 8
 
 def abgr(r, g, b, a=255):
@@ -23,11 +23,12 @@ def abgr(r, g, b, a=255):
 
 
 SHAPES = ["sword", "greatsword", "dagger", "katana", "spear", "axe",
-          "hammer", "scythe", "mace", "staff", "book"]
+          "hammer", "scythe", "mace", "staff", "book", "shield", "hoe"]
 
-# 预览用效果色板（ignite：刃缘橙红 / 亮橙）
+# 预览用效果色板（ignite：刃缘橙红 / 亮橙 / 暗橙）
 PALETTE_MAIN = abgr(0xE0, 0x5A, 0x1E)
 PALETTE_BRIGHT = abgr(0xFF, 0xB0, 0x60)
+PALETTE_DARK = abgr(0x7A, 0x2E, 0x0E)
 PALETTE_NONE_MAIN = abgr(0xA8, 0xAE, 0xB6)
 # 核心材料族刃体色（预览默认 metal 钢灰，书面走效果暗色）
 FAMILY_BODY = abgr(0x9A, 0xA0, 0xA8)
@@ -35,6 +36,9 @@ HANDLE = abgr(0x6B, 0x4A, 0x2F)
 WRAP = abgr(0x3E, 0x2A, 0x1A)
 BOOK_COVER_DARK = abgr(0x7A, 0x2E, 0x0E)
 TIER_GOLD = abgr(0xD8, 0xB2, 0x4A)
+TIER_GOLD_DARK = abgr(0x8A, 0x5A, 0x2B)
+OUTLINE = abgr(0x26, 0x22, 0x1F)
+WHITE_HOT = abgr(0xFF, 0xF6, 0xE2)
 
 
 
@@ -62,33 +66,51 @@ def edge_hot(main, x, y):
 
 
 def extract_templates():
-    """从 java 源里抠出 private static final String[] NAME = { ... } 的字符串行。"""
+    """从 java 源里抠出 private static final String[] NAME = { ... } 的字符串行。
+    旧 16×16 模板按 java 侧 upscale16to32 同样做最近邻 ×2 兜底。"""
     text = JAVA.read_text(encoding="utf-8")
     out = {}
     for m in re.finditer(r'private static final String\[\] (\w+) = \{(.*?)\};', text, re.S):
         name = m.group(1).lower()
         rows = re.findall(r'"((?:\\.|[^"\\])*)"', m.group(2))
+        if len(rows) == 16:
+            rows = [''.join(ch * 2 for ch in r) for r in rows for _ in (0, 1)]
         rows = [(r + "." * SIZE)[:SIZE] for r in rows]
         out[name] = rows
     return out
 
 
 def role_color(c, shape, x, y):
+    """新词表：o 描边 / D·B·L 刃体三档 / e·E·X 刃缘三档 / T·t 金 / 其余同旧。"""
     base = BOOK_COVER_DARK if shape == "book" else FAMILY_BODY
+    if c == 'o':
+        return OUTLINE
+    if c == 'D':
+        return shade(base, 0.62)
     if c == 'B':
         return gradient(base, x, y)
+    if c == 'L':
+        return shade(base, 1.28)
     if c == 'b':
         return gradient(shade(base, 0.62), x, y)
+    if c == 'e':
+        return PALETTE_DARK
     if c == 'E':
         return edge_hot(PALETTE_MAIN, x, y)
+    if c == 'X':
+        return WHITE_HOT
     if c == 'G':
         return PALETTE_BRIGHT
     if c == 'R':
         return PALETTE_BRIGHT
     if c == 'T':
         return TIER_GOLD
+    if c == 't':
+        return TIER_GOLD_DARK
     if c == 'H':
         return HANDLE
+    if c == 'h':
+        return shade(HANDLE, 1.35)
     if c == 'W':
         return WRAP
     return None

@@ -104,14 +104,15 @@ public final class WeaponFormProfile {
     /**
      * 形态 3D 剖面参数：手持（第一/第三人称）上下文的参数化几何挤出配置。
      * <p>
-     * 厚度单位为像素，z 以 8 为中心向两侧挤出；像素按角色分区——
+     * 厚度单位为模型格（0..16 空间，与纹理分辨率无关——32×32 贴图的 1 texel = 0.5 格），
+     * z 以 8 为中心向两侧挤出；像素按角色分区——
      * B/b/E/G/T/R（刃体/护手）用 {@link #bladeThickness}，H/W（柄/缠绕）用
      * {@link #handleThickness}。GUI/GROUND/FIXED 仍走 2D 片，不消费本配置。
      * </p>
      */
     public record ExtrusionProfile(float bladeThickness, float handleThickness) {}
 
-    /** 未配置形状的默认剖面（标准薄片 1px，与旧挤出观感一致）。 */
+    /** 未配置形状的默认剖面（标准薄片 1 格，与旧挤出观感一致）。 */
     private static final ExtrusionProfile DEFAULT_EXTRUSION = new ExtrusionProfile(1.0f, 1.0f);
 
     private static final Map<String, ExtrusionProfile> EXTRUSIONS = Map.ofEntries(
