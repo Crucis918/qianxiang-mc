@@ -39,7 +39,7 @@ public final class QianxiangShotCommand {
 
     private static int handleShot(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
-        PacketDistributor.sendToPlayer(player, new ScreenshotRequestPayload());
+        PacketDistributor.sendToPlayer(player, new ScreenshotRequestPayload(0, false));
         ctx.getSource().sendSuccess(
                 () -> Component.translatable("qianxiang.command.shot.saved"), false);
         return 1;

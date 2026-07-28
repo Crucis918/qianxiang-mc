@@ -130,11 +130,11 @@ public final class QianxiangPayloads {
                     }
                 }));
 
-        // 服务端→客户端：/qianxiang shot 开发调试截图请求（客户端抓整窗存 run/screenshots）。
+        // 服务端→客户端：/qianxiang shot 与 dev 自动冒烟装置的截图请求（抓整窗存 run/screenshots）。
         registrar.playToClient(ScreenshotRequestPayload.TYPE, ScreenshotRequestPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> {
                     if (context.flow() == PacketFlow.CLIENTBOUND) {
-                        com.qianxiang.client.ClientScreenshot.grab();
+                        com.qianxiang.client.ClientScreenshot.grab(payload);
                     }
                 }));
 

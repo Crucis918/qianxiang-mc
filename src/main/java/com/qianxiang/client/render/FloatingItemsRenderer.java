@@ -12,7 +12,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,8 +36,14 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
     private static final int FULL_BRIGHT = 15728880;
     /** 公转一圈的 tick 数（约 4 秒）。 */
     private static final float ORBIT_TICKS = 80.0f;
-    /** 材料环半径。 */
-    private static final float RING_RADIUS = 0.35f;
+    /** 材料环半径（单圈，≤8 件）。 */
+    private static final float RING_RADIUS = 0.45f;
+    /** 材料数 > 8 时的双圈：内圈最多 8 个、外圈承接其余（实拍：单圈 r=0.35 挤成白团不可辨）。 */
+    private static final float INNER_RING_RADIUS = 0.28f;
+    private static final float OUTER_RING_RADIUS = 0.55f;
+    private static final int INNER_RING_MAX = 8;
+    /** 材料虚影缩放（0.35→0.45，与环半径同步放大提升可辨度）。 */
+    private static final float GHOST_SCALE = 0.45f;
     /** 转变动画时长（tick，0.5s）。 */
     private static final float TRANSITION_TICKS = 10.0f;
     /** 点缀粒子间隔（tick，约 2s）。 */
@@ -114,25 +122,43 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
         float orbitSpeed = (float) (Math.PI * 2.0 / ORBIT_TICKS) * (be.getCraftingState() == 1 ? 3.0f : 1.0f);
         float baseAngle = time * orbitSpeed;
 
-        // —— 材料虚影环 ——
-        float radius = RING_RADIUS * eased;
+        // —— 材料虚影环：≤8 件单圈（r=0.45），>8 件双圈（内 8 + 外其余），
+        //    每件带索引固定的 ±15° 倾角，避免完全同向重叠成一团 ——
+        List<ItemStack> mats = new ArrayList<>();
         int slotCount = be.materialSlotCount();
-        int index = 0;
         for (int i = 0; i < slotCount; i++) {
             ItemStack stack = be.getItems().get(i);
-            if (stack.isEmpty()) continue;
-            float angle = baseAngle + index * (float) (Math.PI * 2.0 / Math.max(1, slotCount));
+            if (!stack.isEmpty()) mats.add(stack);
+        }
+        int total = mats.size();
+        boolean twoRings = total > INNER_RING_MAX;
+        for (int index = 0; index < total; index++) {
+            int ringIndex, ringSize;
+            float ringRadius;
+            if (twoRings && index >= INNER_RING_MAX) {
+                ringIndex = index - INNER_RING_MAX;
+                ringSize = total - INNER_RING_MAX;
+                ringRadius = OUTER_RING_RADIUS;
+            } else {
+                ringIndex = index;
+                ringSize = twoRings ? INNER_RING_MAX : total;
+                ringRadius = twoRings ? INNER_RING_RADIUS : RING_RADIUS;
+            }
+            float angle = baseAngle + (ringIndex + (twoRings && ringRadius == OUTER_RING_RADIUS ? 0.5f : 0.0f))
+                    * (float) (Math.PI * 2.0 / Math.max(1, ringSize));
             double bob = Math.sin(time * 0.12 + index * 1.7) * 0.04;
-            renderGhost(level, stack,
-                    0.5 + Math.cos(angle) * radius, 1.05 + bob, 0.5 + Math.sin(angle) * radius,
-                    0.35f, time, poseStack, bufferSource, packedOverlay);
+            // 索引固定的伪随机倾角（-15°~+15°）：billboard 同向重叠的解糊
+            float tilt = (((index * 37) % 31) / 30.0f - 0.5f) * 30.0f;
+            renderGhost(level, mats.get(index),
+                    0.5 + Math.cos(angle) * ringRadius * eased, 1.05 + bob,
+                    0.5 + Math.sin(angle) * ringRadius * eased,
+                    GHOST_SCALE, tilt, time, poseStack, bufferSource, packedOverlay);
             sparkle(level, be.getBlockPos(), gameTime, index, state);
-            index++;
         }
 
-        // —— 产物虚影：中心上方缓慢自转（转变期从台面升起并放大） ——
+        // —— 产物虚影：中心上方缓慢自转（转变期从台面升起并放大；终点 1.35 与材料环拉开层次） ——
         if (!displayResult.isEmpty()) {
-            double y = 0.85 + 0.35 * eased;
+            double y = 1.0 + 0.35 * eased;
             poseStack.pushPose();
             poseStack.translate(0.5, y, 0.5);
             poseStack.scale(0.5f * eased, 0.5f * eased, 0.5f * eased);
@@ -143,17 +169,27 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
         }
     }
 
-    /** 渲染一个 billboard 虚影（始终面向玩家）。 */
+    /** 渲染一个 billboard 虚影（面向玩家 + tiltDeg 屏幕内倾角解重叠）。 */
     private void renderGhost(Level level, ItemStack stack, double x, double y, double z, float scale,
-                             float time, com.mojang.blaze3d.vertex.PoseStack poseStack,
+                             float tiltDeg, float time, com.mojang.blaze3d.vertex.PoseStack poseStack,
                              MultiBufferSource bufferSource, int packedOverlay) {
         poseStack.pushPose();
         poseStack.translate(x, y, z);
         poseStack.scale(scale, scale, scale);
         poseStack.mulPose(context.getEntityRenderer().cameraOrientation());
+        if (tiltDeg != 0.0f) {
+            poseStack.mulPose(Axis.ZP.rotationDegrees(tiltDeg));
+        }
         context.getItemRenderer().renderStatic(stack,
                 ItemDisplayContext.FIXED, FULL_BRIGHT, packedOverlay, poseStack, bufferSource, level, 0);
         poseStack.popPose();
+    }
+
+    /** 旧签名（仪式飞材等不需要倾角的调用点）。 */
+    private void renderGhost(Level level, ItemStack stack, double x, double y, double z, float scale,
+                             float time, com.mojang.blaze3d.vertex.PoseStack poseStack,
+                             MultiBufferSource bufferSource, int packedOverlay) {
+        renderGhost(level, stack, x, y, z, scale, 0.0f, time, poseStack, bufferSource, packedOverlay);
     }
 
     // ============================ 合成仪式 VFX（粒子全部复用 spark/shockwave） ============================

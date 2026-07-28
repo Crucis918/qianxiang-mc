@@ -1408,6 +1408,18 @@ AI 主动建议条/键位 B·O·J/shot 命令）+ 队列编号整顿。
 
 ---
 
+## WQ-91 [x] 完成(610d402) 【大·实机冒烟与验收闭环】自动视觉冒烟装置 + NeoForge 升级 + 存储模组安装
+
+**范围**：① `handler/AutoSmokeHandler`(QX_AUTOSMOKE=1 门控 + quickPlay 直进世界 + ServerTick 步骤表:kit/传送/放台/投料/仪式连拍/九形态手持双视角/杖书单镜/技能树,~26s 出全套图);② `/qianxiang shot` 截图链(ScreenshotRequestPayload 扩 perspective/closeScreen,客户端延迟 2t 抓帧);③ 台面虚影可读性(双圈 r=0.28/0.55、scale 0.45、逐件伪随机倾角、产物上移至 1.35);④ NeoForge 21.1.219→21.1.244(SSN 1.13.x 需要 ≥21.1.235);⑤ run/mods 安装 travelersbackpack 10.1.37 + storagenetwork 1.13.1 + flib 0.2.8(均核实 NeoForge jar);⑥ run/config/qianxiang-ai.json 端点修复(dashscope 标准 URL + qwen-plus,key 未动);⑦ run/options.txt cast_spell 迁移 V→B。
+
+**冒烟实拍结论(两轮共 26 张)**:复古台贴图 ✓;虚影双圈后逐件可辨 ✓;仪式飞材/火花 ✓;技能树界面 ✓;手持 3D 剑/锤/杖形态可辨 ✓;键位提示 B/O/J ✓;首进指引 ✓。第一轮发现"投料触发 spell_book 优先截胡导致拍不到武器"已修(换烈焰粉)。
+
+**遗留观察**:① 16 张/轮的同秒去重导致九形态未拍全,需要全量时重跑;② 轮盘施法画面未入序列(需输入模拟);③ 效果等级消费者强度(点燃时长/吸血比)未审计;④ 相师刷新 weight 3 实机遭遇率待观察;⑤ Wayland 下无法脚本驱动窗口,截图链路是唯一"眼睛",勿删。
+
+**验收**:`./gradlew compileJava` 绿;21.1.244 下 runGameTestServer 105/105 全绿;两轮冒烟 AUTOSMOKE_DONE 正常写出。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）

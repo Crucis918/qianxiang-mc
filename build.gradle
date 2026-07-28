@@ -45,6 +45,13 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            // dev 自动视觉冒烟：QX_AUTOSMOKE=1 时直接进存档（默认「新的世界」，可用
+            // QX_AUTOSMOKE_WORLD 覆盖），进世界后由 AutoSmokeHandler 驱动脚本化截图。
+            // 环境变量未设时零行为变化。
+            if (System.getenv('QX_AUTOSMOKE') == '1') {
+                programArguments.addAll '--quickPlaySingleplayer',
+                        (System.getenv('QX_AUTOSMOKE_WORLD') ?: '新的世界')
+            }
         }
         server {
             server()
