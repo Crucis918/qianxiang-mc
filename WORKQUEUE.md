@@ -1151,6 +1151,47 @@ shockwave 贴地双面环缓出扩散；引擎施法/aoe/命中/弹体轨迹高�
 
 ---
 
+## WQ-60 [x] 完成(待提交) 【大·存储适配 + 合成仪式】自动取料四源存储 + 工作台创作仪式
+
+**范围**：①自动取料存储适配——`MaterialSources` 抽象（`count/extract` 两操作，
+严格物品守恒），AI 放料按序翻：玩家背包 → 旅行背包（TB，`compileOnly` 软依赖，
+`AttachmentUtils.getBackpackWrapper().getStorage()`）→ 台子 r=4 内
+`Capabilities.ItemHandler.BLOCK` 容器 → Refined Storage 2 网络（`compileOnly` 软依赖，
+NetworkNodeContainer→StorageNetworkComponent）；TB/RS2 类型引用全部隔离在
+`compat/` 两个类里，调用点 `ModList.isLoaded` 守卫（EF 同款模式，不装不崩）；
+mods.toml 两条 optional 声明；②合成仪式——产物就绪点「开始创作」（产物槽点击/
+空手右键同效）→ `RitualLogic` 状态机 FLYING(30t)→FORMING(50t)→DONE：材料先锁进
+`ritualInputs`（不销毁）、`pendingResult` 记录产物、`closeContainer` 关 GUI；
+FLYING 材料 ghost 从玩家位置抛物线飞入拖 spark 尾迹；FORMING 炼金台画双层反向
+同心环+内接五边形魔法阵（产物法术元素色），锻造台每 10t 锻打火花+ANVIL_LAND；
+DONE 时 ritualInputs 才真正消耗、displayResult 就位、记相谱，产物留台面空手拾取；
+仪式中投料/取回/再触发一律拒绝；挖台 ritualInputs 照常掉落不吞。
+
+**关键决策**：
+- SSN（简易储存网络）零专门代码——其 Exchange 接口方块把整网代理成标准
+  `Capabilities.ItemHandler.BLOCK`，被通用附近容器扫描天然覆盖。
+- RS2 只认台子 r=4 内的网络方块（避免隔空抽全网）；
+  抽取按 `extract(EXECUTE)` 返回数量重建栈，严格守恒。
+- 材料在 DONE 转态才真正消耗（此前锁在 ritualInputs，挖台/崩服不吞料；
+  仪式状态落盘，读回非 NONE 统一归 NONE 并退回材料槽）。
+- 产物槽 `mayPickup=false`，点击/Shift 点击改为触发仪式；相谱记录时机从
+  「取产物」改为「DONE 转态」（仪式完成即算创作成功，拾取只是拿取）。
+- menu 指纹短路修复：产物槽被外部清空但材料指纹未变时不再跳过重算
+  （仪式后再放同样材料卡空预览，GameTest 抓出的真实 bug）。
+
+**遗留观察项**：
+- RS2 用裸 `ItemResource.ofItemStack(白板栈)` 匹配：带 phase_data 组件的千相材料
+  存进 RS 后是带组件条目，裸 key 可能匹配不到——组件级匹配待实机验证
+  （箱子/背包/TB 路径不受影响）。
+- 仪式中重开 GUI 可见空材料槽与新预览，与 DONE 的 displayResult 两路径并存，
+  语义自洽但视觉上待 UI 轮次统一。
+- BER 仪式 VFX 进度用客户端本地时间推进（服务端 progress 仅作校准），
+  跨维度/卡顿下可能与服务器差几 tick，纯视觉无影响。
+- r=4 存储扫描（容器+RS2）是 9×9×9 的 capability 查询，仅在放料点击时触发；
+  后续若接自动化取料需加缓存。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）

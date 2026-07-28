@@ -286,6 +286,8 @@
   "qianxiang.table.hint_insert": "右键投入 · Shift+点击背包投入 · 潜行空手取回 · 点列表行取回",
   "qianxiang.table.missing": "还缺：%s",
   "qianxiang.table.missing_mark": "缺",
+  "qianxiang.table.begin_craft": "开始创作",
+  "qianxiang.table.ritual_busy": "创作仪式进行中，稍安勿躁…",
   "qianxiang.spell.migration.learned": "已从旧装备中学会 %d 个法术",
   "qianxiang.forge_table.summary.fallback.spell": "（基础配方）按法术描述匹配的自由法术方案",
   "qianxiang.spell.custom": "自由法术：%s",

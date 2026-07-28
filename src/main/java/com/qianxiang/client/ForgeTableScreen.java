@@ -201,6 +201,8 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private Button materialFilterButton;
     /** 「动作编辑」按钮（扩展面板最底行）：打开连击编辑器 {@link MovesetEditorScreen}。 */
     private Button movesetEditorButton;
+    /** 「开始创作」按钮（产物就绪时显示，点击触发合成仪式）。 */
+    private Button beginCraftButton;
 
     private int typeIndex = 0;  // weapon
     private int tierIndex = 1;  // rare
@@ -413,6 +415,15 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                 .build();
         this.addRenderableWidget(this.movesetEditorButton);
 
+        // 「开始创作」按钮：产物就绪时显示（操作按钮组下方），点击发仪式请求
+        this.beginCraftButton = Button.builder(
+                        Component.translatable("qianxiang.table.begin_craft"),
+                        b -> PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload()))
+                .pos(leftPos + 146, topPos + 100)
+                .size(58, 13)
+                .build();
+        this.addRenderableWidget(this.beginCraftButton);
+
         // 注册 AI 结果监听器
         ClientForgeTableAI.setListener(result -> {
             this.lastAiResult = result;
@@ -551,6 +562,8 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         updateStatusFlash();
         this.confirmButton.visible = hasMaterialsInSlots();
         this.confirmButton.active = hasMaterialsInSlots();
+        // 「开始创作」只在产物就绪时显示
+        this.beginCraftButton.visible = !this.menu.getSlot(ForgeTableMenu.RESULT_SLOT).getItem().isEmpty();
         updatePanelVisibility();
 
         super.render(g, mouseX, mouseY, partialTick);

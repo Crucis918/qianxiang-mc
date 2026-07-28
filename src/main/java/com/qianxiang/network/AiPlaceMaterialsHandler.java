@@ -94,30 +94,34 @@ public final class AiPlaceMaterialsHandler {
     }
 
     /**
-     * 把 wanted 逐件从玩家主背包移入材料槽（每件 1 个）。
-     * <p>纯逻辑无发包，GameTest 可直接断言返回值与容器状态。
+     * 把 wanted 逐件移入材料槽（每件 1 个）。
+     * <p>
+     * 取料按序翻 {@link com.qianxiang.phase.MaterialSources}：玩家背包 → 旅行背包 →
+     * 台旁 r=4 容器（SSN/箱子）→ RS2 网络；全部来源都没有才算缺（missing 口径不变）。
+     * 先查槽位再抽取，严格物品守恒（抽多少放多少，堆叠冲突的退回玩家背包）。
+     * 纯逻辑无发包，GameTest 可直接断言返回值与容器状态。
      */
     public static PlaceResult placeMaterials(Player player, net.minecraft.world.Container container,
                                              int materialSlots, List<Item> wanted) {
+        net.minecraft.core.BlockPos tablePos =
+                container instanceof net.minecraft.world.level.block.entity.BlockEntity be
+                        ? be.getBlockPos() : player.blockPosition();
+        List<com.qianxiang.phase.MaterialSources.Source> sources =
+                com.qianxiang.phase.MaterialSources.of(player, player.level(), tablePos);
+
         List<Item> placed = new ArrayList<>();
         List<Item> missing = new ArrayList<>();
         for (Item item : wanted) {
-            int invSlot = findInInventory(player, item);
-            if (invSlot < 0) {
-                missing.add(item);
-                continue;
-            }
             int materialSlot = findMaterialSlot(container, item, materialSlots);
             if (materialSlot < 0) {
-                missing.add(item); // 材料槽已满
+                missing.add(item); // 材料槽已满（先查槽再抽取，守恒）
                 continue;
             }
-            ItemStack invStack = player.getInventory().getItem(invSlot);
-            if (invStack.isEmpty()) {
+            ItemStack move = extractFromSources(sources, item, 1);
+            if (move.isEmpty()) {
                 missing.add(item);
                 continue;
             }
-            ItemStack move = invStack.split(1);
             ItemStack existing = container.getItem(materialSlot);
             if (existing.isEmpty()) {
                 container.setItem(materialSlot, move);
@@ -126,8 +130,11 @@ public final class AiPlaceMaterialsHandler {
                 existing.grow(1);
                 container.setItem(materialSlot, existing);
             } else {
-                invStack.grow(1); // 不可堆叠，撤销
+                // 组件不一致无法堆叠：退回玩家背包（物品不丢），记为未放入
                 missing.add(item);
+                if (!player.getInventory().add(move)) {
+                    player.drop(move, false);
+                }
                 continue;
             }
             placed.add(item);
@@ -135,13 +142,15 @@ public final class AiPlaceMaterialsHandler {
         return new PlaceResult(placed.size(), List.copyOf(placed), List.copyOf(missing));
     }
 
-    /** 只扫主背包 36 格：getContainerSize() 是 41，会把身上穿的盔甲/副手也当材料取走。 */
-    private static int findInInventory(Player player, Item item) {
-        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
-            ItemStack s = player.getInventory().getItem(i);
-            if (!s.isEmpty() && s.is(item)) return i;
+    /** 按序遍历来源抽取至多 count 个；全部来源都没有返回空栈。 */
+    private static ItemStack extractFromSources(
+            List<com.qianxiang.phase.MaterialSources.Source> sources, Item item, int count) {
+        for (var source : sources) {
+            if (source.count(item) <= 0) continue;
+            ItemStack got = source.extract(item, count);
+            if (!got.isEmpty()) return got;
         }
-        return -1;
+        return ItemStack.EMPTY;
     }
 
     /** 测试入口：直接对容器做槽位选择（GameTest 无需构造完整菜单）。 */

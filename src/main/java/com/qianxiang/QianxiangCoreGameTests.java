@@ -973,7 +973,7 @@ public final class QianxiangCoreGameTests {
 
     // ============================ 炼金台 ============================
 
-    /** 炼金台：材料→卷轴预览（法术字段全部落在白名单）；onTake 消耗材料；关 GUI 产物槽清空。 */
+    /** 炼金台：材料→卷轴预览（法术字段全部落在白名单）；Shift 点产物触发仪式 → DONE 拾取；关 GUI 产物槽清空。 */
     @GameTest(template = "item_concept")
     public static void alchemyBrewsScrollAndConsumesMaterials(GameTestHelper helper) {
         var level = helper.getLevel();
@@ -983,7 +983,9 @@ public final class QianxiangCoreGameTests {
             helper.fail("炼金台方块实体应存在");
             return;
         }
-        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var player = mockServerPlayer(helper);
+        player.getInventory().clearContent();
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
         var menu = new com.qianxiang.menu.AlchemyTableMenu(1, player.getInventory(), be);
 
         // 余烬石（IGNITE）→ 火焰卷轴预览
@@ -1000,26 +1002,34 @@ public final class QianxiangCoreGameTests {
                 "卷轴法术字段应全部落在白名单，实际 " + spell.element()
                         + "/" + spell.form() + "/" + spell.effect());
 
-        // onTake：产物入包 + 材料消耗
-        ItemStack moved = menu.quickMoveStack(player, com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT);
-        helper.assertTrue(moved.is(QianxiangItems.MAGIC_SCROLL.get()), "取出应得卷轴，实际 " + moved);
-        helper.assertTrue(be.getItem(0).isEmpty(), "取走卷轴应消耗材料槽 0，实际 " + be.getItem(0));
-        boolean inInv = false;
-        for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
-            if (player.getInventory().getItem(i).is(QianxiangItems.MAGIC_SCROLL.get())) inInv = true;
-        }
-        helper.assertTrue(inInv, "卷轴应进入玩家背包");
+        // Shift 点击产物 = 触发合成仪式（不再直接拿）：材料移入 ritualInputs
+        menu.quickMoveStack(player, com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT);
+        helper.assertTrue(be.ritualState() == com.qianxiang.block.RitualState.FLYING,
+                "Shift 点击产物应触发仪式，实际状态 " + be.ritualState());
+        helper.assertTrue(be.ritualInputs().size() == 1 && be.getItem(0).isEmpty(),
+                "材料应移入 ritualInputs 并清空材料槽");
+        helper.assertTrue(countInInventory(player, QianxiangItems.MAGIC_SCROLL.get()) == 0,
+                "触发仪式时玩家不应直接得到卷轴");
 
-        // 关 GUI：实时预览必须清空（防零成本残留）
-        be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()));
-        menu.slotsChanged(be);
-        helper.assertTrue(!be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
-                "重新放料后产物槽应再次出预览");
-        menu.removed(player);
-        helper.assertTrue(be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
-                "关闭界面后产物槽必须清空（预览非实体库存）");
-        level.removeBlock(pos, false);
-        helper.succeed();
+        // FLYING 30t + FORMING 50t，等 90t 到 DONE 后空手拾取
+        helper.runAfterDelay(90, () -> {
+            helper.assertTrue(be.ritualState() == com.qianxiang.block.RitualState.DONE,
+                    "80t 后应为 DONE，实际 " + be.ritualState());
+            helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+            helper.assertTrue(countInInventory(player, QianxiangItems.MAGIC_SCROLL.get()) == 1,
+                    "DONE 后空手右键应拾取恰好一张卷轴，实际背包 " + dumpInventory(player));
+
+            // 关 GUI：实时预览必须清空（防零成本残留）
+            be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get()));
+            menu.slotsChanged(be);
+            helper.assertTrue(!be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
+                    "重新放料后产物槽应再次出预览");
+            menu.removed(player);
+            helper.assertTrue(be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT).isEmpty(),
+                    "关闭界面后产物槽必须清空（预览非实体库存）");
+            level.removeBlock(pos, false);
+            helper.succeed();
+        });
     }
 
     /** 炼金台自动化边界：只暴露 6 材料槽、产物槽禁塞禁抽、材料槽只进不出（正+负双断言）。 */
@@ -1279,9 +1289,9 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
-    /** 空手右键：有产物直接拿（材料消耗、产物清空）；再点一次不给第二份（防双计）。 */
+    /** 合成仪式全流程：触发（材料入 ritualInputs、玩家未得产物）→ DONE → 空手拾取仅一份。 */
     @GameTest(template = "item_concept")
-    public static void takeResultByEmptyHand(GameTestHelper helper) {
+    public static void ritualCompletesAndYieldsResult(GameTestHelper helper) {
         var level = helper.getLevel();
         net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
         var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
@@ -1290,12 +1300,9 @@ public final class QianxiangCoreGameTests {
             helper.fail("锻造台方块实体应存在");
             return;
         }
-        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        var player = mockServerPlayer(helper);
         player.getInventory().clearContent();
         player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        var hit = new net.minecraft.world.phys.BlockHitResult(
-                net.minecraft.world.phys.Vec3.atCenterOf(pos),
-                net.minecraft.core.Direction.UP, pos, false);
 
         be.setItem(0, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
         ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
@@ -1304,29 +1311,119 @@ public final class QianxiangCoreGameTests {
         helper.assertTrue(!preview.isEmpty(), "材料就绪后产物槽应有预览产物");
         var resultItem = preview.getItem();
 
-        helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
-        helper.assertTrue(be.getItem(0).isEmpty(), "取走产物应消耗材料槽 0");
-        helper.assertTrue(be.getItem(ForgeTableMenu.RESULT_SLOT).isEmpty(),
-                "材料耗尽后产物槽应清空，实际 " + be.getItem(ForgeTableMenu.RESULT_SLOT));
-        helper.assertTrue(countInInventory(player, resultItem) == 1,
-                "产物应进玩家背包 1 份");
+        helper.assertTrue(com.qianxiang.block.RitualLogic.startRitual(be, player),
+                "产物就绪时应能触发仪式");
+        helper.assertTrue(be.ritualState() == com.qianxiang.block.RitualState.FLYING,
+                "触发后应为 FLYING，实际 " + be.ritualState());
+        helper.assertTrue(be.ritualInputs().size() == 1 && be.getItem(0).isEmpty(),
+                "材料应移入 ritualInputs 并清空材料槽");
+        helper.assertTrue(!be.pendingResult().isEmpty(), "pendingResult 应记录产物");
+        helper.assertTrue(countInInventory(player, resultItem) == 0,
+                "触发仪式时玩家不应直接得到产物");
 
-        // 拿走产物后它落在主手（Inventory.add 优先选中槽）——挪到背包深处，
-        // 否则第二次「空手」点击会把它当材料重新投入（那是正确行为，不是本断言目标）。
-        var inv = player.getInventory();
-        for (int i = 0; i < 9; i++) {
-            if (inv.getItem(i).is(resultItem)) {
-                inv.setItem(9, inv.getItem(i));
-                inv.setItem(i, ItemStack.EMPTY);
-                break;
+        // FLYING 30t + FORMING 50t，等 90t 让真实 tick 推进到 DONE
+        helper.runAfterDelay(90, () -> {
+            helper.assertTrue(be.ritualState() == com.qianxiang.block.RitualState.DONE,
+                    "80t 后应为 DONE，实际 " + be.ritualState());
+            helper.assertTrue(be.ritualInputs().isEmpty(),
+                    "DONE 时材料应被真正消耗（ritualInputs 清空）");
+            helper.assertTrue(!be.getDisplayResult().isEmpty(),
+                    "DONE 后 displayResult 应就位");
+
+            helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+            helper.assertTrue(countInInventory(player, resultItem) == 1,
+                    "DONE 后空手右键应拾取恰好一份产物，实际背包 " + dumpInventory(player));
+            helper.assertTrue(be.ritualState() == com.qianxiang.block.RitualState.NONE,
+                    "拾取后应回 NONE");
+
+            // 产物落主手（Inventory.add 优先选中槽）——挪到背包深处再点第二次，
+            // 否则第二次「空手」点击会把它当材料重新投入（那是正确行为）。
+            var inv = player.getInventory();
+            for (int i = 0; i < 9; i++) {
+                if (inv.getItem(i).is(resultItem)) {
+                    inv.setItem(9, inv.getItem(i));
+                    inv.setItem(i, ItemStack.EMPTY);
+                    break;
+                }
             }
-        }
-        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+            helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+            helper.assertTrue(countInInventory(player, resultItem) == 1,
+                    "第二次空手点击不得再给一份（防双计），实际背包 " + dumpInventory(player));
+            level.removeBlock(pos, false);
+            helper.succeed();
+        });
+    }
 
+    /** 仪式中锁定：投料/列表取回/再次触发一律被拒（材料不变）。 */
+    @GameTest(template = "item_concept")
+    public static void ritualLocksTable(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = mockServerPlayer(helper);
+        player.getInventory().clearContent();
+
+        be.setItem(0, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        menu.slotsChanged(be);
+        helper.assertTrue(com.qianxiang.block.RitualLogic.startRitual(be, player), "触发仪式");
+        int inputCount = be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum();
+
+        // 手持投料：被拒，手持不变、ritualInputs 不变
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 2));
         helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
-        helper.assertTrue(countInInventory(player, resultItem) == 1,
-                "第二次空手点击不得再给一份（防双计），实际背包 " + dumpInventory(player));
+        helper.assertTrue(player.getMainHandItem().getCount() == 2,
+                "仪式中投料应被拒（手持不消耗），实际 " + player.getMainHandItem().getCount());
+        helper.assertTrue(be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum() == inputCount,
+                "仪式中投料不得改变 ritualInputs");
+
+        // 列表取回：被拒
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 0),
+                "仪式中列表取回应被拒");
+        helper.assertTrue(be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum() == inputCount,
+                "仪式中取回不得改变 ritualInputs");
+
+        // 再次触发：被拒
+        helper.assertTrue(!com.qianxiang.block.RitualLogic.startRitual(be, player),
+                "仪式中再次触发应被拒");
+        helper.succeed();
+    }
+
+    /** 仪式中挖台：ritualInputs 全部掉落不吞（pendingResult 作废）。 */
+    @GameTest(template = "item_concept")
+    public static void ritualInputsDropOnBreak(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = mockServerPlayer(helper);
+        player.getInventory().clearContent();
+
+        be.setItem(0, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 2));
+        be.setItem(1, new ItemStack(Items.STICK));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        menu.slotsChanged(be);
+        helper.assertTrue(com.qianxiang.block.RitualLogic.startRitual(be, player), "触发仪式");
+        helper.assertTrue(be.ritualInputs().size() == 2, "两个材料应已锁定");
+
         level.removeBlock(pos, false);
+        int dropped = level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class,
+                        new net.minecraft.world.phys.AABB(pos).inflate(3.0))
+                .stream().mapToInt(e -> e.getItem().getCount()).sum();
+        helper.assertTrue(dropped == 3,
+                "挖台后 ritualInputs 应全部掉落（2+1=3 个），实际掉落 " + dropped);
+        helper.assertTrue(be.ritualInputs().isEmpty(), "掉落后 ritualInputs 应清空");
         helper.succeed();
     }
 
@@ -1497,6 +1594,40 @@ public final class QianxiangCoreGameTests {
         helper.assertTrue(countInInventory(player, Items.EMERALD) == 0
                         && countInInventory(player, Items.IRON_INGOT) == 0,
                 "已放材料应从背包扣除");
+        helper.succeed();
+    }
+
+    /** 自动取料存储适配：台旁箱子（Capabilities.ItemHandler.BLOCK）里的材料也能被抽走，严格守恒。 */
+    @GameTest(template = "item_concept")
+    public static void materialsPulledFromNearbyChest(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos tablePos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        net.minecraft.core.BlockPos chestPos = helper.absolutePos(new net.minecraft.core.BlockPos(3, 1, 2));
+        level.setBlockAndUpdate(tablePos, QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        level.setBlockAndUpdate(chestPos, net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
+        if (!(level.getBlockEntity(tablePos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)
+                || !(level.getBlockEntity(chestPos) instanceof net.minecraft.world.level.block.entity.ChestBlockEntity chest)) {
+            helper.fail("锻造台/箱子方块实体应存在");
+            return;
+        }
+        chest.setItem(0, new ItemStack(Items.IRON_INGOT, 3));
+
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();  // 背包空：只能来自箱子
+
+        var result = com.qianxiang.network.AiPlaceMaterialsHandler.placeMaterials(player, be,
+                ForgeTableMenu.MATERIAL_SLOTS,
+                List.of(Items.IRON_INGOT, Items.DIAMOND));
+        helper.assertTrue(result.placedCount() == 1,
+                "应从箱子抽到 1 个铁锭，实际 " + result.placedCount());
+        helper.assertTrue(result.missing().size() == 1 && result.missing().get(0) == Items.DIAMOND,
+                "箱子没有的钻石应报缺料，实际 " + result.missing());
+        helper.assertTrue(be.getItem(0).is(Items.IRON_INGOT),
+                "铁锭应进材料槽 0，实际 " + be.getItem(0));
+        helper.assertTrue(chest.getItem(0).getCount() == 2,
+                "守恒：箱子应剩 2 个铁锭（抽 1 放 1），实际 " + chest.getItem(0).getCount());
+        level.removeBlock(tablePos, false);
+        level.removeBlock(chestPos, false);
         helper.succeed();
     }
 

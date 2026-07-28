@@ -25,11 +25,13 @@ public final class ClientSetup {
         event.registerEntityRenderer(QianxiangEntities.ABYSS_MERCHANT.get(), QianxiangAbyssMerchantRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.SPELL_PROJECTILE.get(), SpellProjectileRenderer::new);
         event.registerEntityRenderer(QianxiangEntities.MYRIAD_WARDEN.get(), QianxiangMyriadWardenRenderer::new);
-        // 功能台「去格子化」：漂浮材料/产物虚影（两台共用同一泛型 BER）
+        // 功能台「去格子化」：漂浮材料/产物虚影（两台共用同一泛型 BER，风格分锻打/魔法阵）
         event.registerBlockEntityRenderer(com.qianxiang.QianxiangBlockEntities.FORGE_TABLE.get(),
-                com.qianxiang.client.render.FloatingItemsRenderer::new);
+                ctx -> new com.qianxiang.client.render.FloatingItemsRenderer<com.qianxiang.block.ForgeTableBlockEntity>(
+                        ctx, false));
         event.registerBlockEntityRenderer(com.qianxiang.QianxiangBlockEntities.ALCHEMY_TABLE.get(),
-                com.qianxiang.client.render.FloatingItemsRenderer::new);
+                ctx -> new com.qianxiang.client.render.FloatingItemsRenderer<com.qianxiang.block.AlchemyTableBlockEntity>(
+                        ctx, true));
     }
 
     /** 武器外貌即时生成：把动态产物的静态模型包上 DynamicWeaponModel（无组件时静态纹理兜底）。 */

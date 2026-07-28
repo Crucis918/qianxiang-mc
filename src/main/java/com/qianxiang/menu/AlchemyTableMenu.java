@@ -48,10 +48,10 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         for (int i = 0; i < MATERIAL_SLOTS; i++) {
             addSlot(new Slot(container, i, -2000, -2000));
         }
-        // 结果槽 6：只读（不可放入），取出时消耗材料 + 记相谱。坐标 (222,54) 对齐纹理右侧 32×32 凹槽中心。
+        // 结果槽：不直接取出——点击/Shift 点击改为触发「合成仪式」（见 clicked/quickMoveStack）。
         addSlot(new Slot(container, RESULT_SLOT, 222, 54) {
             @Override public boolean mayPlace(ItemStack stack) { return false; }
-            @Override public void onTake(Player player, ItemStack stack) { AlchemyTableMenu.this.onTakeResult(player, stack); }
+            @Override public boolean mayPickup(Player player) { return false; }
         });
         addPlayerInventory(playerInventory);
         slotsChanged(container);
@@ -81,7 +81,12 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         // 再调本方法，材料没变，只按材料算指纹会把 AI 路径整个短路掉。
         int fingerprint = materialsFingerprint(materials) * 31 + aiStateFingerprint();
         if (fingerprint == lastFingerprint) {
-            return;
+            // 产物槽被外部路径（仪式触发/空手取走）清掉但材料指纹未变时，
+            // 不能跳过——否则会永久卡在空预览（与锻造台同一修复）。
+            boolean hasMaterials = materials.stream().anyMatch(s -> !s.isEmpty());
+            if (!this.container.getItem(RESULT_SLOT).isEmpty() || !hasMaterials) {
+                return;
+            }
         }
         lastFingerprint = fingerprint;
 
@@ -99,12 +104,9 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         }
     }
 
-    private void onTakeResult(Player player, ItemStack resultStack) {
-        afterTakeResult(player, resultStack, container, () -> slotsChanged(container));
-    }
-
     /**
-     * 取走产物的后置结算（menu 槽位取与 block 空手取两路径共用）：
+     * 取走产物的后置结算（旧「直接拿」路径遗留，现产物统一走合成仪式——
+     * 保留供旧调用点编译；新路径见 {@code RitualLogic#startRitual}）：
      * 记相谱 + 酿造音 + 消耗每个材料槽 1 个 + 重算预览 + 完成态。
      * 产物栈的取出与清槽由调用方完成，本方法不碰产物槽，天然防双计。
      */
@@ -127,8 +129,8 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         }
     }
 
-    /** 把这次炼金记进玩家相谱 + 位格 +1（律二不可逆铭刻，与锻造同一套）。失败不阻断合成。 */
-    private static void recordAlchemy(Player player, ItemStack resultStack) {
+    /** 把这次炼金记进玩家相谱 + 位格 +1（律二不可逆铭刻，与锻造同一套；仪式 DONE 转态也调本方法）。失败不阻断合成。 */
+    public static void recordAlchemy(Player player, ItemStack resultStack) {
         if (resultStack.isEmpty()) return;
         try {
             // Shift 连炼节流（同锻造台 recordForge）：按「产物种类」而非纯时间窗。
@@ -191,6 +193,13 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         Slot slot = this.slots.get(index);
         if (slot == null || !slot.hasItem()) return ItemStack.EMPTY;
 
+        // 仪式中投料（Shift 从背包进材料槽）一律拒绝
+        if (this.container instanceof AlchemyTableBlockEntity be
+                && be.ritualState().active() && index != RESULT_SLOT) {
+            com.qianxiang.block.RitualLogic.notifyBusy(player);
+            return ItemStack.EMPTY;
+        }
+
         int invStart = RESULT_SLOT + 1;      // 背包区起点（含快捷栏）
         int invEnd = invStart + 36;
 
@@ -198,15 +207,12 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         ItemStack moved = stack.copy();
 
         if (index == RESULT_SLOT) {
-            // 结果 → 背包。搬完后用完整拷贝触发 onTake（消耗材料 + 相谱）；
-            // 原版 QUICK_MOVE 会循环调用本方法，材料够就连续炼制，背包满/材料尽自动停。
-            if (!moveItemStackTo(stack, invStart, invEnd, true)) return ItemStack.EMPTY;
-            // 只在真的搬空时才清槽（卷轴可堆叠 16，部分搬动不触发清槽——防吞余量）。
-            if (stack.isEmpty()) {
-                slot.set(ItemStack.EMPTY);
+            // Shift 点击产物 = 触发合成仪式（不再直接拿进背包）
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                    && this.container instanceof AlchemyTableBlockEntity be) {
+                com.qianxiang.block.RitualLogic.startRitual(be, serverPlayer);
             }
-            slot.onTake(player, moved);
-            return moved;
+            return ItemStack.EMPTY;
         }
 
         if (index < MATERIAL_SLOTS) {
@@ -228,6 +234,14 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
     @Override
     public void clicked(int slotId, int button, net.minecraft.world.inventory.ClickType clickType, Player player) {
         super.clicked(slotId, button, clickType, player);
+        // 左键点击产物槽 = 触发合成仪式（产物槽 mayPickup=false，不会被原版拿走）
+        if (slotId == RESULT_SLOT && button == 0
+                && player instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                && this.container instanceof AlchemyTableBlockEntity be
+                && !be.getItem(RESULT_SLOT).isEmpty()) {
+            com.qianxiang.block.RitualLogic.startRitual(be, serverPlayer);
+            return;
+        }
         // 方块实体容器不会像 TransientCraftingContainer 那样回调菜单，
         // 手动拖拽/丢弃材料后必须主动重算结果槽（重算是幂等的，多调无害）。
         slotsChanged(this.container);

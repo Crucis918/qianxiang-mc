@@ -41,18 +41,25 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
     /** 点缀粒子间隔（tick，约 2s）。 */
     private static final long SPARKLE_INTERVAL = 40L;
 
-    /** 每个台子的客户端动画状态：上一帧产物 key、转变动画起点、上次点缀 tick。 */
+    /** 每个台子的客户端动画状态：上一帧产物 key、转变动画起点、上次点缀 tick、仪式状态跟踪。 */
     private static final class AnimState {
         String lastResultKey = "";
         float transitionStart = -TRANSITION_TICKS;
         long lastSparkleTick = Long.MIN_VALUE;
+        /** 仪式：本地检测到的状态与进入时刻（VFX 进度用本地时间平滑推进）。 */
+        com.qianxiang.block.RitualState lastRitualState = com.qianxiang.block.RitualState.NONE;
+        float ritualEnterTime = 0.0f;
+        long lastRitualFxTick = Long.MIN_VALUE;
     }
 
     private final BlockEntityRendererProvider.Context context;
     private final Map<BlockPos, AnimState> animStates = new HashMap<>();
+    /** true = 炼金台风格（FORMING 画魔法阵）；false = 锻造台风格（锻打火花）。 */
+    private final boolean alchemyStyle;
 
-    public FloatingItemsRenderer(BlockEntityRendererProvider.Context context) {
+    public FloatingItemsRenderer(BlockEntityRendererProvider.Context context, boolean alchemyStyle) {
         this.context = context;
+        this.alchemyStyle = alchemyStyle;
     }
 
     @Override
@@ -66,6 +73,25 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
         AnimState state = animStates.computeIfAbsent(be.getBlockPos(), p -> new AnimState());
         if (animStates.size() > 256) {
             animStates.clear(); // 防长期游玩累积：状态可重建，清空无成本
+        }
+
+        // —— 合成仪式 VFX：本地跟踪状态切换（切 DONE 瞬间放收尾特效） ——
+        var ritual = be.ritualState();
+        if (ritual != state.lastRitualState) {
+            if (ritual == com.qianxiang.block.RitualState.DONE
+                    && state.lastRitualState == com.qianxiang.block.RitualState.FORMING) {
+                onRitualDoneLocal(level, be);
+            }
+            state.lastRitualState = ritual;
+            state.ritualEnterTime = time;
+        }
+        if (ritual == com.qianxiang.block.RitualState.FLYING) {
+            renderRitualFlying(be, level, time, gameTime, state, poseStack, bufferSource, packedOverlay);
+            return;
+        }
+        if (ritual == com.qianxiang.block.RitualState.FORMING) {
+            renderRitualForming(be, level, time, gameTime, state);
+            return;
         }
 
         ItemStack displayResult = be.getDisplayResult();
@@ -128,6 +154,122 @@ public class FloatingItemsRenderer<T extends BlockEntity & FloatingTableView>
         context.getItemRenderer().renderStatic(stack,
                 ItemDisplayContext.FIXED, FULL_BRIGHT, packedOverlay, poseStack, bufferSource, level, 0);
         poseStack.popPose();
+    }
+
+    // ============================ 合成仪式 VFX（粒子全部复用 spark/shockwave） ============================
+
+    /** FLYING：材料 ghost 从仪式发起者位置抛物线飞入台面，拖 spark 尾迹，到达即消散。 */
+    private void renderRitualFlying(T be, Level level, float time, long gameTime, AnimState state,
+                                    com.mojang.blaze3d.vertex.PoseStack poseStack,
+                                    MultiBufferSource bufferSource, int packedOverlay) {
+        BlockPos pos = be.getBlockPos();
+        var owner = be.ritualOwner() != null ? level.getPlayerByUUID(be.ritualOwner()) : null;
+        double sx = owner != null ? owner.getX() : pos.getX() + 0.5;
+        double sy = owner != null ? owner.getY() + 1.2 : pos.getY() + 2.0;
+        double sz = owner != null ? owner.getZ() : pos.getZ() + 0.5;
+        double ex = pos.getX() + 0.5, ey = pos.getY() + 1.1, ez = pos.getZ() + 0.5;
+        float elapsed = time - state.ritualEnterTime;
+
+        var inputs = be.ritualInputs();
+        for (int i = 0; i < inputs.size(); i++) {
+            // 每件材料错峰 3t 出发，约 20t 飞抵
+            float t = Math.min(1.0f, Math.max(0.0f, (elapsed - i * 3.0f) / 20.0f));
+            if (t <= 0.0f) continue;
+            double x = sx + (ex - sx) * t;
+            double y = sy + (ey - sy) * t + Math.sin(t * Math.PI) * 0.8;
+            double z = sz + (ez - sz) * t;
+            renderGhost(level, inputs.get(i), x - pos.getX(), y - pos.getY(), z - pos.getZ(),
+                    0.35f, time, poseStack, bufferSource, packedOverlay);
+            // 拖尾 + 到达消散（客户端本地粒子，无网络成本）
+            if (t < 1.0f && gameTime % 2 == 0) {
+                level.addParticle(new com.qianxiang.particle.SparkParticleOptions(SPARKLE_COLOR),
+                        x, y, z, 0.0, 0.0, 0.0);
+            }
+            if (t >= 1.0f && state.lastRitualFxTick != gameTime) {
+                state.lastRitualFxTick = gameTime;
+                level.addParticle(new com.qianxiang.particle.SparkParticleOptions(SPARKLE_COLOR),
+                        ex, ey, ez, 0.0, 0.06, 0.0);
+            }
+        }
+    }
+
+    /** FORMING：炼金台画魔法阵（双层反向环+内接五边形），锻造台锻打火花（每 10t 一轮）。 */
+    private void renderRitualForming(T be, Level level, float time, long gameTime, AnimState state) {
+        BlockPos pos = be.getBlockPos();
+        float progress = Math.min(1.0f,
+                (time - state.ritualEnterTime) / com.qianxiang.block.RitualLogic.FORMING_TICKS);
+        org.joml.Vector3f color = ritualColor(be);
+        double cx = pos.getX() + 0.5, cy = pos.getY() + 1.5, cz = pos.getZ() + 0.5;
+        var spark = new com.qianxiang.particle.SparkParticleOptions(color);
+
+        if (alchemyStyle) {
+            // 偶数 tick 才摆（密度减半，形状不变）
+            if (gameTime % 2 != 0) return;
+            double coverage = progress * Math.PI * 2.0;
+            // 双层反向旋转同心环（外 r=0.8 正转，内 r=0.5 反转），覆盖角随 progress 涨满
+            for (int k = 0; k < 40; k++) {
+                double a = k / 40.0 * coverage + time * 0.05;
+                level.addParticle(spark, cx + Math.cos(a) * 0.8, cy, cz + Math.sin(a) * 0.8, 0, 0, 0);
+                double b = -k / 40.0 * coverage - time * 0.05;
+                level.addParticle(spark, cx + Math.cos(b) * 0.5, cy, cz + Math.sin(b) * 0.5, 0, 0, 0);
+            }
+            // 内接五边形（外环内）：逐条边随 progress 画出
+            for (int v = 0; v < 5 && progress * 5 > v; v++) {
+                double a1 = v * (Math.PI * 2.0 / 5.0) - Math.PI / 2.0;
+                double a2 = (v + 1) * (Math.PI * 2.0 / 5.0) - Math.PI / 2.0;
+                for (int s = 0; s <= 5; s++) {
+                    double f = s / 5.0;
+                    level.addParticle(spark,
+                            cx + Math.cos(a1) * 0.8 + (Math.cos(a2) - Math.cos(a1)) * 0.8 * f, cy,
+                            cz + Math.sin(a1) * 0.8 + (Math.sin(a2) - Math.sin(a1)) * 0.8 * f,
+                            0, 0, 0);
+                }
+            }
+        } else {
+            // 锻打火花：每 10t 一轮（spark 四溅 + 烟 + ANVIL_LAND 0.4）
+            if (gameTime % 10 != 0 || state.lastRitualFxTick == gameTime) return;
+            state.lastRitualFxTick = gameTime;
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI * 2.0 * i / 6.0;
+                level.addParticle(spark, cx, cy - 0.4, cz,
+                        Math.cos(a) * 0.12, 0.18, Math.sin(a) * 0.12);
+            }
+            level.addParticle(net.minecraft.core.particles.ParticleTypes.SMOKE,
+                    cx + 0.1, cy - 0.3, cz, 0.0, 0.03, 0.0);
+            level.addParticle(net.minecraft.core.particles.ParticleTypes.SMOKE,
+                    cx - 0.1, cy - 0.25, cz + 0.05, 0.0, 0.03, 0.0);
+            level.playLocalSound(pos, net.minecraft.sounds.SoundEvents.ANVIL_LAND,
+                    net.minecraft.sounds.SoundSource.BLOCKS, 0.4f, 1.1f, false);
+        }
+    }
+
+    /** 切 DONE 瞬间（本地检测）：shockwave + 白闪 + 完成音（客户端 playLocalSound，无网络成本）。 */
+    private void onRitualDoneLocal(Level level, T be) {
+        BlockPos pos = be.getBlockPos();
+        double cx = pos.getX() + 0.5, cy = pos.getY() + 1.1, cz = pos.getZ() + 0.5;
+        level.addParticle(new com.qianxiang.particle.ShockwaveParticleOptions(SPARKLE_COLOR, 1.5f),
+                cx, cy, cz, 0.0, 0.0, 0.0);
+        for (int i = 0; i < 5; i++) {
+            level.addParticle(new com.qianxiang.particle.SparkParticleOptions(SPARKLE_COLOR),
+                    cx, cy + 0.2, cz, (level.random.nextDouble() - 0.5) * 0.3,
+                    0.2 + level.random.nextDouble() * 0.2, (level.random.nextDouble() - 0.5) * 0.3);
+        }
+        var sound = alchemyStyle
+                ? net.minecraft.sounds.SoundEvents.BEACON_ACTIVATE
+                : net.minecraft.sounds.SoundEvents.ANVIL_USE;
+        level.playLocalSound(pos, sound, net.minecraft.sounds.SoundSource.BLOCKS, 0.6f, 1.0f, false);
+    }
+
+    /** 仪式粒子颜色：pendingResult 法术元素色（读不到用白金色）。 */
+    private static org.joml.Vector3f ritualColor(com.qianxiang.block.FloatingTableView view) {
+        ItemStack pending = view.pendingResult();
+        if (!pending.isEmpty()) {
+            var spell = pending.get(com.qianxiang.QianxiangDataComponents.CUSTOM_SPELL.get());
+            if (spell != null) {
+                return com.qianxiang.spell.SpellEffectEngine.colorFor(spell.element());
+            }
+        }
+        return SPARKLE_COLOR;
     }
 
     /** 点缀用白金色（虚影的相之辉光，不随元素变）。 */

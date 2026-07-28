@@ -286,6 +286,8 @@
   "qianxiang.table.hint_insert": "Right-click insert · Shift+click to insert · sneak+empty to retrieve · click a row to retrieve",
   "qianxiang.table.missing": "Missing: %s",
   "qianxiang.table.missing_mark": "×0",
+  "qianxiang.table.begin_craft": "Begin Crafting",
+  "qianxiang.table.ritual_busy": "A crafting ritual is in progress...",
   "qianxiang.spell.migration.learned": "Learned %d spell(s) from your old gear",
   "qianxiang.forge_table.summary.fallback.spell": "(Fallback) free-form spell plan matched from description",
   "qianxiang.spell.custom": "Custom Spell: %s",

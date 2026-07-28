@@ -24,4 +24,21 @@ public interface FloatingTableView {
 
     /** 工作状态（STATE_* 常量在各 BE；1 = PARSING，BER 用来加速公转）。 */
     int getCraftingState();
+
+    // ---- 合成仪式读侧（BER 的 VFX 数据源；无仪式时 NONE/0/null/空表/空栈） ----
+
+    /** 仪式状态（见 {@link RitualState}）。 */
+    RitualState ritualState();
+
+    /** 当前阶段已推进 tick（客户端主要用本地时间做平滑，此值作校准）。 */
+    int ritualProgress();
+
+    /** 仪式发起者 UUID（FLYING 鬼魂起点；无仪式为 null）。 */
+    java.util.UUID ritualOwner();
+
+    /** 仪式锁定的材料（FLYING/FORMING 期间非空；DONE 时清空）。 */
+    java.util.List<ItemStack> ritualInputs();
+
+    /** 仪式产物暂存（FORMING 期间非空；DONE 时转入 displayResult 后清空）。 */
+    ItemStack pendingResult();
 }

@@ -25,7 +25,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Vector3f;
 
-public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider, FloatingTableView {
+public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContainer, MenuProvider, RitualHost {
     public static final int STATE_IDLE = 0;
     public static final int STATE_PARSING = 1;
     public static final int STATE_READY = 2;
@@ -50,6 +50,15 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     private ItemStack displayResult = ItemStack.EMPTY;
     /** 客户端同步脏标记：材料/产物变化同 tick 合并，tickServer 末尾统一 sendBlockUpdated。 */
     private boolean clientSyncDirty = false;
+
+    // ---- 合成仪式状态（见 RitualLogic）----
+    private RitualState ritualState = RitualState.NONE;
+    private int ritualProgress = 0;
+    private java.util.UUID ritualOwner = null;
+    /** 仪式锁定的材料（不立即销毁，挖台照常掉落；DONE 时才清空=真正消耗）。 */
+    private final java.util.List<ItemStack> ritualInputs = new java.util.ArrayList<>();
+    /** 仪式产物暂存（FORMING 期间非空，DONE 时转入 displayResult）。 */
+    private ItemStack pendingResult = ItemStack.EMPTY;
 
     // 【已废弃】方块级单份 AI 暂存。保留仅为读取旧存档 NBT 不报错；
     // 现行链路一律走下面的 per-player 提案表（多人同台不再串味）。
@@ -241,11 +250,14 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             parsingTicks = 0;
         }
 
-        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸）
-        if (level != null && level.getGameTime() % 5 == 0
+        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸；仪式中不吸——投料一律拒绝）
+        if (level != null && level.getGameTime() % 5 == 0 && !ritualState.active()
                 && TableInteractions.absorbAbove(this, ForgeTableMenu.MATERIAL_SLOTS, level, worldPosition) > 0) {
             recomputeResult(null);
         }
+
+        // 合成仪式状态机推进
+        RitualLogic.tick(this);
 
         // 客户端同步：同 tick 的材料/产物变化合并成一次 sendBlockUpdated
         if (clientSyncDirty && level != null) {
@@ -343,8 +355,9 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     }
 
     /**
-     * 破坏方块时掉落材料槽内容（{@link ForgeTableBlock#onRemove} 调用）。
-     * <p><b>只掉 0-9 材料槽</b>：槽 10 是实时预览产物，材料尚未消耗，掉出去等于白送成品。
+     * 破坏方块时掉落材料槽内容 + 仪式锁定材料（{@link ForgeTableBlock#onRemove} 调用）。
+     * <p><b>只掉材料槽与 ritualInputs</b>：产物槽是实时预览、pendingResult 是暂存，
+     * 掉出去等于白送成品（仪式中挖台：ritualInputs 掉落，pendingResult 作废，材料不丢）。
      * 掉落后清空全部槽位，防 super.onRemove 之外的路径重复掉落。
      */
     public void dropContentsOnRemove(Level level, BlockPos pos) {
@@ -354,6 +367,16 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             materialsOnly.set(i, items.get(i));
         }
         net.minecraft.world.Containers.dropContents(level, pos, materialsOnly);
+        // 仪式锁定的材料照常掉落（DONE 后 ritualInputs 已清空，天然无残留）
+        if (!ritualInputs.isEmpty()) {
+            for (ItemStack s : ritualInputs) {
+                net.minecraft.world.Containers.dropItemStack(level,
+                        pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, s);
+            }
+            ritualInputs.clear();
+        }
+        pendingResult = ItemStack.EMPTY;
+        ritualState = RitualState.NONE;
         // 这行有双重职责，勿删：①防止 super.onRemove 之外的路径重复掉落；
         // ②封死「A 开着界面、B 炸掉台子」的抢跑窗口——清空后 A 那边的
         // slotsChanged 再算也是空组合，拿不到产物。
@@ -433,6 +456,45 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         if (!lastSpellJson.isEmpty()) tag.putString("LastSpellJson", lastSpellJson);
         if (!lastCustomName.isEmpty()) tag.putString("LastCustomName", lastCustomName);
         if (!lastMovesetJson.isEmpty()) tag.putString("LastMovesetJson", lastMovesetJson);
+        // 仪式状态落盘：防仪式中退出吞料（读回时非 NONE 统一归 NONE 并退回材料，见 loadAdditional）
+        saveRitual(tag, registries);
+    }
+
+    /** 仪式字段序列化（saveAdditional 与 getUpdateTag 共用：ritualInputs/产物暂存/状态/发起者）。 */
+    private void saveRitual(CompoundTag tag, HolderLookup.Provider registries) {
+        if (!ritualInputs.isEmpty()) {
+            net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
+            for (ItemStack s : ritualInputs) {
+                list.add(s.save(registries));
+            }
+            tag.put("RitualInputs", list);
+        }
+        if (!pendingResult.isEmpty()) {
+            tag.put("PendingResult", pendingResult.save(registries));
+        }
+        tag.putInt("RitualState", ritualState.ordinal());
+        tag.putInt("RitualProgress", ritualProgress);
+        if (ritualOwner != null) {
+            tag.putUUID("RitualOwner", ritualOwner);
+        }
+    }
+
+    /** 仪式字段反序列化（loadAdditional 与 handleUpdateTag 共用）。 */
+    private void loadRitual(CompoundTag tag, HolderLookup.Provider registries) {
+        ritualInputs.clear();
+        for (var entry : tag.getList("RitualInputs", 10)) {
+            if (entry instanceof CompoundTag stackTag) {
+                ItemStack.parse(registries, stackTag).ifPresent(ritualInputs::add);
+            }
+        }
+        pendingResult = tag.contains("PendingResult")
+                ? ItemStack.parse(registries, tag.getCompound("PendingResult")).orElse(ItemStack.EMPTY)
+                : ItemStack.EMPTY;
+        int ord = tag.getInt("RitualState");
+        ritualState = ord >= 0 && ord < RitualState.values().length
+                ? RitualState.values()[ord] : RitualState.NONE;
+        ritualProgress = Math.max(0, tag.getInt("RitualProgress"));
+        ritualOwner = tag.hasUUID("RitualOwner") ? tag.getUUID("RitualOwner") : null;
     }
 
     @Override
@@ -449,6 +511,21 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         lastSpellJson = tag.getString("LastSpellJson");
         lastCustomName = tag.getString("LastCustomName");
         lastMovesetJson = tag.getString("LastMovesetJson");
+        loadRitual(tag, registries);
+        // 仪式状态不跨存档恢复（VFX 进度无意义）：非 NONE 统一归 NONE，
+        // ritualInputs 退回材料槽（材料在退出重进间不应凭空消失，故退回优先；
+        // 退回时槽位不足的部分由 insert 语义留在 ritualInputs 丢弃——25 槽一定放得下，实际不发生）。
+        if (ritualState != RitualState.NONE) {
+            ritualState = RitualState.NONE;
+            ritualProgress = 0;
+            ritualOwner = null;
+            pendingResult = ItemStack.EMPTY;
+            java.util.List<ItemStack> refund = new java.util.ArrayList<>(ritualInputs);
+            ritualInputs.clear();
+            for (ItemStack s : refund) {
+                TableInteractions.insert(this, ForgeTableMenu.MATERIAL_SLOTS, s, true);
+            }
+        }
     }
 
     // ---- Sync to client ----
@@ -471,6 +548,8 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         if (!displayResult.isEmpty()) {
             tag.put("DisplayResult", displayResult.save(registries));
         }
+        // 仪式 VFX 数据源（BER 用）
+        saveRitual(tag, registries);
         return tag;
     }
 
@@ -482,6 +561,7 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         displayResult = tag.contains("DisplayResult")
                 ? ItemStack.parse(registries, tag.getCompound("DisplayResult")).orElse(ItemStack.EMPTY)
                 : ItemStack.EMPTY;
+        loadRitual(tag, registries);
     }
 
     // ---- MenuProvider ----
@@ -502,5 +582,136 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
     @Override
     public ItemStack getDisplayResult() {
         return displayResult;
+    }
+
+    // ---- RitualHost（合成仪式，状态机见 RitualLogic）----
+
+    @Override
+    public RitualState ritualState() {
+        return ritualState;
+    }
+
+    @Override
+    public int ritualProgress() {
+        return ritualProgress;
+    }
+
+    @Override
+    public java.util.UUID ritualOwner() {
+        return ritualOwner;
+    }
+
+    @Override
+    public java.util.List<ItemStack> ritualInputs() {
+        return ritualInputs;
+    }
+
+    @Override
+    public ItemStack pendingResult() {
+        return pendingResult;
+    }
+
+    @Override
+    public void setRitualState(RitualState state) {
+        this.ritualState = state;
+    }
+
+    @Override
+    public void setRitualProgress(int progress) {
+        this.ritualProgress = progress;
+    }
+
+    @Override
+    public void setRitualOwner(java.util.UUID owner) {
+        this.ritualOwner = owner;
+    }
+
+    @Override
+    public void setPendingResult(ItemStack stack) {
+        this.pendingResult = stack == null ? ItemStack.EMPTY : stack;
+    }
+
+    @Override
+    public ItemStack composedResult() {
+        return getItem(ForgeTableMenu.RESULT_SLOT);
+    }
+
+    @Override
+    public void collectInputsToRitual() {
+        ritualInputs.clear();
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            ItemStack s = items.get(i);
+            if (!s.isEmpty()) {
+                ritualInputs.add(s.copy());
+            }
+        }
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            setItem(i, ItemStack.EMPTY);
+        }
+    }
+
+    @Override
+    public void clearComposedResult() {
+        setItem(ForgeTableMenu.RESULT_SLOT, ItemStack.EMPTY);
+    }
+
+    @Override
+    public void setDisplayResultFromRitual(ItemStack stack) {
+        this.displayResult = stack == null ? ItemStack.EMPTY : stack;
+        clientSyncDirty = true;
+        setChanged();
+    }
+
+    @Override
+    public void clearRitualState() {
+        this.ritualState = RitualState.NONE;
+        this.ritualProgress = 0;
+        this.ritualOwner = null;
+        clientSyncDirty = true;
+        setChanged();
+    }
+
+    @Override
+    public void markRitualDirty() {
+        clientSyncDirty = true;
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
+    @Override
+    public void onRitualStarted(net.minecraft.server.level.ServerPlayer player, ItemStack result) {
+        // 进程终点「以核铸相」：仪式材料含森罗之核且产物确实够传奇（阈值与 menu 一致）。
+        boolean usedCore = false;
+        for (ItemStack s : ritualInputs) {
+            if (s.is(com.qianxiang.QianxiangItems.WARDEN_CORE.get())) {
+                usedCore = true;
+                break;
+            }
+        }
+        var attrs = result.get(com.qianxiang.QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        if (usedCore && attrs != null && attrs.powerScore() >= 12.0) {
+            com.qianxiang.QianxiangAdvancements.grant(player,
+                    com.qianxiang.QianxiangAdvancements.FORGE_LEGENDARY);
+        }
+    }
+
+    @Override
+    public void recordRitualCompleted(net.minecraft.server.level.ServerPlayer owner, ItemStack result) {
+        // 仪式完成即算创作成功：记相谱 + 位格（与 menu.onTake 同一口径）；owner 下线则跳过。
+        if (owner != null) {
+            ForgeTableMenu.recordForge(owner, result);
+        }
+    }
+
+    @Override
+    public Level ritualLevel() {
+        return level;
+    }
+
+    @Override
+    public BlockPos ritualPos() {
+        return worldPosition;
     }
 }

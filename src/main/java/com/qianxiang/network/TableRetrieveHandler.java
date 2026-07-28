@@ -58,6 +58,11 @@ public final class TableRetrieveHandler {
                     player.getName().getString(), slotIndex);
             return false;
         }
+        // 仪式中取回一律拒绝
+        if (container instanceof com.qianxiang.block.RitualHost host && host.ritualState().active()) {
+            com.qianxiang.block.RitualLogic.notifyBusy(player);
+            return false;
+        }
         ItemStack stack = container.getItem(slotIndex);
         if (stack.isEmpty()) {
             return false;

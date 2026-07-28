@@ -50,6 +50,8 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private Button askButton;
     private Button clearButton;
     private Button confirmButton;
+    /** 「开始创作」按钮（产物就绪时显示，点击触发合成仪式）。 */
+    private Button beginCraftButton;
 
     private ClientForgeTableAI.AiResult lastAiResult;
     private Status status = Status.IDLE;
@@ -82,6 +84,14 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         this.addRenderableWidget(this.askButton);
         this.addRenderableWidget(this.clearButton);
         this.addRenderableWidget(this.confirmButton);
+
+        // 「开始创作」按钮：产物就绪时显示（材料列表下方空档），点击发仪式请求
+        this.beginCraftButton = Button.builder(
+                        Component.translatable("qianxiang.table.begin_craft"),
+                        b -> PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload()))
+                .bounds(leftPos + 8, topPos + 80, 64, 12)
+                .build();
+        this.addRenderableWidget(this.beginCraftButton);
 
         // 结果界面回调：AI 回包到达时刷新方案卡。
         ClientAlchemyTableAI.setListener(result -> {
@@ -187,6 +197,8 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         super.render(g, mouseX, mouseY, partialTick);
         updateStatus();
+        // 「开始创作」只在产物就绪时显示
+        this.beginCraftButton.visible = !this.menu.getSlot(AlchemyTableMenu.RESULT_SLOT).getItem().isEmpty();
         renderMaterialList(g);
         renderStatus(g);
         renderCards(g, mouseX, mouseY);

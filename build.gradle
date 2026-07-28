@@ -83,6 +83,11 @@ dependencies {
     // Epic Fight（灵魂的战斗承载）
     implementation "maven.modrinth:epic-fight:${project.epicfight_version}"
 
+    // 工作台自动取料的存储软依赖（compileOnly：类型引用全部隔离在 compat/ 的两个类里，
+    // 主代码路径零 import，不装不崩——与 EF 同一隔离模式）
+    compileOnly "maven.modrinth:travelersbackpack:1.21.1-10.1.37"  // 旅行背包取料源
+    compileOnly "maven.modrinth:refined-storage:2.0.9"              // RS2 网络取料源（maven slug 带连字符）
+
     // 通用优化 mod（dev 环境运行时在场，不编译耦合）：提升 runClient 流畅度
     // 版本均已按 Modrinth API 查实为 NeoForge 1.21.1 可用，且 maven jar 逐个 curl 验证 200
     localRuntime "maven.modrinth:embeddium:1.0.15+mc1.21.1"        // 渲染优化（Sodium 的 NeoForge 移植）

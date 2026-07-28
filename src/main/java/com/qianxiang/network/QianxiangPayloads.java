@@ -92,6 +92,10 @@ public final class QianxiangPayloads {
         registrar.playToServer(TableRetrievePayload.TYPE, TableRetrievePayload.STREAM_CODEC,
                 (payload, context) -> TableRetrieveHandler.handle(payload, context));
 
+        // 客户端→服务端：「开始创作」按钮请求启动合成仪式（按 openMenu 分派两台）。
+        registrar.playToServer(RitualStartPayload.TYPE, RitualStartPayload.STREAM_CODEC,
+                (payload, context) -> RitualStartHandler.handle(payload, context));
+
         // 客户端→服务端：蓝图保存 / 使用 / 列表请求。
         registrar.playToServer(BlueprintSavePayload.TYPE, BlueprintSavePayload.STREAM_CODEC,
                 (payload, context) -> BlueprintServerHandler.handleSave(payload, context));

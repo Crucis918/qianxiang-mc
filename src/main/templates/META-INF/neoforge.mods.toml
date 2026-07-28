@@ -36,3 +36,21 @@ ${mod_description}
     # 动态特征→动作 provider 才能优先于 EF 的全物品静态 provider（NeoForge 按注册顺序取首个非 null）。
     ordering = "BEFORE"
     side = "BOTH"
+
+[[dependencies.${mod_id}]]
+    modId = "travelersbackpack"
+    # optional：旅行背包作为工作台自动取料的第二来源；不装则跳过该来源。
+    # 代码侧由 MaterialSources 的 ModList.isLoaded 守卫保证不触发类加载。
+    type = "optional"
+    versionRange = "[10.0.0,)"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.${mod_id}]]
+    modId = "refinedstorage"
+    # optional：RS2 网络作为工作台自动取料的最末来源；不装则跳过该来源。
+    # 代码侧由 MaterialSources 的 ModList.isLoaded 守卫保证不触发类加载。
+    type = "optional"
+    versionRange = "[2.0.0,)"
+    ordering = "NONE"
+    side = "BOTH"

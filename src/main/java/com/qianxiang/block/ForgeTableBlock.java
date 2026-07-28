@@ -42,6 +42,11 @@ public class ForgeTableBlock extends BaseEntityBlock {
         if (!(level.getBlockEntity(pos) instanceof ForgeTableBlockEntity be)) {
             return net.minecraft.world.ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
         }
+        // 仪式中投料一律拒绝（先判仪式再投入，材料不动）
+        if (be.ritualState().active()) {
+            RitualLogic.notifyBusy(player);
+            return net.minecraft.world.ItemInteractionResult.CONSUME;
+        }
         var result = TableInteractions.insertFromHand(
                 be, com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS, player, hand, level, pos);
         if (result.consumesAction() && !level.isClientSide()) {
@@ -55,8 +60,12 @@ public class ForgeTableBlock extends BaseEntityBlock {
         if (!(level.getBlockEntity(pos) instanceof ForgeTableBlockEntity be)) {
             return InteractionResult.SUCCESS;
         }
-        // 潜行+空手右键：取回全部材料（先判潜行分支，别落到开 GUI）
+        // 潜行+空手右键：取回全部材料（仪式中一律拒绝）
         if (player.isShiftKeyDown()) {
+            if (be.ritualState().active()) {
+                RitualLogic.notifyBusy(player);
+                return InteractionResult.SUCCESS;
+            }
             if (!level.isClientSide) {
                 TableInteractions.retrieveAll(be, com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS,
                         player, level, pos);
@@ -66,18 +75,30 @@ public class ForgeTableBlock extends BaseEntityBlock {
             }
             return InteractionResult.SUCCESS;
         }
-        // 空手右键：有产物直接拿（取走即清槽，天然防双计）；无产物开 GUI
+        // DONE：空手右键拾取仪式产物（只此一份，拾取后回 NONE）
+        if (be.ritualState() == RitualState.DONE) {
+            if (!level.isClientSide) {
+                net.minecraft.world.item.ItemStack taken = be.getDisplayResult().copy();
+                if (!taken.isEmpty()) {
+                    be.setDisplayResultFromRitual(net.minecraft.world.item.ItemStack.EMPTY);
+                    be.clearRitualState();
+                    if (!player.getInventory().add(taken)) {
+                        player.drop(taken, false);
+                    }
+                }
+            }
+            return InteractionResult.SUCCESS;
+        }
+        // 仪式进行中（FLYING/FORMING）：投料/取回/再触发一律拒绝
+        if (be.ritualState().active()) {
+            RitualLogic.notifyBusy(player);
+            return InteractionResult.SUCCESS;
+        }
+        // 空手右键：有产物 → 触发合成仪式（材料飞入→成型→台面拾取）；无产物开 GUI
         net.minecraft.world.item.ItemStack result = be.getItem(com.qianxiang.menu.ForgeTableMenu.RESULT_SLOT);
         if (!result.isEmpty()) {
-            if (!level.isClientSide) {
-                net.minecraft.world.item.ItemStack taken = result.copy();
-                be.setItem(com.qianxiang.menu.ForgeTableMenu.RESULT_SLOT,
-                        net.minecraft.world.item.ItemStack.EMPTY);
-                com.qianxiang.menu.ForgeTableMenu.afterTakeResult(player, taken, be,
-                        () -> be.recomputeResult(player.getUUID()));
-                if (!player.getInventory().add(taken)) {
-                    player.drop(taken, false);
-                }
+            if (!level.isClientSide && player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                RitualLogic.startRitual(be, sp);
             }
             return InteractionResult.SUCCESS;
         }
