@@ -186,6 +186,12 @@ public final class ForgeComposer {
         ItemStack out = makeSpellBook
                 ? new ItemStack(QianxiangItems.SPELL_BOOK.get())
                 : new ItemStack(pickArchetype(union).get());
+        // 5.5 武器形态事实源：按布局（填充顺序=中心向外）一次推导写入组件——
+        //     外观纹理/EF 动作/判定盒下游统一按形走（见 WeaponFormProfile）。
+        //     核心材料基底族同写（刃体着色=核心材料色，刃缘=主导效果色）。
+        attr = attr.withForm(com.qianxiang.combat.WeaponFormProfile.deriveForm(
+                materialStacks, union, attr, out.getItem()))
+                .withBaseFamily(com.qianxiang.combat.WeaponFormProfile.deriveBaseFamily(materialStacks));
         out.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(), attr);
         // 防具产物（QianxiangArmorItem）不写 MAINHAND 槽的 ATTRIBUTE_MODIFIERS——
         // 栈上组件会覆盖物品默认修饰符，而穿戴属性由

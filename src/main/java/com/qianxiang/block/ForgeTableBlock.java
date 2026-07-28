@@ -48,7 +48,7 @@ public class ForgeTableBlock extends BaseEntityBlock {
             return net.minecraft.world.ItemInteractionResult.CONSUME;
         }
         var result = TableInteractions.insertFromHand(
-                be, com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS, player, hand, level, pos);
+                be, com.qianxiang.menu.ForgeTableMenu.SLOT_FILL_ORDER, player, hand, level, pos);
         if (result.consumesAction() && !level.isClientSide()) {
             be.recomputeResult(player.getUUID());
         }

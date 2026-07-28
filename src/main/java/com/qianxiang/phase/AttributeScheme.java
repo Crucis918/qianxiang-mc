@@ -404,7 +404,7 @@ public final class AttributeScheme {
                 igniteLevel, lifestealLevel, thornsLevel, slowLevel, healLevel,
                 spellPowerPercent, manaBonus,
                 powerScore,
-                new ComposedAttributes.AppearanceData(Set.of(), dominantEffect, appearanceKey),
+                new ComposedAttributes.AppearanceData(Set.of(), dominantEffect, appearanceKey, "", ""),
                 new ComposedAttributes.ExtraEffects(effects, Map.of())
                 // 自由状态效果由 ForgeComposer 扫描 effect tag 后经 withGrantedEffects 写入
         );

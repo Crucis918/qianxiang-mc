@@ -65,8 +65,10 @@ public class MovesetEditorScreen extends Screen {
     /** 动画库滚动偏移（行）。 */
     private int libScroll = 0;
 
-    /** 写入产物的 category（取目标武器既有动作集，缺省 tachi）。 */
+    /** 写入产物的 category（取目标武器既有动作集；无则按形态 profile 的 EF 底座；缺省 tachi）。 */
     private String category = WeaponMoveset.DEFAULT_CATEGORY;
+    /** 写入产物的判定盒（取目标武器既有动作集；无则按形态 profile；缺省=category）。 */
+    private String collider = WeaponMoveset.DEFAULT_CATEGORY;
     /** 目标武器显示名（标题下提示行）。 */
     private Component targetName = null;
 
@@ -111,12 +113,14 @@ public class MovesetEditorScreen extends Screen {
     /** 从目标武器（锻造台结果槽产物优先，其次主手）读入既有动作序列作初始值。 */
     private void loadFromTarget() {
         WeaponMoveset ms = null;
+        ItemStack target = ItemStack.EMPTY;
         try {
             if (this.minecraft == null || this.minecraft.player == null) return;
             if (this.minecraft.player.containerMenu instanceof ForgeTableMenu menu) {
                 ItemStack result = menu.getSlot(ForgeTableMenu.RESULT_SLOT).getItem();
                 if (!result.isEmpty()) {
                     ms = result.get(QianxiangDataComponents.CUSTOM_MOVESET.get());
+                    target = result;
                     this.targetName = result.getHoverName();
                 }
             }
@@ -125,14 +129,39 @@ public class MovesetEditorScreen extends Screen {
                 if (!hand.isEmpty() && (hand.getItem() instanceof QianxiangWeaponItem
                         || hand.has(QianxiangDataComponents.CUSTOM_MOVESET.get()))) {
                     this.targetName = hand.getHoverName();
+                    target = hand;
                     if (ms == null) ms = hand.get(QianxiangDataComponents.CUSTOM_MOVESET.get());
                 }
             }
         } catch (Throwable ignored) {
             // 读取失败按空白编排处理
         }
-        if (ms == null) ms = WeaponMoveset.tachiDefault();
-        this.category = ms.category();
+        if (ms != null) {
+            // 已有自定义动作集：继承其 category/collider
+            this.category = ms.category();
+            this.collider = ms.colliderPreset();
+        } else {
+            // 无自定义动作集：按形态事实源（form→profile）定底座与判定盒，缺省 tachi
+            var profile = target.isEmpty() ? null
+                    : com.qianxiang.combat.WeaponFormProfile.of(
+                            target.getOrDefault(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                                    com.qianxiang.phase.ComposedAttributes.empty()).form());
+            if (profile != null) {
+                this.category = profile.efCategory();
+                this.collider = profile.collider();
+                ms = new WeaponMoveset(profile.efCategory(),
+                        profile.defaultCombos().stream().map(AnimationLibrary::fullId).toList(),
+                        profile.collider());
+            } else {
+                ms = WeaponMoveset.tachiDefault();
+                this.category = ms.category();
+                this.collider = ms.colliderPreset();
+            }
+        }
+        // UI 显示底座名（标题下提示行尾部）
+        if (this.targetName != null) {
+            this.targetName = this.targetName.copy().append(" · 底座 " + this.category);
+        }
         for (var id : ms.combos()) {
             AnimationLibrary.AnimInfo info = AnimationLibrary.byId(id);
             if (info == null || segments.size() >= MAX_SEGMENTS) continue;
@@ -310,7 +339,7 @@ public class MovesetEditorScreen extends Screen {
             if (i > 0) sb.append(',');
             sb.append('"').append(AnimationLibrary.shortPath(segments.get(i).id())).append('"');
         }
-        sb.append("],\"collider\":\"").append(category).append("\"}");
+        sb.append("],\"collider\":\"").append(collider).append("\"}");
         PacketDistributor.sendToServer(new MovesetApplyPayload(sb.toString()));
         flash(Component.translatable("qianxiang.moveset_editor.msg.applied"), 0xFF55FF55);
     }

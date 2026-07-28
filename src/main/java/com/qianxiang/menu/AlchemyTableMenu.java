@@ -28,6 +28,12 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
     public static final int MATERIAL_SLOTS = 6;
     public static final int RESULT_SLOT = 6;
 
+    /**
+     * 投料填充顺序（「填充顺序即布局」）：2×3 网格取索引 2（上行中）为核心位，
+     * 其余按序。所有投料路径统一按此序找空槽（与锻造台 SLOT_FILL_ORDER 同一约定）。
+     */
+    public static final int[] SLOT_FILL_ORDER = {2, 1, 3, 0, 4, 5};
+
     /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连炼一次点击刷满位格（同锻造台）。 */
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
 

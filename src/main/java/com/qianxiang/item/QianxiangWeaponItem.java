@@ -136,6 +136,11 @@ public class QianxiangWeaponItem extends Item {
             tooltip.add(Component.translatable("qianxiang.tooltip.mana_bonus",
                     attr.manaBonus()).withStyle(ChatFormatting.AQUA));
         }
+        // 武器形态（锻造时一次推导写入，外观/EF 动作/判定盒统一按形走；无形态不显示）
+        if (!attr.form().isEmpty()) {
+            tooltip.add(Component.translatable("qianxiang.weapon_form." + attr.form())
+                    .withStyle(ChatFormatting.AQUA));
+        }
         // 相之形：外观来源
         AppearanceProfile profile = AppearanceProfile.of(stack);
         tooltip.add(Component.translatable("qianxiang.tooltip.appearance",

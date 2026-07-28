@@ -37,6 +37,8 @@ import java.util.Map;
  */
 public final class DynamicWeaponModel implements BakedModel {
     private final BakedModel delegate;
+    /** 当前显示上下文（applyTransform 记录，渲染单线程，供 DynamicPass 分叉选 quad）。 */
+    private ItemDisplayContext currentContext = ItemDisplayContext.GUI;
 
     private DynamicWeaponModel(BakedModel delegate) {
         this.delegate = delegate;
@@ -64,14 +66,24 @@ public final class DynamicWeaponModel implements BakedModel {
         if (variant == null) {
             return List.of(this);
         }
-        return List.of(new DynamicPass(variant, delegate.getParticleIcon()));
+        return List.of(new DynamicPass(variant, delegate.getParticleIcon(), currentContext));
     }
 
-    /** 相机变换委托给原模型（gui/手持/掉落物的位移缩放保持一致），但返回自身继续走我们的 pass 逻辑。 */
+    /** 相机变换委托给原模型（gui/手持/掉落物的位移缩放保持一致），但返回自身继续走我们的 pass 逻辑；
+     *  顺带记录显示上下文——DynamicPass 据此分叉：GUI/GROUND/FIXED 用 2D 片，手持用 3D 挤出。 */
     @Override
     public BakedModel applyTransform(ItemDisplayContext transformType, PoseStack poseStack, boolean applyLeftHandTransform) {
+        this.currentContext = transformType;
         delegate.applyTransform(transformType, poseStack, applyLeftHandTransform);
         return this;
+    }
+
+    /** 手持上下文（第一/第三人称）：这些上下文用 3D 挤出几何，其余用 2D 片。 */
+    private static boolean isHeldContext(ItemDisplayContext context) {
+        return context == ItemDisplayContext.FIRST_PERSON_LEFT_HAND
+                || context == ItemDisplayContext.FIRST_PERSON_RIGHT_HAND
+                || context == ItemDisplayContext.THIRD_PERSON_LEFT_HAND
+                || context == ItemDisplayContext.THIRD_PERSON_RIGHT_HAND;
     }
 
     // ============================ 静态兜底：全部委托 ============================
@@ -118,19 +130,24 @@ public final class DynamicWeaponModel implements BakedModel {
 
     // ============================ 动态 pass ============================
 
-    /** 单个动态变体的渲染 pass：quad 指向动态纹理挤出模型，RenderType 绑定动态纹理。 */
+    /** 单个动态变体的渲染 pass：quad 指向动态纹理模型，RenderType 绑定动态纹理。 */
     private static final class DynamicPass implements BakedModel {
         private final DynamicWeaponTexture.Variant variant;
         private final TextureAtlasSprite particle;
+        private final ItemDisplayContext context;
 
-        DynamicPass(DynamicWeaponTexture.Variant variant, TextureAtlasSprite particle) {
+        DynamicPass(DynamicWeaponTexture.Variant variant, TextureAtlasSprite particle,
+                    ItemDisplayContext context) {
             this.variant = variant;
             this.particle = particle;
+            this.context = context;
         }
 
         @Override
         public List<BakedQuad> getQuads(@Nullable BlockState state, @Nullable Direction direction, RandomSource random) {
-            return direction == null ? variant.quads : List.of();
+            // 上下文分叉：手持用形态 3D 挤出，GUI/GROUND/FIXED 保持 2D 片
+            List<BakedQuad> quads = isHeldContext(context) ? variant.quads3d : variant.quads;
+            return direction == null ? quads : List.of();
         }
 
         /** 关键：本 pass 的渲染类型绑定动态纹理，而不是方块图集。 */

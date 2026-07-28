@@ -26,6 +26,11 @@ LONGSWORD / TACHI / SHIELD），并按原型缓存复用。
 
 ## 特征 → 动作映射（阈值在 QianxiangEFCompat 顶部可调）
 
+> **2026-07 注**：本表已被 `WeaponFormProfile` 形态表取代——锻造时按布局推导的
+> `WeaponForm`（剑/巨剑/匕首/太刀/长枪/战斧/重锤/镰刀/钉锤 + 杖/书）直接给出
+> EF 底座，见 `ef-custom-moveset-notes.md` 开头「形态底座」一节。
+> 下表阈值仅作**无 form 旧产物**的回退路径保留。
+
 | 特征 | 判定 | EF 动作 |
 |---|---|---|
 | 重型 | attackDamage ≥ 6.0 且攻速加成 ≤ 0.6 | greatsword |

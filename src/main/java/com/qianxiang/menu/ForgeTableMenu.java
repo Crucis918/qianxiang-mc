@@ -36,6 +36,17 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     public static final int MATERIAL_SLOTS = 25;
     public static final int RESULT_SLOT = MATERIAL_SLOTS;
 
+    /**
+     * 投料填充顺序（「填充顺序即布局」）：中心 12=核心，内圈 8 格，外圈 16 格按原序。
+     * 所有投料路径（手持/扔料/AI 放料/蓝图）统一按此序找空槽——
+     * 第一个料永远落在中心核心槽，形态推导（见 {@code WeaponFormProfile}）依赖此约定。
+     */
+    public static final int[] SLOT_FILL_ORDER = {
+            12,
+            6, 7, 8, 11, 13, 16, 17, 18,
+            0, 1, 2, 3, 4, 5, 9, 10, 14, 15, 19, 20, 21, 22, 23, 24
+    };
+
     /** 两次「相谱铭刻 + 位格增长」的最小间隔——防 Shift 连锻一次点击刷满位格。 */
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
 
@@ -97,11 +108,13 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             Item item = BuiltInRegistries.ITEM.get(id);
             if (item == Items.AIR) return rollbackBlueprint(placedSlots);
 
+            // 按填充序（中心优先）找空槽——与手持/扔料/AI 放料同一布局约定
             int placeSlot = -1;
-            for (int i = nextSlot; i < MATERIAL_SLOTS; i++) {
-                if (container.getItem(i).isEmpty()) {
-                    placeSlot = i;
-                    nextSlot = i + 1;
+            for (int k = nextSlot; k < SLOT_FILL_ORDER.length; k++) {
+                int slot = SLOT_FILL_ORDER[k];
+                if (container.getItem(slot).isEmpty()) {
+                    placeSlot = slot;
+                    nextSlot = k + 1;
                     break;
                 }
             }

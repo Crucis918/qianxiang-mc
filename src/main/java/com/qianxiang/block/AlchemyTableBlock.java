@@ -49,7 +49,7 @@ public class AlchemyTableBlock extends BaseEntityBlock {
             return net.minecraft.world.ItemInteractionResult.CONSUME;
         }
         var result = TableInteractions.insertFromHand(
-                be, com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS, player, hand, level, pos);
+                be, com.qianxiang.menu.AlchemyTableMenu.SLOT_FILL_ORDER, player, hand, level, pos);
         if (result.consumesAction() && !level.isClientSide()) {
             be.recomputeResult(player.getUUID());
         }

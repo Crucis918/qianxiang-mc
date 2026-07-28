@@ -81,14 +81,14 @@ public final class QianxiangEFCompat {
 
     private QianxiangEFCompat() {}
 
-    // ===================== 可调阈值（与 AttributeScheme 的基底值配套） =====================
+    // ===================== 可调阈值（已集中到 WeaponFormProfile，此处仅作别名转发以免改调用点） =====================
 
-    /** 重型：合成攻击力达到该值且攻速加成低 → greatsword（EDGE 基底 3.0/件，两件即 6.0）。 */
-    public static final double HEAVY_MIN_DAMAGE = 6.0;
-    /** 重型判定附带的攻速加成上限（BASE_METAL 每件 +0.4，单金属基底为 0.4）。 */
-    public static final double HEAVY_MAX_SPEED = 0.6;
-    /** 轻型：攻速加成达到该值 → dagger（两件金属基底 0.8）。 */
-    public static final double LIGHT_MIN_SPEED = 0.8;
+    /** 重型：合成攻击力达到该值且攻速加成低 → greatsword。 */
+    public static final double HEAVY_MIN_DAMAGE = com.qianxiang.combat.WeaponFormProfile.FALLBACK_HEAVY_DAMAGE;
+    /** 重型判定附带的攻速加成上限。 */
+    public static final double HEAVY_MAX_SPEED = com.qianxiang.combat.WeaponFormProfile.FALLBACK_HEAVY_MAX_SPEED;
+    /** 轻型：攻速加成达到该值 → dagger。 */
+    public static final double LIGHT_MIN_SPEED = com.qianxiang.combat.WeaponFormProfile.LIGHT_MIN_SPEED;
 
     /** 设为 false 可整体关闭动态适配，回退到纯静态 JSON 行为。 */
     public static final boolean ENABLED = true;
@@ -116,16 +116,32 @@ public final class QianxiangEFCompat {
         Qianxiang.LOGGER.info("[Qianxiang] EpicFight 动态武器动作适配已注册（特征→动作，静态 JSON 兜底）。");
     }
 
-    /** NeoForge capability provider：moveset 优先，其次按堆叠特征；不接管时返回 null 交给 EF 静态 JSON。 */
+    /** NeoForge capability provider：moveset 优先，其次形态事实源（form→EF 底座），再特征分类；不接管时返回 null 交给 EF 静态 JSON。 */
     private static CapabilityItem provide(ItemStack stack, Void context) {
         if (!ENABLED || failed) return null;
         try {
-            // 玩家描述的自定义动作（CUSTOM_MOVESET 组件）优先于特征分类
+            // 玩家描述的自定义动作（CUSTOM_MOVESET 组件）优先于形态/特征
             WeaponMoveset moveset = stack.get(QianxiangDataComponents.CUSTOM_MOVESET.get());
             if (moveset != null && !moveset.combos().isEmpty()) {
                 CapabilityItem custom = provideMoveset(stack, moveset);
                 if (custom != null) return custom;
-                // null：动画未加载或构建失败 → 继续走特征分类，不至于没动作
+                // null：动画未加载或构建失败 → 继续走形态/特征分类，不至于没动作
+            }
+            // 形态事实源：组件 AppearanceData.form → 映射表 EF 底座（锻造时一次推导写入）
+            ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+            if (attr != null) {
+                var profile = com.qianxiang.combat.WeaponFormProfile.of(attr.form());
+                if (profile != null) {
+                    var presetFn = CATEGORY_PRESETS.get(profile.efCategory());
+                    if (presetFn != null) {
+                        CapabilityItem cached = FORM_CACHE.get(profile.efCategory());
+                        if (cached == null) {
+                            cached = presetFn.apply(stack.getItem()).build();
+                            FORM_CACHE.put(profile.efCategory(), cached);
+                        }
+                        return cached;
+                    }
+                }
             }
             Archetype archetype = classify(stack);
             if (archetype == null) return null;
@@ -143,6 +159,8 @@ public final class QianxiangEFCompat {
         }
     }
 
+    /** 形态→EF 底座的 capability 缓存（按 efCategory 键，同底座共享实例）。 */
+    private static final Map<String, CapabilityItem> FORM_CACHE = new HashMap<>();
     /** 特征分类：返回 null 表示本类不接管（交给 EF 既有逻辑）。 */
     private static Archetype classify(ItemStack stack) {
         Item item = stack.getItem();

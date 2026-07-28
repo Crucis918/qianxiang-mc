@@ -1,5 +1,14 @@
 # EF 自定义武器动作（CUSTOM_MOVESET）实现笔记
 
+> **2026-07 更新：形态底座（WeaponFormProfile）**
+> 形态事实源已统一：`WeaponForm`（9 推导形态 + staff/book 物品固有）在锻造时按布局
+> （填充顺序=中心向外）推导并写入 `ComposedAttributes.AppearanceData.form`，
+> `WeaponFormProfile` 把 form 映射为（纹理形状 / **EF category** / 默认连段 / **collider**）。
+> `QianxiangEFCompat.provide` 与连击编辑器的默认底座现在**先读组件 form**
+> （katana↔tachi、scythe↔spear、hammer↔greatsword 等名正言顺进表），
+> 旧属性阈值（重型 6.0/0.6、轻型 0.8）仅作**无 form 旧产物**的回退路径。
+> `CUSTOM_MOVESET` 组件的优先级不变：组件 > form 底座 > 阈值回退 > EF 静态 JSON。
+
 玩家用自然语言描述攻击动作（「三段连斩」「突进」……），AI 从 Epic Fight 动画库中
 **挑选现有动画**组合成连击，产物武器在 EF 战斗模式（按 R）下的普攻就是这套动作。
 
@@ -57,7 +66,7 @@
 `greatsword / dagger / spear / longsword / tachi / uchigatana / sword / axe / fist`。
 
 - 未知名（或 `trident`/`shield` 这类非 `WeaponCapability` 的类别）→ 底座退回
-  特征分类的原型（重型→greatsword 等），不接管时回退整个 moveset 分支。
+  形态/特征分类的原型（先读组件 form，无 form 走阈值特征分类），不接管时回退整个 moveset 分支。
 - `WeaponCategory` 覆盖用内置枚举 `CapabilityItem.WeaponCategories.valueOf`，
   未知名跳过（保留底座的 category），仅影响 EF 的类别图标/技能匹配，不影响动画。
 
@@ -74,11 +83,13 @@
 
 ## 4. 行为与回退链
 
-优先级：`CUSTOM_MOVESET` 组件 → 特征分类（重型→greatsword 等）→ EF 静态 JSON。
+优先级：`CUSTOM_MOVESET` 组件 → **form 底座（WeaponFormProfile）** →
+特征分类阈值回退（重型→greatsword 等，仅无 form 旧产物）→ EF 静态 JSON。
 
-- 无 moveset 的武器：行为与之前完全一致（特征分类 + 静态 JSON 兜底）。
+- 无 moveset 的武器：行为按 form 底座走（锻造时推导写入组件）；旧产物无 form 字段，
+  行为与之前完全一致（特征分类 + 静态 JSON 兜底）。
 - moveset 构建抛硬异常：只拉黑**该 moveset**（`MOVESET_BLACKLIST`），
-  回退特征分类；不动 `failed` 总开关，其他武器不受影响。
+  回退形态/特征分类；不动 `failed` 总开关，其他武器不受影响。
 - 缺失动画/非法判定盒/未知 category：`MOVESET_WARNED` 去重，同一问题只警告一次。
 - capability 缓存：`MOVESET_CACHE` 以 moveset record（equals/hashCode 稳定）为键，
   同一动作集的多个产物共享同一 capability 实例。

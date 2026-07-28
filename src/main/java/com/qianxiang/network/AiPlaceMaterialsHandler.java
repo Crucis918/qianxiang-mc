@@ -37,15 +37,15 @@ public final class AiPlaceMaterialsHandler {
             // 锻造台 / 炼金台共用放料逻辑：按菜单类型取容器与材料槽数。
             AbstractContainerMenu menu = player.containerMenu;
             net.minecraft.world.Container container;
-            int materialSlots;
+            int[] fillOrder;
             String noMaterialsKey;
             if (menu instanceof ForgeTableMenu forgeMenu) {
                 container = forgeMenu.getContainer();
-                materialSlots = ForgeTableMenu.MATERIAL_SLOTS;
+                fillOrder = ForgeTableMenu.SLOT_FILL_ORDER;
                 noMaterialsKey = "qianxiang.forge_table.msg.no_materials";
             } else if (menu instanceof com.qianxiang.menu.AlchemyTableMenu alchemyMenu) {
                 container = alchemyMenu.getContainer();
-                materialSlots = com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS;
+                fillOrder = com.qianxiang.menu.AlchemyTableMenu.SLOT_FILL_ORDER;
                 noMaterialsKey = "qianxiang.alchemy_table.msg.no_materials";
             } else {
                 Qianxiang.LOGGER.warn("[Qianxiang] 玩家发送 AI 放料请求时未打开功能台菜单");
@@ -67,7 +67,7 @@ public final class AiPlaceMaterialsHandler {
                 return;
             }
 
-            PlaceResult result = placeMaterials(player, container, materialSlots, wanted);
+            PlaceResult result = placeMaterials(player, container, fillOrder, wanted);
 
             if (result.placedCount() > 0) {
                 // 闭合「建议 → 采纳」链路：玩家真的把 AI 推荐的材料放上台了。
@@ -102,7 +102,7 @@ public final class AiPlaceMaterialsHandler {
      * 纯逻辑无发包，GameTest 可直接断言返回值与容器状态。
      */
     public static PlaceResult placeMaterials(Player player, net.minecraft.world.Container container,
-                                             int materialSlots, List<Item> wanted) {
+                                             int[] fillOrder, List<Item> wanted) {
         net.minecraft.core.BlockPos tablePos =
                 container instanceof net.minecraft.world.level.block.entity.BlockEntity be
                         ? be.getBlockPos() : player.blockPosition();
@@ -112,7 +112,7 @@ public final class AiPlaceMaterialsHandler {
         List<Item> placed = new ArrayList<>();
         List<Item> missing = new ArrayList<>();
         for (Item item : wanted) {
-            int materialSlot = findMaterialSlot(container, item, materialSlots);
+            int materialSlot = findMaterialSlot(container, item, fillOrder);
             if (materialSlot < 0) {
                 missing.add(item); // 材料槽已满（先查槽再抽取，守恒）
                 continue;
@@ -155,26 +155,26 @@ public final class AiPlaceMaterialsHandler {
 
     /** 测试入口：直接对容器做槽位选择（GameTest 无需构造完整菜单）。 */
     public static int findMaterialSlotForTest(net.minecraft.world.Container container, Item item) {
-        return findMaterialSlot(container, item, ForgeTableMenu.MATERIAL_SLOTS);
+        return findMaterialSlot(container, item, ForgeTableMenu.SLOT_FILL_ORDER);
     }
 
     /**
-     * 找可放入指定物品的材料槽：优先空槽，其次可堆叠的同种物品槽。
-     * 若找不到返回 -1（材料槽已满）。
+     * 找可放入指定物品的材料槽：按 fillOrder 找空槽（「填充顺序即布局」，中心优先），
+     * 其次可堆叠的同种物品槽。若找不到返回 -1（材料槽已满）。
      */
-    private static int findMaterialSlot(net.minecraft.world.Container container, Item item, int materialSlots) {
+    private static int findMaterialSlot(net.minecraft.world.Container container, Item item, int[] fillOrder) {
         // 必须真·优先空槽：composer 按「占用的槽数」计零件，数量无关。
         // 堆到同一槽的话，AI 承诺的 [铁锭,铁锭,煤] 实际只算 2 个零件，
         // 与蓝图路径（逐槽铺开）结果不一致。
         Integer stackable = null;
-        for (int i = 0; i < materialSlots; i++) {
-            ItemStack s = container.getItem(i);
+        for (int slot : fillOrder) {
+            ItemStack s = container.getItem(slot);
             if (s.isEmpty()) {
-                return i;
+                return slot;
             }
             if (stackable == null && s.is(item) && s.getCount() < s.getMaxStackSize()
                     && ItemStack.isSameItemSameComponents(s, new ItemStack(item))) {
-                stackable = i;
+                stackable = slot;
             }
         }
         return stackable == null ? -1 : stackable;

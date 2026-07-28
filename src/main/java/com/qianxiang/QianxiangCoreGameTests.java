@@ -389,8 +389,8 @@ public final class QianxiangCoreGameTests {
 
         helper.assertTrue(inv.getItem(0).has(net.minecraft.core.component.DataComponents.CUSTOM_NAME),
                 "带自定义名的贵重物品不应被取走");
-        ItemStack placed = be.getItem(0);
-        helper.assertTrue(placed.is(Items.IRON_PICKAXE), "台上应放入铁镐，实际 " + placed);
+        ItemStack placed = be.getItem(12);
+        helper.assertTrue(placed.is(Items.IRON_PICKAXE), "台上应放入铁镐（中心槽 12），实际 " + placed);
         helper.assertTrue(placed.getDamageValue() > 0,
                 "应取用损伤大的那把（组件/耐久必须原样保留，不能是出厂新品）");
         helper.assertTrue(!inv.armor.get(3).isEmpty(), "护甲槽物品不应被蓝图取用");
@@ -1272,9 +1272,9 @@ public final class QianxiangCoreGameTests {
                 net.minecraft.core.Direction.UP, pos, false);
 
         helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
-        helper.assertTrue(be.getItem(0).is(QianxiangItems.EMBER_CRYSTAL.get())
-                        && be.getItem(0).getCount() == 1,
-                "投入后材料槽 0 应有 1 个余烬石，实际 " + be.getItem(0));
+        helper.assertTrue(be.getItem(12).is(QianxiangItems.EMBER_CRYSTAL.get())
+                        && be.getItem(12).getCount() == 1,
+                "投入后中心槽 12 应有 1 个余烬石，实际 " + be.getItem(12));
         helper.assertTrue(player.getMainHandItem().getCount() == 2,
                 "投入 1 个后手持应剩 2，实际 " + player.getMainHandItem().getCount());
 
@@ -1479,9 +1479,9 @@ public final class QianxiangCoreGameTests {
         // BE 吸收扫描每 5 tick 一次，等 10 tick 让真实 tick 跑过
         helper.runAfterDelay(10, () -> {
             helper.assertTrue(entity.isRemoved(), "掉落物应被台子吸收");
-            helper.assertTrue(be.getItem(0).is(QianxiangItems.EMBER_CRYSTAL.get())
-                            && be.getItem(0).getCount() == 2,
-                    "吸收后材料槽 0 应有 2 个余烬石，实际 " + be.getItem(0));
+            helper.assertTrue(be.getItem(12).is(QianxiangItems.EMBER_CRYSTAL.get())
+                            && be.getItem(12).getCount() == 2,
+                    "吸收后中心槽 12 应有 2 个余烬石，实际 " + be.getItem(12));
             helper.succeed();
         });
     }
@@ -1583,14 +1583,15 @@ public final class QianxiangCoreGameTests {
         inv.setItem(1, new ItemStack(Items.DIAMOND));
 
         var result = com.qianxiang.network.AiPlaceMaterialsHandler.placeMaterials(player, be,
-                ForgeTableMenu.MATERIAL_SLOTS,
+                ForgeTableMenu.SLOT_FILL_ORDER,
                 List.of(Items.IRON_INGOT, Items.DIAMOND, Items.EMERALD));
         helper.assertTrue(result.placedCount() == 2,
                 "应放入 2 件持有材料，实际 " + result.placedCount());
         helper.assertTrue(result.missing().size() == 1 && result.missing().get(0) == Items.EMERALD,
                 "缺料名单应恰含绿宝石，实际 " + result.missing());
-        helper.assertTrue(be.getItem(0).is(Items.IRON_INGOT) && be.getItem(1).is(Items.DIAMOND),
-                "铁锭与钻石应已入材料槽");
+        helper.assertTrue(be.getItem(12).is(Items.IRON_INGOT) && be.getItem(6).is(Items.DIAMOND),
+                "铁锭应在槽 12、钻石应在槽 6（填充序），实际 "
+                        + be.getItem(12) + " / " + be.getItem(6));
         helper.assertTrue(countInInventory(player, Items.EMERALD) == 0
                         && countInInventory(player, Items.IRON_INGOT) == 0,
                 "已放材料应从背包扣除");
@@ -1616,18 +1617,200 @@ public final class QianxiangCoreGameTests {
         player.getInventory().clearContent();  // 背包空：只能来自箱子
 
         var result = com.qianxiang.network.AiPlaceMaterialsHandler.placeMaterials(player, be,
-                ForgeTableMenu.MATERIAL_SLOTS,
+                ForgeTableMenu.SLOT_FILL_ORDER,
                 List.of(Items.IRON_INGOT, Items.DIAMOND));
         helper.assertTrue(result.placedCount() == 1,
                 "应从箱子抽到 1 个铁锭，实际 " + result.placedCount());
         helper.assertTrue(result.missing().size() == 1 && result.missing().get(0) == Items.DIAMOND,
                 "箱子没有的钻石应报缺料，实际 " + result.missing());
-        helper.assertTrue(be.getItem(0).is(Items.IRON_INGOT),
-                "铁锭应进材料槽 0，实际 " + be.getItem(0));
+        helper.assertTrue(be.getItem(12).is(Items.IRON_INGOT),
+                "铁锭应进中心槽 12，实际 " + be.getItem(12));
         helper.assertTrue(chest.getItem(0).getCount() == 2,
                 "守恒：箱子应剩 2 个铁锭（抽 1 放 1），实际 " + chest.getItem(0).getCount());
         level.removeBlock(tablePos, false);
         level.removeBlock(chestPos, false);
+        helper.succeed();
+    }
+
+    // ============================ 填充顺序即布局 + 武器形态事实源 ============================
+
+    /** 连续投 3 料：按 SLOT_FILL_ORDER 依序占用槽 12（核心）→ 6 → 7。 */
+    @GameTest(template = "item_concept")
+    public static void fillOrderCenterFirst(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND,
+                new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 3));
+
+        for (int k = 0; k < 3; k++) {
+            helper.useBlock(new net.minecraft.core.BlockPos(2, 1, 2), player);
+        }
+        helper.assertTrue(be.getItem(12).getCount() == 1,
+                "第 1 料应落中心槽 12，实际 " + be.getItem(12));
+        helper.assertTrue(be.getItem(6).getCount() == 1,
+                "第 2 料应落槽 6（内圈首格），实际 " + be.getItem(6));
+        helper.assertTrue(be.getItem(7).getCount() == 1,
+                "第 3 料应落槽 7（内圈次格），实际 " + be.getItem(7));
+        helper.assertTrue(be.getItem(0).isEmpty(),
+                "槽 0（外圈）在前三料时不应被占用（填充顺序即布局）");
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    /** 布局→形态推导：中心 1 件锋锐料→匕首；外圈 8 件木质料→巨剑；外圈 8 件高攻火料→重锤；
+     *  迟缓料→长枪（正反向双断言）。 */
+    @GameTest(template = "item_concept")
+    public static void weaponFormDerivedFromLayout(GameTestHelper helper) {
+        // 中心 1 件兽牙（EDGE）：小型 → 匕首
+        ItemStack[] daggerMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) daggerMats[i] = ItemStack.EMPTY;
+        daggerMats[12] = new ItemStack(QianxiangItems.BEAST_FANG.get());
+        ForgeComposer.Composition dagger = ForgeComposer.compose(List.of(daggerMats));
+        helper.assertTrue(dagger.valid(), "兽牙应能组合出产物");
+        helper.assertTrue("dagger".equals(dagger.attributes().form()),
+                "中心 1 件锋锐料应定形匕首，实际 " + dagger.attributes().form());
+        helper.assertTrue(!"sword".equals(dagger.attributes().form()),
+                "有明确形态规则命中时不应回退标准剑");
+
+        // 外圈 8 件木棍（BASE_WOOD，无攻击）：重型 → 巨剑
+        ItemStack[] greatMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) greatMats[i] = ItemStack.EMPTY;
+        int[] outer8 = {0, 1, 2, 3, 4, 5, 9, 10};
+        for (int slot : outer8) greatMats[slot] = new ItemStack(Items.STICK);
+        ForgeComposer.Composition great = ForgeComposer.compose(List.of(greatMats));
+        helper.assertTrue(great.valid(), "外圈木棍应能组合出产物");
+        helper.assertTrue("greatsword".equals(great.attributes().form()),
+                "外圈 8 件木质料应定形巨剑，实际 " + great.attributes().form());
+        helper.assertTrue(!"hammer".equals(great.attributes().form()),
+                "无高攻/力量算子时不应定形重锤");
+
+        // 外圈 8 件烬铁（IGNITE 高攻）：重型+高攻 → 重锤
+        ItemStack[] hammerMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) hammerMats[i] = ItemStack.EMPTY;
+        for (int slot : outer8) hammerMats[slot] = new ItemStack(QianxiangMaterials.EMBER_IRON.get());
+        ForgeComposer.Composition hammer = ForgeComposer.compose(List.of(hammerMats));
+        helper.assertTrue(hammer.valid(), "外圈烬铁应能组合出产物");
+        helper.assertTrue("hammer".equals(hammer.attributes().form()),
+                "外圈 8 件高攻火料应定形重锤，实际 " + hammer.attributes().form());
+        helper.assertTrue(!"greatsword".equals(hammer.attributes().form()),
+                "攻击 ≥6 命中重型锤加权后不应定形巨剑");
+
+        // 中心 1 件影尘（SLOW）：长枪（优先序 SPEAR 在 DAGGER 前）
+        ItemStack[] spearMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) spearMats[i] = ItemStack.EMPTY;
+        spearMats[12] = new ItemStack(QianxiangMaterials.SHADOW_DUST.get());
+        ForgeComposer.Composition spear = ForgeComposer.compose(List.of(spearMats));
+        helper.assertTrue(spear.valid(), "影尘应能组合出产物");
+        helper.assertTrue("spear".equals(spear.attributes().form()),
+                "迟缓料应定形长枪，实际 " + spear.attributes().form());
+        helper.assertTrue(!"scythe".equals(spear.attributes().form()),
+                "无 POISON/FROST 时不应定形镰刀");
+        helper.succeed();
+    }
+
+    /** form 字段存档兼容：旧 NBT（无 form 键）读回空串，回退路径可达。 */
+    @GameTest(template = "item_concept")
+    public static void appearanceCodecBackwardCompat(GameTestHelper helper) {
+        net.minecraft.nbt.CompoundTag tag = new net.minecraft.nbt.CompoundTag();
+        var decoded = com.qianxiang.phase.ComposedAttributes.AppearanceData.CODEC
+                .parse(net.minecraft.nbt.NbtOps.INSTANCE, tag).result().orElse(null);
+        helper.assertTrue(decoded != null, "空 AppearanceData NBT 应能解码（全部 optionalFieldOf）");
+        helper.assertTrue(decoded.form().isEmpty(),
+                "旧 NBT（无 form 键）读回 form 应为空串，实际 " + decoded.form());
+        helper.assertTrue(com.qianxiang.combat.WeaponFormProfile.of(decoded.form()) == null,
+                "空形态应走回退路径（profile 为 null）");
+        helper.assertTrue(com.qianxiang.combat.WeaponFormProfile.fallbackByAttributes(
+                        com.qianxiang.phase.ComposedAttributes.empty())
+                        == com.qianxiang.phase.WeaponForm.SWORD,
+                "全零属性的阈值回退应为标准剑");
+        // 新 NBT 往返：form 写入后读回一致
+        var withForm = new com.qianxiang.phase.ComposedAttributes.AppearanceData(
+                java.util.Set.of(), "none", "plain", "katana", "bone");
+        var roundtrip = com.qianxiang.phase.ComposedAttributes.AppearanceData.CODEC
+                .parse(net.minecraft.nbt.NbtOps.INSTANCE,
+                        com.qianxiang.phase.ComposedAttributes.AppearanceData.CODEC
+                                .encodeStart(net.minecraft.nbt.NbtOps.INSTANCE, withForm)
+                                .result().orElseThrow())
+                .result().orElse(null);
+        helper.assertTrue(roundtrip != null && "katana".equals(roundtrip.form()),
+                "form 字段应随 NBT 往返无损，实际 " + (roundtrip == null ? "null" : roundtrip.form()));
+        helper.succeed();
+    }
+
+    /** WeaponFormProfile 全部默认连段都能在 AnimationLibrary 解析（防编造动画 id）。 */
+    @GameTest(template = "item_concept")
+    public static void formPresetAnimationsResolve(GameTestHelper helper) {
+        for (var entry : com.qianxiang.combat.WeaponFormProfile.all().entrySet()) {
+            helper.assertTrue(!entry.getValue().defaultCombos().isEmpty(),
+                    entry.getKey() + " 应有默认连段");
+            for (String path : entry.getValue().defaultCombos()) {
+                var fullId = com.qianxiang.combat.AnimationLibrary.fullId(path);
+                helper.assertTrue(com.qianxiang.combat.AnimationLibrary.byId(fullId) != null,
+                        entry.getKey() + " 的默认连段 " + path + " 在 AnimationLibrary 不存在");
+            }
+        }
+        helper.succeed();
+    }
+
+    /** 核心材料基底族：中心槽材料的 BASE_* 族写入 baseFamily（木→wood、金属→metal、骨→bone、无族→空串）。 */
+    @GameTest(template = "item_concept")
+    public static void baseFamilyFromCoreSlot(GameTestHelper helper) {
+        // 木棍（BASE_WOOD）中心 → wood
+        ItemStack[] woodMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) woodMats[i] = ItemStack.EMPTY;
+        woodMats[12] = new ItemStack(Items.STICK);
+        ForgeComposer.Composition wood = ForgeComposer.compose(List.of(woodMats));
+        helper.assertTrue(wood.valid(), "木棍应能组合出产物");
+        helper.assertTrue("wood".equals(wood.attributes().baseFamily()),
+                "木棍核心应得 baseFamily=wood，实际 " + wood.attributes().baseFamily());
+
+        // 烬铁（BASE_METAL）中心 → metal
+        ItemStack[] metalMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) metalMats[i] = ItemStack.EMPTY;
+        metalMats[12] = new ItemStack(QianxiangMaterials.EMBER_IRON.get());
+        ForgeComposer.Composition metal = ForgeComposer.compose(List.of(metalMats));
+        helper.assertTrue(metal.valid(), "烬铁应能组合出产物");
+        helper.assertTrue("metal".equals(metal.attributes().baseFamily()),
+                "烬铁核心应得 baseFamily=metal，实际 " + metal.attributes().baseFamily());
+
+        // 兽牙（无 BASE_*）中心 → 空串（渲染回退写死色）
+        ItemStack[] fangMats = new ItemStack[25];
+        for (int i = 0; i < 25; i++) fangMats[i] = ItemStack.EMPTY;
+        fangMats[12] = new ItemStack(QianxiangItems.BEAST_FANG.get());
+        ForgeComposer.Composition fang = ForgeComposer.compose(List.of(fangMats));
+        helper.assertTrue(fang.valid(), "兽牙应能组合出产物");
+        helper.assertTrue(fang.attributes().baseFamily().isEmpty(),
+                "无基底族材料应得空串 baseFamily，实际 " + fang.attributes().baseFamily());
+        helper.succeed();
+    }
+
+    /** 手持 3D 剖面参数表：9 形态 + staff/book 全部有显式配置且厚度为正，未配置形状回退默认薄片。 */
+    @GameTest(template = "item_concept")
+    public static void extrusionProfilesComplete(GameTestHelper helper) {
+        for (var entry : com.qianxiang.combat.WeaponFormProfile.all().entrySet()) {
+            String shape = entry.getValue().shape();
+            var profile = com.qianxiang.combat.WeaponFormProfile.extrusionFor(shape);
+            helper.assertTrue(profile != null, shape + " 应有 3D 剖面配置");
+            helper.assertTrue(profile.bladeThickness() > 0.0f && profile.handleThickness() > 0.0f,
+                    shape + " 剖面厚度应为正，实际 blade=" + profile.bladeThickness()
+                            + " handle=" + profile.handleThickness());
+            helper.assertTrue(profile != com.qianxiang.combat.WeaponFormProfile.defaultExtrusion()
+                            || shape.isEmpty(),
+                    entry.getKey() + " 的形状 " + shape + " 应有显式剖面（不吃默认回退）");
+        }
+        // 未配置形状（pan/cleaver 等）回退默认薄片且不炸
+        var fallback = com.qianxiang.combat.WeaponFormProfile.extrusionFor("pan");
+        helper.assertTrue(fallback == com.qianxiang.combat.WeaponFormProfile.defaultExtrusion(),
+                "未配置形状应回退默认剖面");
+        helper.assertTrue(fallback.bladeThickness() > 0.0f, "默认剖面厚度应为正");
         helper.succeed();
     }
 

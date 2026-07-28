@@ -1192,6 +1192,40 @@ DONE 时 ritualInputs 才真正消耗、displayResult 就位、记相谱，产�
 
 ---
 
+## WQ-61 [x] 完成(待提交) 【大·武器形态统一】定形事实源 + 动作底座 + 画工 + 手持 3D
+
+**范围**：①「填充顺序即布局」——`SLOT_FILL_ORDER`（中心 12=核心→内圈→外圈）
+统一手持/扔料/AI 放料/蓝图四条投料路径，第一个料永远落核心槽；
+②`WeaponForm` 9 推导形态（剑/巨剑/匕首/太刀/长枪/战斧/重锤/镰刀/钉锤）
++ STAFF/BOOK 物品固有，`AppearanceData` 新增 `form`/`baseFamily` 字段
+（optionalFieldOf 缺省空串，旧存档兼容）；`WeaponFormProfile` 统一
+form→（纹理 shape / EF category / 默认连段 / collider / 3D 剖面）五元映射，
+`DynamicWeaponTexture.shapeFor`、`QianxiangEFCompat.provide`、`MovesetEditorScreen`
+三处默认底座改为先读组件 form，旧阈值仅作无 form 回退；
+③11 张字符画模板精修（三段结构分明）+ `baseFamily` 族色刃体
+（钢灰/象牙白/深棕/革棕，VariantKey 进 hash 防串色）；
+④手持 3D 化——`bakeQuads3D` 按形态剖面参数分区挤出（刃体/柄部各自厚度），
+`DynamicPass` 按 ItemDisplayContext 分叉（手持 3D、GUI/掉落/展示框 2D 片），
+11 个武器类静态 json parent 统一 handheld，零新资产。
+
+**关键决策**：
+- 布局=填充顺序而非坐标系（材料槽坐标已挪屏外），所有取料/放料路径同一约定，
+  形态/核心族推导以槽位下标为准。
+- katana↔tachi 名正言顺进表（katana 形状 → tachi 底座/连段/判定盒）；
+  骨刃可达性由 `BASE_BONE→KATANA+1` + itemPath 回退双保险。
+- MACE 仅映射表/编辑器可达（推导规则无产出路径，钉锤靠自定义名纹理路径）。
+- 3D 几何零新资产：逐像素按角色（H/W 柄区 vs 刃体区）分区厚度挤出，
+  侧条与正面共用像素 UV。
+
+**遗留观察项**：
+- 3D 侧条 UV 是整像素压缩到 1px 面，实机若刺眼需按方向拆 UV（待实机验收，
+  其余实机项：手持厚度观感、图标零偏移、族色/刃缘色一致性）。
+- 旧产物组件无 form/baseFamily 字段，走回退路径（纹理形状/EF 分类/编辑器底座
+  均保留原逻辑兜底）。
+- AI 摆法教学（提示玩家「第一个料是核心」的引导文案/教程）留待后续 UX 轮次。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）

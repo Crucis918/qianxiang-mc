@@ -8,6 +8,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.block.model.BlockElement;
+import net.minecraft.client.renderer.block.model.BlockElementFace;
+import net.minecraft.client.renderer.block.model.BlockFaceUV;
+import org.joml.Vector3f;
+import java.util.EnumMap;
 import net.minecraft.client.renderer.block.model.FaceBakery;
 import net.minecraft.client.renderer.block.model.ItemModelGenerator;
 import net.minecraft.client.renderer.texture.DynamicTexture;
@@ -76,23 +80,31 @@ public final class DynamicWeaponTexture {
     private DynamicWeaponTexture() {
     }
 
-    /** 一次渲染所需的全部资源：动态纹理 id、对应 RenderType、按 item/generated 规则挤出的 3D quad。 */
+    /** 一次渲染所需的全部资源：动态纹理 id、对应 RenderType、2D 挤出 quad 与手持 3D 挤出 quad。 */
     public static final class Variant {
         public final ResourceLocation texture;
         public final RenderType renderType;
+        /** 2D 薄片（GUI/GROUND/FIXED 用）。 */
         public final List<BakedQuad> quads;
+        /** 按形态剖面参数生成的 3D 几何（FIRST/THIRD_PERSON 手持用）。 */
+        public final List<BakedQuad> quads3d;
 
-        Variant(ResourceLocation texture, RenderType renderType, List<BakedQuad> quads) {
+        Variant(ResourceLocation texture, RenderType renderType, List<BakedQuad> quads, List<BakedQuad> quads3d) {
             this.texture = texture;
             this.renderType = renderType;
             this.quads = quads;
+            this.quads3d = quads3d;
         }
     }
 
-    /** 纹理内容 hash：形状 × 主导效果颜色 × 装饰档位。 */
-    public record VariantKey(String shape, String color, int tier) {
+    /**
+     * 纹理内容 hash：形状 × 主导效果颜色 × 装饰档位 × 核心材料基底族。
+     * baseFamily 必须进 key——同 shape+color+tier 的不同基底族（钢灰/象牙白/深棕/革棕）
+     * 若共用缓存会串色（缓存规模按 9 形态 × 9 色板 × 4 档 × 5 族 ≈ 1620 上界，仍远小于图集）。
+     */
+    public record VariantKey(String shape, String color, int tier, String baseFamily) {
         String path() {
-            return "dynamic/" + shape + "_" + color + "_" + tier;
+            return "dynamic/" + shape + "_" + color + "_" + tier + "_" + baseFamily;
         }
     }
 
@@ -116,7 +128,8 @@ public final class DynamicWeaponTexture {
             }
 
             String path = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
-            VariantKey key = new VariantKey(shapeFor(stack, path, attr), colorKeyFor(attr), tierFor(attr));
+            VariantKey key = new VariantKey(shapeFor(stack, path, attr), colorKeyFor(attr), tierFor(attr),
+                    attr.baseFamily());
             lastKeyAttr = attr;
             lastKeyItem = stack.getItem();
             lastKey = key;
@@ -140,7 +153,8 @@ public final class DynamicWeaponTexture {
 
     /** bake 失败哨兵：占住 CACHE 的位置，阻止每帧重试。 */
     private static final Variant FAILED =
-            new Variant(ResourceLocation.fromNamespaceAndPath("qianxiang", "failed_variant"), null, List.of());
+            new Variant(ResourceLocation.fromNamespaceAndPath("qianxiang", "failed_variant"),
+                    null, List.of(), List.of());
 
     // 单条记忆化（渲染是单线程的；即便偶发竞态也只是多算一次 key，无正确性问题）
     private static ComposedAttributes lastKeyAttr;
@@ -154,7 +168,9 @@ public final class DynamicWeaponTexture {
         ResourceLocation id = ResourceLocation.fromNamespaceAndPath("qianxiang", key.path());
         Minecraft.getInstance().getTextureManager().register(id, new DynamicTexture(image));
         RenderType renderType = RenderType.entityTranslucentCull(id);
-        return new Variant(id, renderType, bakeQuads(id, image));
+        return new Variant(id, renderType, bakeQuads(id, image),
+                bakeQuads3D(id, image, com.qianxiang.combat.WeaponFormProfile.extrusionFor(key.shape()),
+                        template(key.shape())));
     }
 
     /**
@@ -173,6 +189,56 @@ public final class DynamicWeaponTexture {
             for (Map.Entry<Direction, net.minecraft.client.renderer.block.model.BlockElementFace> entry : element.faces.entrySet()) {
                 quads.add(bakery.bakeQuad(element.from, element.to, entry.getValue(), sprite,
                         entry.getKey(), BlockModelRotation.X0_Y0, element.rotation, false));
+            }
+        }
+        return List.copyOf(quads);
+    }
+
+    /**
+     * 手持 3D 几何：按形态剖面参数（{@link com.qianxiang.combat.WeaponFormProfile.ExtrusionProfile}）
+     * 逐像素分区挤出——刃体区（B/b/E/G/T/R）用刃厚度、柄区（H/W）用柄厚度，
+     * 前后大面 + 透明邻接方向的侧条；法线/着色与 2D 路径同一 FaceBakery 管线。
+     * 零新资产：几何全代码生成，纹理仍 16×16。
+     */
+    private static List<BakedQuad> bakeQuads3D(ResourceLocation id, NativeImage image,
+                                               com.qianxiang.combat.WeaponFormProfile.ExtrusionProfile profile,
+                                               String[] template) {
+        SpriteContents contents = new SpriteContents(id, new FrameSize(SIZE, SIZE), image, ResourceMetadata.EMPTY);
+        TextureAtlasSprite sprite = new TextureAtlasSprite(TextureAtlas.LOCATION_BLOCKS, contents, SIZE, SIZE, 0, 0) {
+        };
+        FaceBakery bakery = new FaceBakery();
+        List<BakedQuad> quads = new ArrayList<>();
+        for (int y = 0; y < SIZE; y++) {
+            for (int x = 0; x < SIZE; x++) {
+                if ((image.getPixelRGBA(x, y) >>> 24) == 0) continue;
+                char role = x < template[y].length() ? template[y].charAt(x) : '.';
+                float thick = (role == 'H' || role == 'W') ? profile.handleThickness()
+                        : profile.bladeThickness();
+                float zMin = 8.0f - thick / 2.0f;
+                float zMax = 8.0f + thick / 2.0f;
+                Vector3f from = new Vector3f(x, 15 - y, zMin);
+                Vector3f to = new Vector3f(x + 1, 16 - y, zMax);
+                BlockFaceUV uv = new BlockFaceUV(new float[]{x, 15 - y, x + 1, 16 - y}, 0);
+                Map<Direction, BlockElementFace> faces = new EnumMap<>(Direction.class);
+                faces.put(Direction.NORTH, new BlockElementFace(null, -1, "layer0", uv));
+                faces.put(Direction.SOUTH, new BlockElementFace(null, -1, "layer0", uv));
+                if (!opaque(image, x - 1, y)) {
+                    faces.put(Direction.WEST, new BlockElementFace(null, -1, "layer0", uv));
+                }
+                if (!opaque(image, x + 1, y)) {
+                    faces.put(Direction.EAST, new BlockElementFace(null, -1, "layer0", uv));
+                }
+                if (!opaque(image, x, y - 1)) {
+                    faces.put(Direction.UP, new BlockElementFace(null, -1, "layer0", uv));
+                }
+                if (!opaque(image, x, y + 1)) {
+                    faces.put(Direction.DOWN, new BlockElementFace(null, -1, "layer0", uv));
+                }
+                BlockElement element = new BlockElement(from, to, faces, null, true);
+                for (Map.Entry<Direction, BlockElementFace> entry : element.faces.entrySet()) {
+                    quads.add(bakery.bakeQuad(element.from, element.to, entry.getValue(), sprite,
+                            entry.getKey(), BlockModelRotation.X0_Y0, element.rotation, false));
+                }
             }
         }
         return List.copyOf(quads);
@@ -255,10 +321,26 @@ public final class DynamicWeaponTexture {
         image.setPixelRGBA(cx, cy + 1, color);
     }
 
+    /** 核心材料基底族 → 刃体色（钢灰/象牙白/深棕/革棕；空串回退形状写死色）。 */
+    private static final Map<String, Integer> FAMILY_BODY = Map.of(
+            "metal", abgr(0x9A, 0xA0, 0xA8),
+            "bone", abgr(0xE8, 0xE0, 0xCC),
+            "wood", abgr(0x6B, 0x4A, 0x2E),
+            "hide", abgr(0x8A, 0x6B, 0x4A)
+    );
+
+    /** 刃体色解析：baseFamily 命中用族色，否则回退形状写死色（书面仍吃效果暗色）。 */
+    private static int familyBody(String baseFamily, int fallback) {
+        return FAMILY_BODY.getOrDefault(baseFamily == null ? "" : baseFamily, fallback);
+    }
+
     /** 角色符号 → 颜色；返回 0 表示留空（全透明）。x/y 用于对角渐变与白热刃尖定位。 */
     private static int roleColor(char c, VariantKey key, Palette palette, int x, int y) {
         ShapeBase base = BASES.getOrDefault(key.shape(), BASES.get("sword"));
-        int baseColor = base.body(palette);
+        // 刃体着色=核心材料色：baseFamily 命中用族色，空串回退形状写死色（向后兼容）；
+        // 书面（coverFromEffect）不吃族色覆盖——封面仍走主导效果暗色。
+        int baseColor = base.coverFromEffect() ? base.body(palette)
+                : familyBody(key.baseFamily(), base.body(palette));
         return switch (c) {
             // ② 基底不平涂：对角渐变打底（左上受光 → 右下深邃）。
             case 'B' -> gradient(baseColor, x, y);
@@ -433,6 +515,11 @@ public final class DynamicWeaponTexture {
      * 属性变 → 形状变 → 纹理 hash 变 → 即时换肤。与 EF 动作分类同阈值，外观与动作匹配。
      */
     private static String shapeFor(ItemStack stack, String itemPath, ComposedAttributes attr) {
+        // 形态事实源优先：组件 AppearanceData.form → 映射表形状（锻造时一次推导写入）
+        if (attr != null) {
+            var profile = com.qianxiang.combat.WeaponFormProfile.of(attr.form());
+            if (profile != null) return profile.shape();
+        }
         String named = shapeFromCustomName(stack);
         if (named != null) return named;
         return switch (itemPath) {
@@ -443,13 +530,20 @@ public final class DynamicWeaponTexture {
             case "phase_watering_can" -> "hammer";
             case "spell_book" -> "book";
             default -> {
-                // 金属刃（ember_blade 及兜底）：按攻击/速度特征换模型
+                // 金属刃（ember_blade 及兜底）：按攻击/速度特征换模型（阈值集中在 WeaponFormProfile）
                 if (attr != null) {
                     double dmg = attr.attackDamage();
                     double spd = attr.attackSpeed();
-                    if (dmg >= 6.0 && spd <= 0.6) yield "greatsword"; // 重型 → 巨剑
-                    if (spd >= 0.8) yield "dagger";                   // 快速 → 匕首
-                    if (dmg >= 4.5) yield "katana";                   // 中攻 → 太刀
+                    if (dmg >= com.qianxiang.combat.WeaponFormProfile.FALLBACK_HEAVY_DAMAGE
+                            && spd <= com.qianxiang.combat.WeaponFormProfile.FALLBACK_HEAVY_MAX_SPEED) {
+                        yield "greatsword"; // 重型 → 巨剑
+                    }
+                    if (spd >= com.qianxiang.combat.WeaponFormProfile.LIGHT_MIN_SPEED) {
+                        yield "dagger";     // 快速 → 匕首
+                    }
+                    if (dmg >= com.qianxiang.combat.WeaponFormProfile.FALLBACK_KATANA_DAMAGE) {
+                        yield "katana";     // 中攻 → 太刀
+                    }
                 }
                 yield "sword";
             }
@@ -626,6 +720,7 @@ public final class DynamicWeaponTexture {
 
     private static final String[] SWORD = {
             "..............EE",
+            ".............EBb",
             "............EBBb",
             "...........EBBb.",
             "..........EBBb..",
@@ -636,44 +731,43 @@ public final class DynamicWeaponTexture {
             ".....EBBb.......",
             "....EBBb........",
             "...EBBb.........",
-            "..TTTTTTT.......",
-            "...HH...........",
-            "..WWH...........",
-            ".GWH............",
+            "..TTTTT.........",
+            ".GTH............",
+            ".WH.............",
             "................"
     };
 
     private static final String[] GREATSWORD = {
             "..............EE",
-            "...........EBBbb",
-            "..........EBBbb.",
-            ".........EBBbb..",
-            "........EBBbb...",
-            ".......EBBbb....",
-            "......EBBbb.....",
-            ".....EBBbb......",
-            "....EBBbb.......",
-            "...EBBbb........",
-            "..EBBbb.........",
-            ".EBBbb..........",
+            "...........EBBBb",
+            "..........EBBBb.",
+            ".........EBBBb..",
+            "........EBBBb...",
+            ".......EBBBb....",
+            "......EBBBb.....",
+            ".....EBBBb......",
+            "....EBBBb.......",
+            "...EBBBb........",
+            "..EBBBb.........",
             ".TTTTTTTT.......",
-            "..HHH...........",
-            ".WGH............",
-            "................"
+            "...HH...........",
+            "..HH............",
+            ".GWH............",
+            ".WW............."
     };
 
     private static final String[] DAGGER = {
-            ".........EE.....",
+            "..........EE....",
+            ".........EBb....",
             "........EBb.....",
             ".......EBb......",
             "......EBb.......",
             ".....EBb........",
             "....EBb.........",
-            "...EBb..........",
-            "..TTTTTT........",
-            "...HH...........",
-            "..WH............",
-            ".GH.............",
+            "..TTTT..........",
+            ".GTH............",
+            ".WH.............",
+            "................",
             "................",
             "................",
             "................",
@@ -682,58 +776,58 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] KATANA = {
-            "..............EE",
-            "............EBb.",
-            "...........EBb..",
-            "..........EBb...",
-            ".........EBb....",
-            "........EBb.....",
-            ".......EBb......",
-            "......EBb.......",
-            ".....EBb........",
-            "....EBb.........",
-            "...EBb..........",
-            "..TTTTT.........",
-            "..WW............",
-            ".WW.............",
-            ".HH.............",
-            "................"
+            ".............EE.",
+            "............EE..",
+            "...........EB...",
+            "..........EB....",
+            ".........EB.....",
+            "........EB......",
+            ".......EB.......",
+            "......EB........",
+            ".....EB.........",
+            "....EB..........",
+            "...EB...........",
+            "..EB............",
+            "..TT............",
+            ".WTT............",
+            ".WWH............",
+            ".HH............."
     };
 
     private static final String[] AXE = {
             "..........EEEE..",
             "........EBBBBb..",
-            ".......EBBBBBb..",
-            ".......EBBBBBb..",
-            ".......EBBBBBb..",
             "........EBBBBb..",
-            ".........BBB....",
-            ".........HH.....",
+            ".......EBBBBb...",
+            ".......EBBb.....",
+            "........BB......",
             "........HH......",
             ".......HH.......",
             "......HH........",
             ".....HH.........",
-            "....WH..........",
-            "...WH...........",
-            "..WW............",
+            "....HH..........",
+            "...HH...........",
+            "..HH............",
+            "..WH............",
+            ".WW.............",
             "................"
     };
 
     private static final String[] HAMMER = {
             "................",
+            ".....BBBBBB.....",
             "....BBBBBBBB....",
-            "...EBBBBBBBBE...",
-            "...BBBBBBBBBB...",
-            "...BRRBBBBRRB...",
-            "...BBBBBBBBBB...",
+            "...EBBRBBBBBE...",
             "....BBBBBBBB....",
-            ".....BBBB.......",
+            ".....BBBBBB.....",
+            "......BBBB......",
+            ".......HH.......",
             "......HH........",
             ".....HH.........",
             "....HH..........",
             "...HH...........",
+            "..HH............",
             "..WH............",
-            ".WH.............",
             ".WW.............",
             "................"
     };
@@ -741,19 +835,19 @@ public final class DynamicWeaponTexture {
     private static final String[] SPEAR = {
             ".............EE.",
             "............EBB.",
-            "...........EBBb.",
-            "...........EBBb.",
             "............Bb..",
-            "...........TT...",
-            "..........HB....",
-            ".........HB.....",
-            "........HB......",
-            ".......HB.......",
-            "......HB........",
-            ".....HB.........",
-            "....HB..........",
-            "...HB...........",
-            "..WB............",
+            "...........Bb...",
+            "...........Bb...",
+            "..........TT....",
+            "..........WW....",
+            ".........HH.....",
+            "........HH......",
+            ".......HH.......",
+            "......HH........",
+            ".....HH.........",
+            "....HH..........",
+            "...HH...........",
+            "..WH............",
             ".WW............."
     };
 
@@ -777,22 +871,22 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] STAFF = {
-            "......EEEE......",
-            ".....EGGGGE.....",
-            ".....EGGGGE.....",
-            "......EGGE......",
-            "......TTTT......",
+            "......GG........",
+            ".....GEEEG......",
+            ".....EBBBE......",
+            "......EBE.......",
+            "......TTT.......",
             ".......TT.......",
             ".......BB.......",
+            ".......RR.......",
+            ".......BB.......",
             ".......BB.......",
             ".......RR.......",
             ".......BB.......",
             ".......BB.......",
             ".......BB.......",
-            ".......RR.......",
-            ".......BB.......",
-            ".......BB.......",
-            ".......WW......."
+            "......WW........",
+            "......WW........"
     };
 
     private static final String[] SHIELD = {
@@ -891,20 +985,20 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] SCYTHE = {
-            "....EEEEEEE.....",
-            "...EBBBBBBBE....",
-            "..EE......BB....",
-            "..E.......HB....",
-            ".........HB.....",
-            "........HB......",
-            ".......HB.......",
-            "......HB........",
-            ".....HB.........",
-            "....HB..........",
-            "...HB...........",
-            "..HB............",
-            "..WB............",
-            ".WB.............",
+            ".....EEEEEEE....",
+            "....EBBBBBBBE...",
+            "...EBB......BE..",
+            "..EB............",
+            "..B.............",
+            "..TT............",
+            "..HH............",
+            "..HH............",
+            "..HH............",
+            "..HH............",
+            "..HH............",
+            "..HH............",
+            "..HH............",
+            "..WH............",
             ".WW.............",
             "................"
     };
@@ -929,21 +1023,21 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] MACE = {
-            "..........E.....",
-            ".........BBBB...",
-            "........BBBBBB..",
-            ".......EBBGBBBE.",
-            "........BBBBBB..",
-            ".........BBBB...",
-            "..........E.....",
+            ".........GG.....",
+            "........GGBB....",
+            ".......BBBBBB...",
+            "......EBGBBGBE..",
+            ".......BBBBBB...",
+            "........BBBB....",
+            ".........HH.....",
             "........HH......",
             ".......HH.......",
             "......HH........",
             ".....HH.........",
             "....HH..........",
-            "...WH...........",
+            "...HH...........",
             "..WH............",
-            "..WW............",
+            ".WW.............",
             "................"
     };
 

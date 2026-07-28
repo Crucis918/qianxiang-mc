@@ -199,7 +199,7 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
 
         // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸；仪式中不吸——投料一律拒绝）
         if (level != null && level.getGameTime() % 5 == 0 && !ritualState.active()
-                && TableInteractions.absorbAbove(this, AlchemyTableMenu.MATERIAL_SLOTS, level, worldPosition) > 0) {
+                && TableInteractions.absorbAbove(this, AlchemyTableMenu.SLOT_FILL_ORDER, level, worldPosition) > 0) {
             recomputeResult(null);
         }
 
@@ -372,7 +372,7 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
             java.util.List<ItemStack> refund = new java.util.ArrayList<>(ritualInputs);
             ritualInputs.clear();
             for (ItemStack s : refund) {
-                TableInteractions.insert(this, AlchemyTableMenu.MATERIAL_SLOTS, s, true);
+                TableInteractions.insert(this, AlchemyTableMenu.SLOT_FILL_ORDER, s, true);
             }
         }
     }

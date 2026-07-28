@@ -68,16 +68,21 @@ public record ComposedAttributes(
         if (extraEffects == null) extraEffects = ExtraEffects.empty();
     }
 
-    /** 外观数据：主导相性、主导效果、外观键。单独抽成记录避免 ComposedAttributes 字段超过 16 个。 */
-    public record AppearanceData(Set<Phase> dominantPhases, String dominantEffect, String appearanceKey) {
+    /** 外观数据：主导相性、主导效果、外观键、武器形态（form，空串=无）、核心材料基底族（baseFamily，空串=无）。单独抽成记录避免 ComposedAttributes 字段超过 16 个。 */
+    public record AppearanceData(Set<Phase> dominantPhases, String dominantEffect, String appearanceKey,
+                                 String form, String baseFamily) {
         public static final Codec<AppearanceData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Phase.SET_CODEC.optionalFieldOf("dominant_phases", Set.of()).forGetter(AppearanceData::dominantPhases),
                 Codec.STRING.optionalFieldOf("dominant_effect", "none").forGetter(AppearanceData::dominantEffect),
-                Codec.STRING.optionalFieldOf("appearance_key", "plain").forGetter(AppearanceData::appearanceKey)
+                Codec.STRING.optionalFieldOf("appearance_key", "plain").forGetter(AppearanceData::appearanceKey),
+                // 武器形态（WeaponForm.id()）与核心材料基底族（metal/bone/wood/hide）：
+                // optionalFieldOf 缺省 ""，旧存档无此两字段读回空串走回退路径
+                Codec.STRING.optionalFieldOf("form", "").forGetter(AppearanceData::form),
+                Codec.STRING.optionalFieldOf("base_family", "").forGetter(AppearanceData::baseFamily)
         ).apply(instance, AppearanceData::new));
 
         public static AppearanceData empty() {
-            return new AppearanceData(Set.of(), "none", "plain");
+            return new AppearanceData(Set.of(), "none", "plain", "", "");
         }
     }
 
@@ -431,7 +436,45 @@ public record ComposedAttributes(
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
                 this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
-                new AppearanceData(copyPhases(phases), dominantEffect, appearanceKey),
+                new AppearanceData(copyPhases(phases), dominantEffect, appearanceKey,
+                        this.appearance == null ? "" : this.appearance.form(),
+                        this.appearance == null ? "" : this.appearance.baseFamily()),
+                this.extraEffects
+        );
+    }
+
+    /** 写入武器形态（{@link WeaponForm#id()}，空串=无）；其余字段保持不变。 */
+    public ComposedAttributes withForm(String form) {
+        String f = form == null ? "" : form;
+        if (this.appearance != null && f.equals(this.appearance.form())) return this;
+        AppearanceData base = this.appearance == null ? AppearanceData.empty() : this.appearance;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, this.durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
+                this.powerScore,
+                new AppearanceData(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
+                        f, base.baseFamily()),
+                this.extraEffects
+        );
+    }
+
+    /** 写入核心材料基底族（metal/bone/wood/hide，空串=无）；其余字段保持不变。 */
+    public ComposedAttributes withBaseFamily(String baseFamily) {
+        String f = baseFamily == null ? "" : baseFamily;
+        if (this.appearance != null && f.equals(this.appearance.baseFamily())) return this;
+        AppearanceData base = this.appearance == null ? AppearanceData.empty() : this.appearance;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, this.durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
+                this.powerScore,
+                new AppearanceData(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
+                        base.form(), f),
                 this.extraEffects
         );
     }
@@ -566,6 +609,16 @@ public record ComposedAttributes(
         return appearance == null ? "plain" : appearance.appearanceKey();
     }
 
+    /** 武器形态 id（{@link WeaponForm#byId} 反查用；无形态/旧存档为空串）。 */
+    public String form() {
+        return appearance == null ? "" : appearance.form();
+    }
+
+    /** 核心材料基底族（metal/bone/wood/hide；无/旧存档为空串，渲染回退写死色）。 */
+    public String baseFamily() {
+        return appearance == null ? "" : appearance.baseFamily();
+    }
+
     // ============================ 外观辅助 ============================
 
     private AppearanceData mergeAppearance(ComposedAttributes other, String dominantEffect) {
@@ -574,7 +627,14 @@ public record ComposedAttributes(
                 ? (other.appearance() == null ? this.appearance().dominantEffect() : other.appearance().dominantEffect())
                 : dominantEffect;
         if (effect == null) effect = "none";
-        return new AppearanceData(phases, effect, appearanceKeyFor(effect));
+        // form 合并：任一侧有形态取先（形态在组合完成、定产物后统一写入，见 ForgeComposer）
+        String mergedForm = this.appearance() == null || this.appearance().form().isEmpty()
+                ? (other.appearance() == null ? "" : other.appearance().form())
+                : this.appearance().form();
+        String mergedFamily = this.appearance() == null || this.appearance().baseFamily().isEmpty()
+                ? (other.appearance() == null ? "" : other.appearance().baseFamily())
+                : this.appearance().baseFamily();
+        return new AppearanceData(phases, effect, appearanceKeyFor(effect), mergedForm, mergedFamily);
     }
 
     private static Set<Phase> unionPhases(Set<Phase> a, Set<Phase> b) {
