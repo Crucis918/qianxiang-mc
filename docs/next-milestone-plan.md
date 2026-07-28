@@ -307,6 +307,9 @@ power 只有 `Math.max` 没有上限**。严格校验（白名单 + power 夹 1~
 
 ## 5. 里程碑三概述：活的世界（NPC/位格）
 
+> 进展注记（2026-07-28）：熟练度技能树（自由加点 27 节点 / 流浪相师潜行右键开启与洗点）
+> 已于本轮落地（见 WORKQUEUE WQ-62）；NPC 对话树扩充仍留待本里程碑。
+
 - NPC 交易表从 Java 硬编码（`QianxiangWanderingSage.java:27-47` 等）迁到 datapack json，
   支持整合包自定义；补货时间戳落盘（`QianxiangNPCBase.java:43-44` 现在明确不落盘）。
 - 流浪相师按文档所述在主世界游荡：补 `data/neoforge/biome_modifier/` json（现在完全没有，
