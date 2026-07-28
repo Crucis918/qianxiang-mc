@@ -69,8 +69,11 @@ public final class AIConfig {
               "api_key": "",
               // 模型名。Ollama 填本地 pull 过的模型；OpenAI 兼容服务填其模型 id。
               "model": "qwen2.5:7b",
-              // 单次请求超时（秒）。
-              "timeout_seconds": 5
+              // 单次请求超时（秒）。本地 7B 模型在完整 prompt 下首 token 就要数秒，
+              // 5 秒等于必然超时、每次白等——默认 30。
+              "timeout_seconds": 30,
+              // 配置格式版本：用于一次性迁移（勿手改）
+              "config_version": 1
             }
             """;
 
@@ -119,7 +122,7 @@ public final class AIConfig {
         return sanitizeBaseUrl(baseUrl);
     }
 
-    /** 写回当前值到 json（不带注释的标准 JSON，保留字段值）。 */
+    /** 写回当前值到 json（不带注释的标准 JSON，保留字段值；带 config_version 供迁移判定）。 */
     public synchronized void save() {
         try {
             JsonObject json = new JsonObject();
@@ -128,6 +131,7 @@ public final class AIConfig {
             json.addProperty("api_key", apiKey);
             json.addProperty("model", model);
             json.addProperty("timeout_seconds", timeoutSeconds);
+            json.addProperty("config_version", CONFIG_VERSION);
             Files.createDirectories(CONFIG_PATH.getParent());
             Files.writeString(CONFIG_PATH, GSON.toJson(json), StandardCharsets.UTF_8);
             Qianxiang.LOGGER.info("[Qianxiang] AI 配置已保存到 {}", CONFIG_PATH);
@@ -137,16 +141,35 @@ public final class AIConfig {
         }
     }
 
+    /** 当前配置格式版本。 */
+    public static final int CONFIG_VERSION = 1;
+
     private static AIConfig load() {
-        AIConfig cfg = new AIConfig();
         try {
             if (!Files.exists(CONFIG_PATH)) {
                 Files.createDirectories(CONFIG_PATH.getParent());
                 Files.writeString(CONFIG_PATH, DEFAULT_FILE, StandardCharsets.UTF_8);
                 Qianxiang.LOGGER.info("[Qianxiang] 已生成默认 AI 配置 {}", CONFIG_PATH);
-                return cfg;
+                return new AIConfig();
             }
-            String text = Files.readString(CONFIG_PATH, StandardCharsets.UTF_8);
+            return parse(Files.readString(CONFIG_PATH, StandardCharsets.UTF_8), CONFIG_PATH);
+        } catch (Exception e) {
+            // 文件损坏/读取失败：用默认值兜底，不覆盖玩家文件
+            Qianxiang.LOGGER.warn("[Qianxiang] AI 配置读取失败，使用默认值：{}",
+                    e.getClass().getSimpleName() + ": " + e.getMessage());
+            return new AIConfig();
+        }
+    }
+
+    /**
+     * 解析配置文本（含一次性迁移）。抽出来便于 GameTest 直接驱动：
+     * 旧文件（无 {@code config_version} 且 {@code timeout_seconds} ≤ 10）是
+     * 「模板写死 5 秒」时代的遗留——那时常量改成 30 也救不回来，这里抬到 30
+     * 并写回（带 config_version，只迁移一次）；有版本号的文件尊重玩家现值。
+     */
+    public static AIConfig parse(String text, Path writeBackPath) {
+        AIConfig cfg = new AIConfig();
+        try {
             // lenient：兼容默认文件里的 // 注释与玩家手改时的尾逗号
             JsonReader reader = new JsonReader(new StringReader(text));
             reader.setLenient(true);
@@ -161,12 +184,35 @@ public final class AIConfig {
             if (json.has("timeout_seconds")) {
                 cfg.timeoutSeconds = sanitizeTimeout(json.get("timeout_seconds").getAsInt());
             }
+            boolean hasVersion = json.has("config_version");
+            if (!hasVersion && cfg.timeoutSeconds <= 10) {
+                cfg.timeoutSeconds = DEFAULT_TIMEOUT_SECONDS;
+                Qianxiang.LOGGER.info("[Qianxiang] AI 配置一次性迁移：timeout_seconds 抬到 {} 秒"
+                        + "（旧默认 5 秒必然超时），已写回 {}", DEFAULT_TIMEOUT_SECONDS, writeBackPath);
+                writeBack(cfg, writeBackPath);
+            }
         } catch (Exception e) {
-            // 文件损坏/读取失败：用默认值兜底，不覆盖玩家文件
-            Qianxiang.LOGGER.warn("[Qianxiang] AI 配置读取失败，使用默认值：{}",
+            Qianxiang.LOGGER.warn("[Qianxiang] AI 配置解析失败，使用默认值：{}",
                     e.getClass().getSimpleName() + ": " + e.getMessage());
         }
         return cfg;
+    }
+
+    /** 迁移写回（保留解析后的全部字段 + config_version）。 */
+    private static void writeBack(AIConfig cfg, Path path) {
+        try {
+            JsonObject json = new JsonObject();
+            json.addProperty("provider", cfg.provider);
+            json.addProperty("base_url", cfg.baseUrl);
+            json.addProperty("api_key", cfg.apiKey);
+            json.addProperty("model", cfg.model);
+            json.addProperty("timeout_seconds", cfg.timeoutSeconds);
+            json.addProperty("config_version", CONFIG_VERSION);
+            Files.createDirectories(path.getParent());
+            Files.writeString(path, GSON.toJson(json), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            Qianxiang.LOGGER.warn("[Qianxiang] AI 配置迁移写回失败：{}", e.toString());
+        }
     }
 
     public static String sanitizeProvider(String provider) {

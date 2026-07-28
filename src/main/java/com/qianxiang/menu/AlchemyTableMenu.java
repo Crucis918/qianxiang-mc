@@ -287,4 +287,42 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
     public boolean stillValid(Player player) {
         return container.stillValid(player);
     }
+
+    // ===================== AI 主动建议（「能做啥」本地分析 + 防抖下发） =====================
+
+    /** 材料指纹（item+count 逐槽混合），变化才重置防抖。 */
+    private int suggestionFingerprint = Integer.MIN_VALUE;
+    /** 防抖倒计时（服务端 tick；30t = 1.5 秒）。 */
+    private int suggestionCountdown;
+    /** 上次下发的建议 key（相同内容不重复发包）。 */
+    private String suggestionLastKey = "";
+
+    /** 与锻造台同一套防抖下发（本地分析，零 HTTP 零副作用，不占 AI 限流）。 */
+    @Override
+    public void broadcastChanges() {
+        super.broadcastChanges();
+        if (!(playerInventory.player instanceof net.minecraft.server.level.ServerPlayer sp)) {
+            return;
+        }
+        int fp = 1;
+        for (int i = 0; i < MATERIAL_SLOTS; i++) {
+            ItemStack s = container.getItem(i);
+            fp = 31 * fp + (s.isEmpty() ? 0
+                    : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(s.getItem()).hashCode()
+                    * 31 + s.getCount());
+        }
+        if (fp != suggestionFingerprint) {
+            suggestionFingerprint = fp;
+            suggestionCountdown = 30;
+            return;
+        }
+        if (suggestionCountdown > 0 && --suggestionCountdown == 0) {
+            var payload = com.qianxiang.ai.TableSuggestion.alchemyPayload(container);
+            String key = payload.itemId() + '|' + payload.value();
+            if (!key.equals(suggestionLastKey)) {
+                suggestionLastKey = key;
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp, payload);
+            }
+        }
+    }
 }

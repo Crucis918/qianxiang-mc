@@ -45,6 +45,7 @@ public final class ClientStateReset {
             ClientSpellData.clear();
             ClientDamageNumbers.clearAll();
             ClientBlueprintCache.clear();
+            ClientTableSuggestion.clear();
         } catch (Throwable t) {
             Qianxiang.LOGGER.debug("[Qianxiang] 客户端状态清理失败（无害）：{}", t.toString());
         }

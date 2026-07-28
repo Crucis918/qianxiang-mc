@@ -46,6 +46,9 @@ public final class ForgeTableAIHandler {
             if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
                     player, "ai_request", (long) (AI_REQUEST_COOLDOWN_MS
                             * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
+                // WQ-74：限流命中必须回包+提示——此前静默 return，客户端状态条永卡
+                // PARSING 只能关界面重开。空响应让客户端退出 PARSING（监听映射空提案→IDLE）。
+                replyRateLimited(player, context);
                 return;
             }
             setBlockEntityState(player, ForgeTableBlockEntity.STATE_PARSING);
@@ -62,6 +65,20 @@ public final class ForgeTableAIHandler {
             }
             submitAiTask(payload, context, tablePos, dim);
         });
+    }
+
+    /** 限流命中时的回包：空提案响应（客户端退出 PARSING）+ actionbar 提示「请稍候」。 */
+    static void replyRateLimited(net.minecraft.world.entity.player.Player player,
+                                 IPayloadContext context) {
+        try {
+            context.reply(new AiResponsePayload(java.util.List.of(), "", java.util.List.of()));
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 限流回包失败（玩家已断线？）：{}", t.toString());
+        }
+        if (player != null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    "qianxiang.ai.rate_limited"), true);
+        }
     }
 
     /** 真正把 AI 任务丢进后台线程（已通过菜单校验与限流）。 */

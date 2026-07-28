@@ -16,7 +16,10 @@ import net.neoforged.neoforge.event.entity.RegisterSpawnPlacementsEvent;
  * <p>必须在 MOD 总线监听 {@link EntityAttributeCreationEvent}，否则实体生成时会因缺少
  * {@code MAX_HEALTH} 等核心属性而崩溃。
  * <p>生成规则：两个 NPC 在万象森罗 biome 的 creature 池自然生成（见
- * {@code worldgen/biome/myriad_wilds.json}），限制为地表落脚，避免悬空/嵌墙。
+ * {@code worldgen/biome/myriad_wilds.json}）；另有主世界/下界自然刷新
+ * （{@code data/neoforge/biome_modifier/}：相师→五大村庄群系，商人→下界三群系，
+ * 类别随实体 MobCategory.CREATURE，下界 creature 池有炽足兽先例）。
+ * 统一限制为地表落脚，避免悬空/嵌墙。
  */
 @EventBusSubscriber(modid = Qianxiang.MOD_ID)
 public final class QianxiangEntityAttributes {

@@ -1,0 +1,16 @@
+{
+  "type": "neoforge:add_spawns",
+  "biomes": [
+    "minecraft:nether_wastes",
+    "minecraft:crimson_forest",
+    "minecraft:warped_forest"
+  ],
+  "spawners": [
+    {
+      "type": "qianxiang:abyss_merchant",
+      "weight": 2,
+      "minCount": 1,
+      "maxCount": 1
+    }
+  ]
+}

@@ -52,6 +52,9 @@ public final class AIClient {
     /** 本次失败是否为「连上了但模型太慢」的请求超时（与连接失败分开计数）。 */
     private static final ThreadLocal<Boolean> LAST_REQUEST_TIMEOUT = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
+    /** 本次失败是否为「端点回了非 2xx」（持续 400/500 = 端点故障，也要能熔断）。 */
+    private static final ThreadLocal<Boolean> LAST_ENDPOINT_ERROR = ThreadLocal.withInitial(() -> Boolean.FALSE);
+
     /** 供 {@link AIGateway} 熔断判定用：仅在同线程、紧随一次失败的 {@link #chat} 之后调用才有意义。 */
     static boolean lastFailureWasConnectionIssue() {
         return LAST_CONNECT_ISSUE.get();
@@ -60,6 +63,11 @@ public final class AIClient {
     /** 同上，但判「请求超时」。 */
     static boolean lastFailureWasRequestTimeout() {
         return LAST_REQUEST_TIMEOUT.get();
+    }
+
+    /** 同上，但判「端点非 2xx」。 */
+    static boolean lastFailureWasEndpointError() {
+        return LAST_ENDPOINT_ERROR.get();
     }
 
     private AIClient() {}
@@ -75,6 +83,7 @@ public final class AIClient {
         AIConfig cfg = AIConfig.get();
         LAST_CONNECT_ISSUE.set(Boolean.FALSE);
         LAST_REQUEST_TIMEOUT.set(Boolean.FALSE);
+        LAST_ENDPOINT_ERROR.set(Boolean.FALSE);
         try {
             if (cfg.isOpenAI()) {
                 return chatOpenAI(cfg, userMessage, systemPrompt);
@@ -225,6 +234,8 @@ public final class AIClient {
 
         HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() / 100 != 2) {
+            // 端点故障标记：持续 400/500 不是「内容不可用」，应计入熔断（WQ-63）
+            LAST_ENDPOINT_ERROR.set(Boolean.TRUE);
             Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 非 2xx 响应 status={} body={}",
                     cfg.provider, resp.statusCode(), truncate(resp.body(), 200));
             return null;

@@ -45,6 +45,14 @@ public final class AlchemyTableAIHandler {
         if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
                 player, "ai_request", (long) (AI_REQUEST_COOLDOWN_MS
                         * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
+            // WQ-74：限流命中必须回包+提示（同锻造台）——否则客户端状态条永卡 PARSING。
+            try {
+                context.reply(new AiResponsePayload(java.util.List.of(), "", java.util.List.of()));
+            } catch (Throwable t) {
+                Qianxiang.LOGGER.debug("[Qianxiang] 限流回包失败（玩家已断线？）：{}", t.toString());
+            }
+            player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    "qianxiang.ai.rate_limited"), true);
             return;
         }
         if (menu.getContainer() instanceof AlchemyTableBlockEntity be) {

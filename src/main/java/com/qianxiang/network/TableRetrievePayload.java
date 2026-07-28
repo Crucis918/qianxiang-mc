@@ -12,9 +12,11 @@ import net.minecraft.resources.ResourceLocation;
  * <p>
  * 两台共用一包：handler 按玩家当前 openMenu 类型分派到
  * {@code ForgeTableMenu}/{@code AlchemyTableMenu}（与 AI 放料同一分派范式）。
+ * 语义：左键=all=false 取回该槽 1 个；Shift+左键=all=true 取回该槽全部；
+ * slotIndex=-1 且 all=true = 「全部取回」按钮，取回所有材料槽。
  * </p>
  */
-public record TableRetrievePayload(int slotIndex) implements CustomPacketPayload {
+public record TableRetrievePayload(int slotIndex, boolean all) implements CustomPacketPayload {
 
     public static final Type<TableRetrievePayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "table_retrieve"));
@@ -22,6 +24,7 @@ public record TableRetrievePayload(int slotIndex) implements CustomPacketPayload
     public static final StreamCodec<FriendlyByteBuf, TableRetrievePayload> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.VAR_INT, TableRetrievePayload::slotIndex,
+                    ByteBufCodecs.BOOL, TableRetrievePayload::all,
                     TableRetrievePayload::new);
 
     @Override

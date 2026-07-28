@@ -92,6 +92,10 @@ public final class QianxiangPayloads {
         registrar.playToServer(TableRetrievePayload.TYPE, TableRetrievePayload.STREAM_CODEC,
                 (payload, context) -> TableRetrieveHandler.handle(payload, context));
 
+        // 客户端→服务端：GUI 背包左键投入材料（锻造/炼金按 openMenu 分派）。
+        registrar.playToServer(TableInsertPayload.TYPE, TableInsertPayload.STREAM_CODEC,
+                (payload, context) -> TableInsertHandler.handle(payload, context));
+
         // 客户端→服务端：「开始创作」按钮请求启动合成仪式（按 openMenu 分派两台）。
         registrar.playToServer(RitualStartPayload.TYPE, RitualStartPayload.STREAM_CODEC,
                 (payload, context) -> RitualStartHandler.handle(payload, context));
@@ -118,6 +122,22 @@ public final class QianxiangPayloads {
                     }
                 }));
 
+        // 服务端→客户端：「能做啥」主动建议（材料防抖后的本地分析一行）。
+        registrar.playToClient(TableSuggestionPayload.TYPE, TableSuggestionPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientTableSuggestion.receive(payload);
+                    }
+                }));
+
+        // 服务端→客户端：/qianxiang shot 开发调试截图请求（客户端抓整窗存 run/screenshots）。
+        registrar.playToClient(ScreenshotRequestPayload.TYPE, ScreenshotRequestPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientScreenshot.grab();
+                    }
+                }));
+
         // 客户端→服务端：蓝图保存 / 使用 / 列表请求。
         registrar.playToServer(BlueprintSavePayload.TYPE, BlueprintSavePayload.STREAM_CODEC,
                 (payload, context) -> BlueprintServerHandler.handleSave(payload, context));
@@ -134,7 +154,7 @@ public final class QianxiangPayloads {
                     }
                 }));
 
-        // 客户端→服务端：玩家按下 V 键请求施法。
+        // 客户端→服务端：玩家按下施法键（默认 B）请求施法。
         registrar.playToServer(CastSpellPayload.TYPE, CastSpellPayload.STREAM_CODEC,
                 (payload, context) -> SpellCastHandler.handle(payload, context));
 

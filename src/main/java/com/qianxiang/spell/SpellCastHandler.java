@@ -45,7 +45,7 @@ public final class SpellCastHandler {
             if (!(player instanceof ServerPlayer serverPlayer)) {
                 return;
             }
-            // 观战者/尸体不得施法：此前只判类型，观战模式按 V 照样能放
+            // 观战者/尸体不得施法：此前只判类型，观战模式按施法键照样能放
             // （ender 元素还会 connection.teleport 把观战者传走），死亡瞬间同理。
             if (!serverPlayer.isAlive() || serverPlayer.isSpectator()) {
                 return;

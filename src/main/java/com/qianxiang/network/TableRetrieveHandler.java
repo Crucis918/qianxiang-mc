@@ -32,16 +32,23 @@ public final class TableRetrieveHandler {
                     player, "table_retrieve", RETRIEVE_COOLDOWN_MS)) {
                 return;
             }
-            retrieve(player, player.containerMenu, payload.slotIndex());
+            retrieve(player, player.containerMenu, payload.slotIndex(), payload.all());
         });
+    }
+
+    /** 旧三参入口（GameTest/兼容）：取回该槽全部。 */
+    public static boolean retrieve(Player player, AbstractContainerMenu menu, int slotIndex) {
+        return retrieve(player, menu, slotIndex, true);
     }
 
     /**
      * 执行取回（GameTest 可直接调用）。
+     * slotIndex=-1 且 all=true = 全部取回（复用 {@link com.qianxiang.block.TableInteractions#retrieveAll}）。
      *
-     * @return true = 该槽有物品且已移给玩家
+     * @return true = 有材料已移给玩家
      */
-    public static boolean retrieve(Player player, AbstractContainerMenu menu, int slotIndex) {
+    public static boolean retrieve(Player player, AbstractContainerMenu menu, int slotIndex,
+                                   boolean all) {
         int materialSlots;
         net.minecraft.world.Container container;
         if (menu instanceof ForgeTableMenu forgeMenu) {
@@ -53,24 +60,46 @@ public final class TableRetrieveHandler {
         } else {
             return false;
         }
-        if (slotIndex < 0 || slotIndex >= materialSlots) {
-            Qianxiang.LOGGER.warn("[Qianxiang] 玩家 {} 请求取回非法材料槽 {}，已忽略",
-                    player.getName().getString(), slotIndex);
-            return false;
-        }
         // 仪式中取回一律拒绝
         if (container instanceof com.qianxiang.block.RitualHost host && host.ritualState().active()) {
             com.qianxiang.block.RitualLogic.notifyBusy(player);
+            return false;
+        }
+        if (slotIndex == -1) {
+            // 「全部取回」按钮：只认 all=true（-1 单取无语义）
+            if (!all) return false;
+            boolean hadAny = false;
+            for (int i = 0; i < materialSlots; i++) {
+                if (!container.getItem(i).isEmpty()) { hadAny = true; break; }
+            }
+            if (!hadAny) return false;
+            com.qianxiang.block.TableInteractions.retrieveAll(container, materialSlots,
+                    player, player.level(), player.blockPosition());
+            menu.slotsChanged(container);
+            container.setChanged();
+            return true;
+        }
+        if (slotIndex < 0 || slotIndex >= materialSlots) {
+            Qianxiang.LOGGER.warn("[Qianxiang] 玩家 {} 请求取回非法材料槽 {}，已忽略",
+                    player.getName().getString(), slotIndex);
             return false;
         }
         ItemStack stack = container.getItem(slotIndex);
         if (stack.isEmpty()) {
             return false;
         }
-        container.setItem(slotIndex, ItemStack.EMPTY);
-        if (!player.getInventory().add(stack)) {
+        // all=false 取 1 个（split 守恒），all=true 取整槽
+        ItemStack taken = all ? stack.copy() : stack.split(1);
+        if (all) {
+            container.setItem(slotIndex, ItemStack.EMPTY);
+        } else if (stack.isEmpty()) {
+            container.setItem(slotIndex, ItemStack.EMPTY);
+        } else {
+            container.setChanged();
+        }
+        if (!player.getInventory().add(taken)) {
             Containers.dropContents(player.level(), player.blockPosition(),
-                    net.minecraft.core.NonNullList.of(ItemStack.EMPTY, stack));
+                    net.minecraft.core.NonNullList.of(ItemStack.EMPTY, taken));
         }
         menu.slotsChanged(container);
         container.setChanged();

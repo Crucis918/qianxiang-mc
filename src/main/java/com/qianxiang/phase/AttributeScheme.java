@@ -79,7 +79,10 @@ public final class AttributeScheme {
     public static final double BASE_HIDE_POWER = 0.6;
 
     // EDGE：锋刃 → 攻击力
-    public static final double EDGE_ATTACK_DAMAGE = 3.0;
+    // 3.0 → 4.0（2026-07 数值复核）：单件 COMMON EDGE 成品总攻 1+4=5，仍低于钻剑 7，
+    // 但 3.0 时「材料能力万分之一都没达到」的实机观感成立；powerScore 经
+    // POWER_WEIGHT_DAMAGE 自动同步（每 EDGE +1.0 分/COMMON），无需改权重。
+    public static final double EDGE_ATTACK_DAMAGE = 4.0;
     public static final double EDGE_POWER = 1.2;
 
     // DEFENSE：防御 → 护甲
@@ -108,7 +111,8 @@ public final class AttributeScheme {
     public static final double REFLECT_POWER = 0.9;
 
     // IGNITE：点燃 → 特殊效果等级（每出现一次 +1 级）+ 少量伤害
-    public static final double IGNITE_ATTACK_DAMAGE_BONUS = 0.5;
+    // 0.5 → 0.75（2026-07 数值复核，随 EDGE 同步抬，保持「点燃附赠伤害」的存在感）
+    public static final double IGNITE_ATTACK_DAMAGE_BONUS = 0.75;
     public static final double IGNITE_POWER = 0.9;
 
     // LIFESTEAL：吸血 → 特殊效果等级（每出现一次 +1 级）

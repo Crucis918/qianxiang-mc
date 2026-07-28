@@ -1,0 +1,18 @@
+{
+  "type": "neoforge:add_spawns",
+  "biomes": [
+    "minecraft:plains",
+    "minecraft:desert",
+    "minecraft:savanna",
+    "minecraft:taiga",
+    "minecraft:snowy_plains"
+  ],
+  "spawners": [
+    {
+      "type": "qianxiang:wandering_sage",
+      "weight": 3,
+      "minCount": 1,
+      "maxCount": 1
+    }
+  ]
+}

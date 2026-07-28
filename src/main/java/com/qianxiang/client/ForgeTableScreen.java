@@ -91,8 +91,8 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int MATLIST_Y = 17;
     private static final int MATLIST_ROW_H = 9;
     private static final int MATLIST_MAX_ROWS = 8;
-    /** 投入提示行 y（列表区底部、状态条上方）。 */
-    private static final int MATLIST_HINT_Y = 98;
+    /** 三行操作提示首行 y（0.6 缩放小字、行距 6px：列表区底部与状态条之间）。 */
+    private static final int MATLIST_HINT_Y = 90;
 
     /** 结果槽坐标（逻辑槽 16×16，视觉渲染为 32×32）。 */
     private static final int RESULT_SLOT_X = 222;
@@ -203,6 +203,10 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private Button movesetEditorButton;
     /** 「开始创作」按钮（产物就绪时显示，点击触发合成仪式）。 */
     private Button beginCraftButton;
+    /** 「全部取回」按钮（材料区标题旁，材料为空/仪式启动后置灰）。 */
+    private Button retrieveAllButton;
+    /** 已发仪式请求、等服务端关 GUI 的窗口期：禁用一切投入/取回点击（服务端仍权威拒判）。 */
+    private boolean awaitingRitual = false;
 
     private int typeIndex = 0;  // weapon
     private int tierIndex = 1;  // rare
@@ -261,6 +265,8 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private int statusFlashColor = 0xFF55FF55;
     /** 上一帧状态，用于检测 PARSING → 其他 的跳变。 */
     private Status prevStatusForFlash = Status.IDLE;
+    /** PARSING 超时兜底（WQ-74）：AI 超时上限 30s×2（本体+重试）+10s 余量。 */
+    private static final long PARSING_TIMEOUT_MS = 70_000L;
 
     /** 关键词即时提示：上次参与计算的输入与算出的提示行（输入不变不重算）。 */
     private String lastHintInput = null;
@@ -418,11 +424,24 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         // 「开始创作」按钮：产物就绪时显示（操作按钮组下方），点击发仪式请求
         this.beginCraftButton = Button.builder(
                         Component.translatable("qianxiang.table.begin_craft"),
-                        b -> PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload()))
+                        b -> {
+                            awaitingRitual = true; // 仪式启动窗口期禁用投入/取回
+                            PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload());
+                        })
                 .pos(leftPos + 146, topPos + 100)
                 .size(58, 13)
                 .build();
         this.addRenderableWidget(this.beginCraftButton);
+
+        // 「全部取回」按钮（材料区标题旁）：取回全部材料（slotIndex=-1 + all）
+        this.retrieveAllButton = Button.builder(
+                        Component.translatable("qianxiang.table.retrieve_all"),
+                        b -> PacketDistributor.sendToServer(
+                                new com.qianxiang.network.TableRetrievePayload(-1, true)))
+                .pos(leftPos + 44, topPos + 4)
+                .size(56, 12)
+                .build();
+        this.addRenderableWidget(this.retrieveAllButton);
 
         // 注册 AI 结果监听器
         ClientForgeTableAI.setListener(result -> {
@@ -564,12 +583,15 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         this.confirmButton.active = hasMaterialsInSlots();
         // 「开始创作」只在产物就绪时显示
         this.beginCraftButton.visible = !this.menu.getSlot(ForgeTableMenu.RESULT_SLOT).getItem().isEmpty();
+        // 「全部取回」：材料为空或仪式启动窗口期置灰
+        this.retrieveAllButton.active = hasMaterialsInSlots() && !awaitingRitual;
         updatePanelVisibility();
 
         super.render(g, mouseX, mouseY, partialTick);
 
         renderMaterialList(g);
         renderStatusBar(g);
+        renderSuggestionLine(g);
         renderKeywordHints(g);
         renderResultSlotPreview(g);
         renderResultSlotEffect(g);
@@ -609,11 +631,23 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                 applyProposal(clickedCard);
                 return true;
             }
-            // 材料列表行点击 = 取回该槽材料
+            // 材料列表行点击 = 取回该槽材料（左键 1 个，Shift+左键全部）
             int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
             if (retrieveSlot >= 0) {
+                if (!awaitingRitual) {
+                    PacketDistributor.sendToServer(new com.qianxiang.network.TableRetrievePayload(
+                            retrieveSlot, hasShiftDown()));
+                }
+                return true;
+            }
+            // 背包/快捷栏槽位左键 = 向材料区投入 1 个（不走原版 slotClicked，避免拿起物品；
+            // Shift+左键不拦截，保持现有 quickMove 整组投入路径）
+            if (!awaitingRitual && !hasShiftDown()
+                    && this.hoveredSlot != null
+                    && this.hoveredSlot.index >= ForgeTableMenu.RESULT_SLOT + 1
+                    && this.hoveredSlot.hasItem()) {
                 PacketDistributor.sendToServer(
-                        new com.qianxiang.network.TableRetrievePayload(retrieveSlot));
+                        new com.qianxiang.network.TableInsertPayload(this.hoveredSlot.index, false));
                 return true;
             }
             if (extPanelExpanded && hitTestHistoryHeader(mouseX, mouseY)) {
@@ -650,7 +684,16 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
     /** 根据当前材料槽/结果槽状态刷新 status。 */
     private void updateStatusFromSlots() {
-        if (status == Status.PARSING) return; // 等待服务端回包
+        if (status == Status.PARSING) {
+            // WQ-74 超时兜底：超过 AI 超时上限×2+余量仍无回包（旧服务端静默限流/丢包），
+            // 强制退出 PARSING——此前只能关界面重开。
+            if (aiRequestStartMillis >= 0L
+                    && Util.getMillis() - aiRequestStartMillis > PARSING_TIMEOUT_MS) {
+                status = Status.IDLE;
+                aiRequestStartMillis = -1L;
+            }
+            return; // 等待服务端回包
+        }
 
         ItemStack result = this.menu.getSlot(ForgeTableMenu.RESULT_SLOT).getItem();
         if (!result.isEmpty()) {
@@ -795,9 +838,19 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             g.drawString(this.font, "… +" + (rows.size() - shown),
                     leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
         }
-        g.drawString(this.font, this.font.plainSubstrByWidth(
-                        Component.translatable("qianxiang.table.hint_insert").getString(), 240),
-                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
+        // 三行操作说明（0.6 缩放小字：投入/取回/台子外交互各一行）
+        String[] hints = {
+                Component.translatable("qianxiang.table.hint_insert").getString(),
+                Component.translatable("qianxiang.table.hint_insert_2").getString(),
+                Component.translatable("qianxiang.table.hint_insert_3").getString()
+        };
+        for (int i = 0; i < hints.length; i++) {
+            g.pose().pushPose();
+            g.pose().translate(leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + i * 6, 0);
+            g.pose().scale(0.6f, 0.6f, 1.0f);
+            g.drawString(this.font, this.font.plainSubstrByWidth(hints[i], 156), 0, 0, 0x777777, false);
+            g.pose().popPose();
+        }
     }
 
     /** 当前鼠标是否在给定矩形内（相对窗口坐标）。 */
@@ -839,16 +892,29 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                     MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
                     List<Component> card = MaterialCardHelper.buildCard(stack, info);
                     if (!card.isEmpty()) {
+                        card.add(Component.translatable("qianxiang.table.retrieve_hint")
+                                .withStyle(net.minecraft.ChatFormatting.GRAY));
                         g.renderTooltip(this.font, card, Optional.empty(), mouseX, mouseY);
                         return;
                     }
                 } catch (Throwable t) {
                     // 性质卡渲染失败退化为物品名
                 }
-                g.renderTooltip(this.font, stack.getHoverName(), mouseX, mouseY);
+                g.renderTooltip(this.font, List.of(stack.getHoverName(),
+                                Component.translatable("qianxiang.table.retrieve_hint")
+                                        .withStyle(net.minecraft.ChatFormatting.GRAY)),
+                        Optional.empty(), mouseX, mouseY);
                 return;
             }
         }
+    }
+
+    /** 「能做啥」主动建议行（状态条与方案卡之间；纯展示，不占 AI 结果区）。 */
+    private void renderSuggestionLine(GuiGraphics g) {
+        Component line = ClientTableSuggestion.line();
+        if (line == null) return;
+        g.drawString(this.font, this.font.plainSubstrByWidth(line.getString(), 240),
+                leftPos + STATUS_X, topPos + 121, 0x7FE3C0, false);
     }
 
     // ========================== 状态条 ==========================

@@ -7,7 +7,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /**
- * 客户端按键监听：G 键（法术键）按压/释放沿 + K 键（技能树）+ J 键（主动技能）。
+ * 客户端按键监听：B 键（施法）按压/释放沿 + O 键（技能树）+ J 键（主动技能）。
  * <p>
  * 轮盘施法需要「按住开轮盘、松开来施放」的两段语义，consumeClick 只有
  * 离散点击，给不了沿——改为每 tick 对比 {@code KeyMapping.isDown()} 与上一帧。
@@ -19,7 +19,7 @@ public final class ClientSpellInput {
 
     private ClientSpellInput() {}
 
-    /** 上一帧 G 键是否按住。 */
+    /** 上一帧施法键（默认 B）是否按住。 */
     private static boolean wasDown;
     /** 上一帧 K/J 键状态（边沿检测）。 */
     private static boolean wasSkillTreeDown;
@@ -45,7 +45,7 @@ public final class ClientSpellInput {
         boolean released = !down && wasDown;
         wasDown = down;
 
-        // 技能树（K）：边沿打开；相师 OpenSkillTreePayload 的 pendingOpenTree 也在此消费
+        // 技能树（O）：边沿打开；相师 OpenSkillTreePayload 的 pendingOpenTree 也在此消费
         boolean treeDown = SpellKeybinds.SKILL_TREE.isDown();
         if (treeDown && !wasSkillTreeDown && mc.screen == null) {
             mc.setScreen(new SkillTreeScreen());

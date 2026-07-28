@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * 熟练度技能树界面（无容器 Screen，纯代码绘制，复古深木风——与两个台子 GUI 同色系）。
  * <p>
- * 打开方式：K 键（{@code ClientSpellInput} 边沿）或相师发来的 OpenSkillTreePayload
+ * 打开方式：O 键（{@code ClientSpellInput} 边沿）或相师发来的 OpenSkillTreePayload
  * （pendingOpenTree）。三轨页签、3 阶 × 3 节点网格、底部主动技能冷却与洗点按钮。
  * 数据源 = {@link ClientProficiencyData}（服务端全量同步快照）；点击节点只发
  * {@link AllocateNodePayload}，不做本地乐观高亮，等 sync 回推。

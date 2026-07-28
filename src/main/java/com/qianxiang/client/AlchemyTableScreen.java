@@ -52,6 +52,10 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private Button confirmButton;
     /** 「开始创作」按钮（产物就绪时显示，点击触发合成仪式）。 */
     private Button beginCraftButton;
+    /** 「全部取回」按钮（材料区标题旁，材料为空/仪式启动后置灰）。 */
+    private Button retrieveAllButton;
+    /** 已发仪式请求、等服务端关 GUI 的窗口期：禁用一切投入/取回点击（服务端仍权威拒判）。 */
+    private boolean awaitingRitual = false;
 
     private ClientForgeTableAI.AiResult lastAiResult;
     private Status status = Status.IDLE;
@@ -88,10 +92,22 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         // 「开始创作」按钮：产物就绪时显示（材料列表下方空档），点击发仪式请求
         this.beginCraftButton = Button.builder(
                         Component.translatable("qianxiang.table.begin_craft"),
-                        b -> PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload()))
+                        b -> {
+                            awaitingRitual = true; // 仪式启动窗口期禁用投入/取回
+                            PacketDistributor.sendToServer(new com.qianxiang.network.RitualStartPayload());
+                        })
                 .bounds(leftPos + 8, topPos + 80, 64, 12)
                 .build();
         this.addRenderableWidget(this.beginCraftButton);
+
+        // 「全部取回」按钮（材料区标题旁）：取回全部材料（slotIndex=-1 + all）
+        this.retrieveAllButton = Button.builder(
+                        Component.translatable("qianxiang.table.retrieve_all"),
+                        b -> PacketDistributor.sendToServer(
+                                new com.qianxiang.network.TableRetrievePayload(-1, true)))
+                .bounds(leftPos + 44, topPos + 4, 56, 12)
+                .build();
+        this.addRenderableWidget(this.retrieveAllButton);
 
         // 结果界面回调：AI 回包到达时刷新方案卡。
         ClientAlchemyTableAI.setListener(result -> {
@@ -113,7 +129,8 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private static final int MATLIST_Y = 17;
     private static final int MATLIST_ROW_H = 9;
     private static final int MATLIST_MAX_ROWS = 4;
-    private static final int MATLIST_HINT_Y = 68;
+    /** 三行操作提示首行 y（0.6 缩放小字、行距 6px：状态条与「开始创作」按钮之间）。 */
+    private static final int MATLIST_HINT_Y = 66;
 
     /** 去格子化：材料槽不再画物品，产物槽/背包走原版。 */
     @Override
@@ -145,9 +162,13 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
             g.drawString(this.font, "… +" + (rows.size() - shown),
                     leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
         }
-        g.drawString(this.font, this.font.plainSubstrByWidth(
-                        Component.translatable("qianxiang.table.hint_insert").getString(), 240),
-                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, false);
+        // 三行操作说明（0.6 缩放小字：投入/取回/台子外交互各一行）
+        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert").getString(),
+                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, 0.6f);
+        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert_2").getString(),
+                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + 6, 0x777777, 0.6f);
+        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert_3").getString(),
+                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + 12, 0x777777, 0.6f);
     }
 
     /** 命中材料列表行 → 该行的真实槽位下标；未命中 -1。 */
@@ -199,10 +220,43 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         updateStatus();
         // 「开始创作」只在产物就绪时显示
         this.beginCraftButton.visible = !this.menu.getSlot(AlchemyTableMenu.RESULT_SLOT).getItem().isEmpty();
+        // 「全部取回」：材料为空或仪式启动窗口期置灰
+        this.retrieveAllButton.active = hasMaterialsInSlots() && !awaitingRitual;
         renderMaterialList(g);
         renderStatus(g);
         renderCards(g, mouseX, mouseY);
         renderTooltip(g, mouseX, mouseY);
+        renderMaterialRowTooltip(g, mouseX, mouseY);
+        renderSuggestionLine(g);
+    }
+
+    /** 「能做啥」主动建议行（顶部标题行右侧：状态条下方已被三行提示与开始创作占满，
+     *  标题行 x≥104 在输入框上方恒空；纯展示，不占 AI 结果区）。 */
+    private void renderSuggestionLine(GuiGraphics g) {
+        Component line = ClientTableSuggestion.line();
+        if (line == null) return;
+        g.drawString(this.font, this.font.plainSubstrByWidth(line.getString(), 146),
+                leftPos + 104, topPos + 6, 0x7FE3C0, false);
+    }
+
+    /** 材料槽是否有任何材料（「全部取回」按钮置灰用）。 */
+    private boolean hasMaterialsInSlots() {
+        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
+            if (!this.menu.getSlot(i).getItem().isEmpty()) return true;
+        }
+        return false;
+    }
+
+    /** 材料行 hover tooltip：物品名 + 取回操作提示（锻造台同语义，从简无性质卡）。 */
+    private void renderMaterialRowTooltip(GuiGraphics g, int mouseX, int mouseY) {
+        int slot = hitTestMaterialRow(mouseX, mouseY);
+        if (slot < 0) return;
+        var stack = this.menu.getSlot(slot).getItem();
+        if (stack.isEmpty()) return;
+        g.renderTooltip(this.font, List.of(stack.getHoverName(),
+                        Component.translatable("qianxiang.table.retrieve_hint")
+                                .withStyle(net.minecraft.ChatFormatting.GRAY)),
+                java.util.Optional.empty(), mouseX, mouseY);
     }
 
     @Override
@@ -212,8 +266,9 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
     private void updateStatus() {
         if (status == Status.PARSING) {
-            // 与 BE 的 PARSING 超时同口径：8 秒没回包就本地复位，不依赖服务器状态。
-            if (Util.getMillis() - aiRequestStartMillis > 8_000L) {
+            // WQ-74 超时兜底：AI 超时上限 30s×2（本体+重试）+10s 余量仍无回包就本地复位，
+            // 不依赖服务器状态（此前 8 秒是按旧 5s 超时拍的，30s 超时下会误杀正常请求）。
+            if (Util.getMillis() - aiRequestStartMillis > 70_000L) {
                 status = Status.IDLE;
             }
             return;
@@ -336,11 +391,23 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                     }
                 }
             }
-            // 材料列表行点击 = 取回该槽材料
+            // 材料列表行点击 = 取回该槽材料（左键 1 个，Shift+左键全部）
             int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
             if (retrieveSlot >= 0) {
+                if (!awaitingRitual) {
+                    PacketDistributor.sendToServer(new com.qianxiang.network.TableRetrievePayload(
+                            retrieveSlot, hasShiftDown()));
+                }
+                return true;
+            }
+            // 背包/快捷栏槽位左键 = 向材料区投入 1 个（不走原版 slotClicked，避免拿起物品；
+            // Shift+左键不拦截，保持现有 quickMove 整组投入路径）
+            if (!awaitingRitual && !hasShiftDown()
+                    && this.hoveredSlot != null
+                    && this.hoveredSlot.index >= AlchemyTableMenu.RESULT_SLOT + 1
+                    && this.hoveredSlot.hasItem()) {
                 PacketDistributor.sendToServer(
-                        new com.qianxiang.network.TableRetrievePayload(retrieveSlot));
+                        new com.qianxiang.network.TableInsertPayload(this.hoveredSlot.index, false));
                 return true;
             }
         }

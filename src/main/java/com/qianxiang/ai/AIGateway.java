@@ -71,6 +71,8 @@ public final class AIGateway {
 
     /** 连续「请求超时」计数（连上了但模型没在 timeout 内返回），与连接失败分开。 */
     private static final AtomicInteger TIMEOUT_FAILS = new AtomicInteger();
+    /** 连续「端点非 2xx」计数（持续 400/500 = 端点故障；WQ-63 前不计数，端点全挂永不熔断）。 */
+    private static final AtomicInteger ENDPOINT_FAILS = new AtomicInteger();
     /** 熔断打开时刻（System.currentTimeMillis），0 = 关闭。CAS 保证只打一条「开启」日志。 */
     private static final AtomicLong BREAKER_OPENED_AT = new AtomicLong();
     /** 窗口过后同一时刻只放行一个探测请求。 */
@@ -196,13 +198,33 @@ public final class AIGateway {
      * @param probe 该次尝试是否是熔断窗口后的探测请求
      */
     private static void recordOutcome(boolean ok, boolean probe) {
-        boolean connectIssue = !ok && AIClient.lastFailureWasConnectionIssue();
-        boolean requestTimeout = !ok && AIClient.lastFailureWasRequestTimeout();
+        FailureKind kind = FailureKind.NONE;
+        if (!ok) {
+            if (AIClient.lastFailureWasConnectionIssue()) kind = FailureKind.CONNECT;
+            else if (AIClient.lastFailureWasRequestTimeout()) kind = FailureKind.TIMEOUT;
+            else if (AIClient.lastFailureWasEndpointError()) kind = FailureKind.ENDPOINT;
+        }
+        recordOutcomeClassified(ok, kind, probe);
+    }
 
-        if (ok || (!connectIssue && !requestTimeout)) {
-            // 端点是通的且响应及时（哪怕内容不可用）→ 两个计数器都清零
+    /** 失败分类（WQ-63：三类故障各自独立计数）。 */
+    public enum FailureKind { NONE, CONNECT, TIMEOUT, ENDPOINT }
+
+    /**
+     * 熔断计数核心（分类后的结果落账）。规则（WQ-63 修复）：
+     * <ul>
+     *   <li>成功 / 「端点有响应但内容不可用」（NONE）→ 三个计数器全清零、熔断关闭；</li>
+     *   <li>某类故障只累加自己的计数器，<b>不再互相清零</b>——
+     *       此前连接/超时交替出现时两计数器互清，熔断永不开；</li>
+     *   <li>非 2xx（ENDPOINT）与连接/超时同阈值开熔断——此前非 2xx 返回 null 不计数，
+     *       端点持续 400/500 时永不熔断，每次请求白打两发 HTTP。</li>
+     * </ul>
+     */
+    private static void recordOutcomeClassified(boolean ok, FailureKind kind, boolean probe) {
+        if (ok || kind == FailureKind.NONE) {
             CONNECT_FAILS.set(0);
             TIMEOUT_FAILS.set(0);
+            ENDPOINT_FAILS.set(0);
             if (BREAKER_OPENED_AT.get() != 0L) {
                 closeBreaker();
             }
@@ -213,32 +235,50 @@ public final class AIGateway {
             // 熔断仍处于打开态的探测失败：重新计时
             BREAKER_OPENED_AT.set(System.currentTimeMillis());
             Qianxiang.LOGGER.info("[Qianxiang] AI 熔断探测失败（{}），继续熔断 {} 秒",
-                    connectIssue ? "端点仍不可达" : "模型仍未在超时内返回", BREAKER_OPEN_MS / 1000);
+                    kind == FailureKind.CONNECT ? "端点仍不可达"
+                            : kind == FailureKind.TIMEOUT ? "模型仍未在超时内返回" : "端点仍返回非 2xx",
+                    BREAKER_OPEN_MS / 1000);
             return;
         }
 
-        // 两类故障分开计数：端点不可达 vs 模型太慢。对玩家的观感一样（每次白等满超时），
-        // 但原因与建议不同，日志文案也要能区分。
-        if (connectIssue) {
-            int n = CONNECT_FAILS.incrementAndGet();
-            TIMEOUT_FAILS.set(0);
-            if (n >= BREAKER_THRESHOLD
-                    && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
-                Qianxiang.LOGGER.info(
-                        "[Qianxiang] AI 连续 {} 次连接失败，熔断开启：{} 秒内不再发起 AI 请求，直接走关键词兜底",
-                        n, BREAKER_OPEN_MS / 1000);
-            }
-        } else {
-            int n = TIMEOUT_FAILS.incrementAndGet();
-            CONNECT_FAILS.set(0);
-            if (n >= BREAKER_THRESHOLD
-                    && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
-                Qianxiang.LOGGER.info(
-                        "[Qianxiang] AI 连续 {} 次请求超时（模型太慢或 prompt 过长），熔断开启：{} 秒内直接走兜底。"
-                                + "建议换更小的模型，或在 config/qianxiang-ai.json 调大 timeout_seconds",
-                        n, BREAKER_OPEN_MS / 1000);
-            }
+        AtomicInteger counter = switch (kind) {
+            case CONNECT -> CONNECT_FAILS;
+            case TIMEOUT -> TIMEOUT_FAILS;
+            default -> ENDPOINT_FAILS;
+        };
+        int n = counter.incrementAndGet();
+        if (n >= BREAKER_THRESHOLD
+                && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
+            String reason = switch (kind) {
+                case CONNECT -> "连续 " + n + " 次连接失败";
+                case TIMEOUT -> "连续 " + n + " 次请求超时（模型太慢或 prompt 过长）"
+                        + "，建议换更小的模型或调大 timeout_seconds";
+                default -> "连续 " + n + " 次端点错误（非 2xx），请检查 base_url/模型名/API Key";
+            };
+            Qianxiang.LOGGER.info("[Qianxiang] AI {}，熔断开启：{} 秒内不再发起 AI 请求，直接走关键词兜底",
+                    reason, BREAKER_OPEN_MS / 1000);
         }
+    }
+
+    // ==================== GameTest 钩子（只读/复位熔断状态机） ====================
+
+    /** 测试用：直接按分类落一次账（不碰 HTTP 与 ThreadLocal）。 */
+    public static void recordOutcomeForTest(boolean ok, FailureKind kind) {
+        recordOutcomeClassified(ok, kind, false);
+    }
+
+    /** 测试用：熔断是否打开。 */
+    public static boolean breakerOpenForTest() {
+        return BREAKER_OPENED_AT.get() != 0L;
+    }
+
+    /** 测试用：复位熔断与全部计数（每个用例前后调用防串扰）。 */
+    public static void resetBreakerForTest() {
+        BREAKER_OPENED_AT.set(0L);
+        CONNECT_FAILS.set(0);
+        TIMEOUT_FAILS.set(0);
+        ENDPOINT_FAILS.set(0);
+        PROBE_IN_FLIGHT.set(false);
     }
 
     /** 关闭熔断并清零计数；只有真正从「开」转「关」时才打日志。 */
@@ -246,6 +286,7 @@ public final class AIGateway {
         if (BREAKER_OPENED_AT.getAndSet(0L) != 0L) {
             CONNECT_FAILS.set(0);
             TIMEOUT_FAILS.set(0);
+            ENDPOINT_FAILS.set(0);
             Qianxiang.LOGGER.info("[Qianxiang] AI 端点恢复可达，熔断关闭");
         }
     }

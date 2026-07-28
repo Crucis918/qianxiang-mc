@@ -1570,6 +1570,256 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    /** GUI 背包左键投入：投 1 个背包 -1 材料槽 +1；整组投入；材料区满/非法槽位拒绝不消耗。 */
+    @GameTest(template = "item_concept")
+    public static void insertViaPayloadOneAndStack(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        // 快捷栏 inv 0（menu 槽 53 = RESULT_SLOT+1+27）放 5 个铁锭
+        player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 5));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        int invMenuSlot = ForgeTableMenu.RESULT_SLOT + 1 + 27; // 快捷栏第 1 格
+
+        helper.assertTrue(com.qianxiang.network.TableInsertHandler.insert(player, menu, invMenuSlot, false),
+                "左键投 1 个应成功");
+        helper.assertTrue(be.getItem(12).is(Items.IRON_INGOT) && be.getItem(12).getCount() == 1,
+                "中心槽 12 应有 1 个铁锭，实际 " + be.getItem(12));
+        helper.assertTrue(player.getInventory().getItem(0).getCount() == 4,
+                "背包应剩 4 个铁锭，实际 " + player.getInventory().getItem(0).getCount());
+
+        helper.assertTrue(com.qianxiang.network.TableInsertHandler.insert(player, menu, invMenuSlot, true),
+                "整组投入应成功");
+        helper.assertTrue(player.getInventory().getItem(0).isEmpty(),
+                "整组投入后背包该格应空");
+        helper.assertTrue(be.getItem(6).is(Items.IRON_INGOT) && be.getItem(6).getCount() == 4,
+                "整组应落填充序下一空槽 6（4 个），实际 " + be.getItem(6));
+
+        // 非法槽位：材料槽下标与越界下标都拒绝
+        helper.assertTrue(!com.qianxiang.network.TableInsertHandler.insert(player, menu, 3, false),
+                "材料槽下标应被拒（非背包区）");
+        helper.assertTrue(!com.qianxiang.network.TableInsertHandler.insert(player, menu, 99, false),
+                "越界槽位应被拒");
+
+        // 材料区满：投入拒绝且背包不消耗
+        for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
+            be.setItem(i, new ItemStack(Items.STICK, 64));
+        }
+        player.getInventory().setItem(1, new ItemStack(Items.DIAMOND, 2));
+        int invMenuSlot2 = ForgeTableMenu.RESULT_SLOT + 1 + 28;
+        helper.assertTrue(!com.qianxiang.network.TableInsertHandler.insert(player, menu, invMenuSlot2, false),
+                "材料区满时投入应被拒");
+        helper.assertTrue(player.getInventory().getItem(1).getCount() == 2,
+                "满槽拒绝不得消耗背包，实际 " + player.getInventory().getItem(1).getCount());
+        helper.succeed();
+    }
+
+    /** 行取回语义：左键取 1 个 / Shift 取该槽全部；slotIndex=-1+all 取回全部（多槽混合）。 */
+    @GameTest(template = "item_concept")
+    public static void retrieveOneAndAllViaPayload(GameTestHelper helper) {
+        var be = new com.qianxiang.block.ForgeTableBlockEntity(
+                net.minecraft.core.BlockPos.ZERO,
+                QianxiangBlocks.FORGE_TABLE.get().defaultBlockState());
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.getInventory().clearContent();
+        be.setItem(3, new ItemStack(QianxiangItems.EMBER_CRYSTAL.get(), 3));
+        be.setItem(5, new ItemStack(Items.STICK, 2));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+
+        helper.assertTrue(com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 3, false),
+                "左键取 1 个应成功");
+        helper.assertTrue(be.getItem(3).getCount() == 2,
+                "取 1 个后槽 3 应剩 2，实际 " + be.getItem(3));
+        helper.assertTrue(countInInventory(player, QianxiangItems.EMBER_CRYSTAL.get()) == 1,
+                "背包应有 1 个余烬石");
+
+        helper.assertTrue(com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 3, true),
+                "Shift 取该槽全部应成功");
+        helper.assertTrue(be.getItem(3).isEmpty(), "取全部后槽 3 应空");
+        helper.assertTrue(countInInventory(player, QianxiangItems.EMBER_CRYSTAL.get()) == 3,
+                "背包应累计 3 个余烬石");
+        helper.assertTrue(be.getItem(5).getCount() == 2,
+                "单槽取回不得波及其他槽，实际 " + be.getItem(5));
+
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, -1, false),
+                "slotIndex=-1 单取无语义应被拒");
+        helper.assertTrue(com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, -1, true),
+                "slotIndex=-1+all 应取回全部");
+        helper.assertTrue(be.getItem(5).isEmpty(), "全部取回后槽 5 应空");
+        helper.assertTrue(countInInventory(player, Items.STICK) == 2,
+                "木棍 ×2 应回背包");
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, -1, true),
+                "空台全部取回应失败（无副作用）");
+        helper.succeed();
+    }
+
+    /** 仪式中：payload 投入与取回（含全部取回）一律拒绝且不消耗。 */
+    @GameTest(template = "item_concept")
+    public static void retrieveDuringRitualRejected(GameTestHelper helper) {
+        var level = helper.getLevel();
+        net.minecraft.core.BlockPos pos = helper.absolutePos(new net.minecraft.core.BlockPos(2, 1, 2));
+        var state = QianxiangBlocks.FORGE_TABLE.get().defaultBlockState();
+        level.setBlockAndUpdate(pos, state);
+        if (!(level.getBlockEntity(pos) instanceof com.qianxiang.block.ForgeTableBlockEntity be)) {
+            helper.fail("锻造台方块实体应存在");
+            return;
+        }
+        var player = mockServerPlayer(helper);
+        player.getInventory().clearContent();
+
+        be.setItem(0, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
+        ForgeTableMenu menu = new ForgeTableMenu(1, player.getInventory(), be);
+        menu.slotsChanged(be);
+        helper.assertTrue(com.qianxiang.block.RitualLogic.startRitual(be, player), "触发仪式");
+        int inputCount = be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum();
+
+        // payload 投入：被拒且不消耗背包
+        player.getInventory().setItem(0, new ItemStack(Items.IRON_INGOT, 3));
+        int invMenuSlot = ForgeTableMenu.RESULT_SLOT + 1 + 27;
+        helper.assertTrue(!com.qianxiang.network.TableInsertHandler.insert(player, menu, invMenuSlot, false),
+                "仪式中 payload 投入应被拒");
+        helper.assertTrue(player.getInventory().getItem(0).getCount() == 3,
+                "仪式中投入不得消耗背包，实际 " + player.getInventory().getItem(0).getCount());
+        helper.assertTrue(be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum() == inputCount,
+                "仪式中投入不得改变 ritualInputs");
+
+        // payload 取回（单槽与全部取回）：均被拒
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, 0, true),
+                "仪式中单槽取回应被拒");
+        helper.assertTrue(!com.qianxiang.network.TableRetrieveHandler.retrieve(player, menu, -1, true),
+                "仪式中全部取回应被拒");
+        helper.assertTrue(be.ritualInputs().stream().mapToInt(ItemStack::getCount).sum() == inputCount,
+                "仪式中取回不得改变 ritualInputs");
+        level.removeBlock(pos, false);
+        helper.succeed();
+    }
+
+    // ============================ AI 健壮性（WQ-62/63/74）与主动建议 ============================
+
+    /** WQ-62：旧配置（无 config_version、timeout=5）一次性迁移抬到 30 并写回；有版本号不动。 */
+    @GameTest(template = "item_concept")
+    public static void aiConfigMigratesLegacyTimeout(GameTestHelper helper) throws Exception {
+        java.nio.file.Path tmp = java.nio.file.Files.createTempFile("qianxiang-ai-test", ".json");
+        try {
+            String legacy = "{\"provider\":\"ollama\",\"timeout_seconds\":5}";
+            var cfg = com.qianxiang.ai.AIConfig.parse(legacy, tmp);
+            helper.assertTrue(cfg.timeoutSeconds == 30,
+                    "无版本号的 5s 旧配置应迁移到 30，实际 " + cfg.timeoutSeconds);
+            String written = java.nio.file.Files.readString(tmp);
+            helper.assertTrue(written.contains("\"timeout_seconds\": 30"),
+                    "迁移应写回 30，实际文件 " + written);
+            helper.assertTrue(written.contains("\"config_version\": 1"),
+                    "写回应带 config_version=1（只迁移一次）");
+
+            // 有版本号的文件：尊重玩家现值，不再迁移
+            java.nio.file.Path tmp2 = java.nio.file.Files.createTempFile("qianxiang-ai-test2", ".json");
+            try {
+                String versioned = "{\"timeout_seconds\":8,\"config_version\":1}";
+                var cfg2 = com.qianxiang.ai.AIConfig.parse(versioned, tmp2);
+                helper.assertTrue(cfg2.timeoutSeconds == 8,
+                        "有版本号的配置不应被迁移，实际 " + cfg2.timeoutSeconds);
+            } finally {
+                java.nio.file.Files.deleteIfExists(tmp2);
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(tmp);
+        }
+        helper.succeed();
+    }
+
+    /** WQ-63：连接/超时交替故障各 3 次应开熔断（旧实现两计数器互清、永不开）。 */
+    @GameTest(template = "item_concept")
+    public static void breakerOpensOnAlternatingFailures(GameTestHelper helper) {
+        com.qianxiang.ai.AIGateway.resetBreakerForTest();
+        try {
+            for (int i = 0; i < 3; i++) {
+                com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                        com.qianxiang.ai.AIGateway.FailureKind.CONNECT);
+                com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                        com.qianxiang.ai.AIGateway.FailureKind.TIMEOUT);
+            }
+            helper.assertTrue(com.qianxiang.ai.AIGateway.breakerOpenForTest(),
+                    "交替故障各 3 次应开熔断（独立衰减）");
+            // 成功一次：熔断关闭、计数清零
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(true,
+                    com.qianxiang.ai.AIGateway.FailureKind.NONE);
+            helper.assertTrue(!com.qianxiang.ai.AIGateway.breakerOpenForTest(),
+                    "成功后熔断应关闭");
+        } finally {
+            com.qianxiang.ai.AIGateway.resetBreakerForTest();
+        }
+        helper.succeed();
+    }
+
+    /** WQ-63：端点连续 3 次非 2xx 开熔断；中途一次「有响应但不可用」（NONE）清零重新计。 */
+    @GameTest(template = "item_concept")
+    public static void breakerOpensOnEndpointErrors(GameTestHelper helper) {
+        com.qianxiang.ai.AIGateway.resetBreakerForTest();
+        try {
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.ENDPOINT);
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.ENDPOINT);
+            // 端点有响应但内容不可用：说明端点活着，计数清零
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.NONE);
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.ENDPOINT);
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.ENDPOINT);
+            helper.assertTrue(!com.qianxiang.ai.AIGateway.breakerOpenForTest(),
+                    "NONE 清零后仅连续 2 次端点错误，不应开熔断");
+            com.qianxiang.ai.AIGateway.recordOutcomeForTest(false,
+                    com.qianxiang.ai.AIGateway.FailureKind.ENDPOINT);
+            helper.assertTrue(com.qianxiang.ai.AIGateway.breakerOpenForTest(),
+                    "连续 3 次端点错误应开熔断");
+        } finally {
+            com.qianxiang.ai.AIGateway.resetBreakerForTest();
+        }
+        helper.succeed();
+    }
+
+    /** WQ-74：AI 请求限流闸门——窗口内第二次请求被拒（触发的正是回包退出 PARSING 的路径）。 */
+    @GameTest(template = "item_concept")
+    public static void aiRateLimitRejectsSecondCall(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        helper.assertTrue(com.qianxiang.util.PlayerRateLimiter.tryAcquire(player, "ai_request", 3000L),
+                "首次 AI 请求应放行");
+        helper.assertTrue(!com.qianxiang.util.PlayerRateLimiter.tryAcquire(player, "ai_request", 3000L),
+                "窗口内第二次应被限流（服务端对此回空响应让客户端退出 PARSING）");
+        helper.succeed();
+    }
+
+    /** 主动建议本地分析：锻造放料 → payload 含产物 id 与正攻击；炼金放料 → 卷轴与强度；空 → 空。 */
+    @GameTest(template = "item_concept")
+    public static void suggestionFromLocalAnalysis(GameTestHelper helper) {
+        var forge = new net.minecraft.world.SimpleContainer(ForgeTableMenu.MATERIAL_SLOTS);
+        helper.assertTrue(com.qianxiang.ai.TableSuggestion.forgePayload(forge).itemId().isEmpty(),
+                "空材料锻造建议应为空");
+        forge.setItem(12, new ItemStack(QianxiangMaterials.EMBER_IRON.get()));
+        var forgePayload = com.qianxiang.ai.TableSuggestion.forgePayload(forge);
+        helper.assertTrue(!forgePayload.itemId().isEmpty(),
+                "放入烬铁后应给出产物建议");
+        helper.assertTrue(forgePayload.itemId().contains("qianxiang:"),
+                "建议产物应为千相物品，实际 " + forgePayload.itemId());
+        helper.assertTrue(forgePayload.value() > 0.0,
+                "建议应带正攻击力，实际 " + forgePayload.value());
+
+        var alchemy = new net.minecraft.world.SimpleContainer(
+                com.qianxiang.menu.AlchemyTableMenu.MATERIAL_SLOTS);
+        helper.assertTrue(com.qianxiang.ai.TableSuggestion.alchemyPayload(alchemy).itemId().isEmpty(),
+                "空材料炼金建议应为空");
+        alchemy.setItem(2, new ItemStack(QianxiangMaterials.RIFT_ESSENCE.get()));
+        var alchemyPayload = com.qianxiang.ai.TableSuggestion.alchemyPayload(alchemy);
+        helper.assertTrue(alchemyPayload.magic() && !alchemyPayload.itemId().isEmpty(),
+                "放入裂隙精髓应给出卷轴建议");
+        helper.assertTrue(alchemyPayload.value() == 8.0,
+                "LEGENDARY 组强度应为 8，实际 " + alchemyPayload.value());
+        helper.succeed();
+    }
+
     /** AI 放料缺料明示：背包只有 2/3 材料 → 放入 2、missing 名单含第 3 个。 */
     @GameTest(template = "item_concept")
     public static void aiPlaceReportsMissing(GameTestHelper helper) {
@@ -2041,7 +2291,8 @@ public final class QianxiangCoreGameTests {
      * payload 通道的假连接直接抛错（纯测试环境假象）。vanilla 包（聊天/声音）
      * 进 EmbeddedChannel 无害；mod payload 由 SpellCastHandler.sync 的防御兜住。
      */
-    private static net.minecraft.server.level.ServerPlayer mockServerPlayer(GameTestHelper helper) {
+    /** 假连接 ServerPlayer（SURVIVAL）；包可见供矩阵测试类复用。 */
+    static net.minecraft.server.level.ServerPlayer mockServerPlayer(GameTestHelper helper) {
         var cookie = net.minecraft.server.network.CommonListenerCookie.createInitial(
                 new com.mojang.authlib.GameProfile(java.util.UUID.randomUUID(), "test-mock-player"), false);
         var player = new net.minecraft.server.level.ServerPlayer(
