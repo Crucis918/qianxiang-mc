@@ -39,7 +39,10 @@ public final class BlueprintServerHandler {
             }
             ForgeComposer.Composition composition = ForgeComposer.compose(materials);
             if (!composition.valid()) {
-                player.sendSystemMessage(Component.translatable("qianxiang.blueprint.save.invalid"));
+                // WQ-79②：失败提示走 actionbar 而非聊天栏——500ms 节流挡不住按住连点
+                // 往聊天栏刷屏（2 条/秒），actionbar 天然只留最后一条。
+                player.displayClientMessage(
+                        Component.translatable("qianxiang.blueprint.save.invalid"), true);
                 context.reply(syncPayload(player));
                 return;
             }
@@ -105,7 +108,9 @@ public final class BlueprintServerHandler {
                 player.setData(QianxiangAttachments.SAGA_DATA, saga.withEntry(entry));
                 player.sendSystemMessage(Component.translatable("qianxiang.blueprint.use.success", data.name()));
             } else {
-                player.sendSystemMessage(Component.translatable("qianxiang.blueprint.use.missing", data.name()));
+                // WQ-79②：缺材料提示同样走 actionbar，避免连点刷聊天栏
+                player.displayClientMessage(
+                        Component.translatable("qianxiang.blueprint.use.missing", data.name()), true);
             }
             context.reply(syncPayload(player));
         });

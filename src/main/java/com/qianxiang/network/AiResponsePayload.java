@@ -19,14 +19,35 @@ import java.util.List;
  * 客户端渲染成按钮，点选后追加到输入框重新问 AI。
  * 客户端 {@link com.qianxiang.client.ClientForgeTableAI} 接收后
  * 更新 {@link com.qianxiang.client.ForgeTableScreen} 的推荐显示区。
+ * {@code seq} 原样带回请求的序号（WQ-76）：客户端据此丢弃落后响应。
+ * {@code reqId} 本次请求的飞轮 id（WQ-71）：服务端在 AI 线程生成、随响应下发，
+ * 客户端暂存并随 {@code AiPlaceMaterialsPayload} 回传——「建议 vs 采纳」日志
+ * 靠它串起来，不走 ThreadLocal（主线程读到的是假 id）。
  */
-public record AiResponsePayload(List<PhaseAIRecipeService.RecipeProposal> proposals,
+public record AiResponsePayload(int seq,
+                                String reqId,
+                                List<PhaseAIRecipeService.RecipeProposal> proposals,
                                 String confirmMessage,
                                 List<String> suggestQuestions) implements CustomPacketPayload {
 
+    /** 兼容旧四参构造（无 reqId）：reqId = ""。 */
+    public AiResponsePayload(int seq,
+                             List<PhaseAIRecipeService.RecipeProposal> proposals,
+                             String confirmMessage,
+                             List<String> suggestQuestions) {
+        this(seq, "", proposals, confirmMessage, suggestQuestions);
+    }
+
+    /** 兼容旧三参构造（无序号/reqId）：seq = 0，reqId = ""。 */
+    public AiResponsePayload(List<PhaseAIRecipeService.RecipeProposal> proposals,
+                             String confirmMessage,
+                             List<String> suggestQuestions) {
+        this(0, "", proposals, confirmMessage, suggestQuestions);
+    }
+
     /** 兼容旧两参构造：suggestQuestions 空 = 无反问。 */
     public AiResponsePayload(List<PhaseAIRecipeService.RecipeProposal> proposals, String confirmMessage) {
-        this(proposals, confirmMessage, List.of());
+        this(0, "", proposals, confirmMessage, List.of());
     }
 
     public static final Type<AiResponsePayload> TYPE =
@@ -34,6 +55,8 @@ public record AiResponsePayload(List<PhaseAIRecipeService.RecipeProposal> propos
 
     public static final StreamCodec<FriendlyByteBuf, AiResponsePayload> STREAM_CODEC =
             StreamCodec.composite(
+                    ByteBufCodecs.VAR_INT, AiResponsePayload::seq,
+                    ByteBufCodecs.stringUtf8(64), AiResponsePayload::reqId,
                     ByteBufCodecs.collection(ArrayList::new, PhaseAIRecipeService.RecipeProposal.STREAM_CODEC),
                     AiResponsePayload::proposals,
                     ByteBufCodecs.STRING_UTF8, AiResponsePayload::confirmMessage,

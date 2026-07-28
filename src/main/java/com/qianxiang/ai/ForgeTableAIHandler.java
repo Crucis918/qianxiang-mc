@@ -48,7 +48,7 @@ public final class ForgeTableAIHandler {
                             * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
                 // WQ-74：限流命中必须回包+提示——此前静默 return，客户端状态条永卡
                 // PARSING 只能关界面重开。空响应让客户端退出 PARSING（监听映射空提案→IDLE）。
-                replyRateLimited(player, context);
+                replyRateLimited(player, context, payload.seq());
                 return;
             }
             setBlockEntityState(player, ForgeTableBlockEntity.STATE_PARSING);
@@ -67,11 +67,12 @@ public final class ForgeTableAIHandler {
         });
     }
 
-    /** 限流命中时的回包：空提案响应（客户端退出 PARSING）+ actionbar 提示「请稍候」。 */
+    /** 限流命中时的回包：空提案响应（客户端退出 PARSING）+ actionbar 提示「请稍候」。
+     *  seq 原样带回请求序号——客户端只认最新序号的响应（WQ-76），不带 seq 会被当成落后响应丢弃。 */
     static void replyRateLimited(net.minecraft.world.entity.player.Player player,
-                                 IPayloadContext context) {
+                                 IPayloadContext context, int seq) {
         try {
-            context.reply(new AiResponsePayload(java.util.List.of(), "", java.util.List.of()));
+            context.reply(new AiResponsePayload(seq, java.util.List.of(), "", java.util.List.of()));
         } catch (Throwable t) {
             Qianxiang.LOGGER.debug("[Qianxiang] 限流回包失败（玩家已断线？）：{}", t.toString());
         }
@@ -94,10 +95,24 @@ public final class ForgeTableAIHandler {
                 result = new PhaseAIRecipeService.RecipeResult(java.util.List.of(), "", true);
             }
             final var finalResult = result;
+            // reqId 在 AI 线程上才有效（WQ-71 病根：主线程读 ThreadLocal 拿到 null 现造假 id）——
+            // 这里读出真 id，随响应下发给客户端暂存，放料回传时闭环「建议 vs 采纳」。
+            final String reqId = AIGateway.currentRequestId();
+            try {
+                AIGateway.logRequest(reqId, payload.request(),
+                        context.player() == null ? "" : context.player().getUUID().toString(),
+                        finalResult.proposals().size(),
+                        PhaseAIRecipeService.lastDroppedMaterials(),
+                        finalResult.fallback() ? PhaseAIRecipeService.lastFallbackReason() : "");
+            } catch (Throwable t) {
+                Qianxiang.LOGGER.debug("[Qianxiang] 飞轮请求日志失败（无害）：{}", t.toString());
+            }
             try {
                 context.enqueueWork(() -> {
                     try {
                         context.reply(new AiResponsePayload(
+                                payload.seq(),
+                                reqId,
                                 finalResult.proposals(),
                                 finalResult.confirmMessage() == null ? "" : finalResult.confirmMessage(),
                                 finalResult.suggestQuestions() == null
@@ -170,6 +185,7 @@ public final class ForgeTableAIHandler {
     @net.neoforged.bus.api.SubscribeEvent
     public static void onServerStopping(net.neoforged.neoforge.event.server.ServerStoppingEvent event) {
         AI_EXECUTOR.shutdownNow();
+        AIGateway.shutdownLogExecutor(); // WQ-71：jsonl 落盘线程一并停
         com.qianxiang.util.PlayerRateLimiter.clearAll();
         Qianxiang.LOGGER.info("[Qianxiang] AI 后台线程池已停止。");
     }

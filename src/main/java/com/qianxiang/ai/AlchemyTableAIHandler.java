@@ -46,8 +46,9 @@ public final class AlchemyTableAIHandler {
                 player, "ai_request", (long) (AI_REQUEST_COOLDOWN_MS
                         * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
             // WQ-74：限流命中必须回包+提示（同锻造台）——否则客户端状态条永卡 PARSING。
+            // seq 原样带回（WQ-76）：不带 seq 会被客户端当成落后响应丢弃。
             try {
-                context.reply(new AiResponsePayload(java.util.List.of(), "", java.util.List.of()));
+                context.reply(new AiResponsePayload(payload.seq(), java.util.List.of(), "", java.util.List.of()));
             } catch (Throwable t) {
                 Qianxiang.LOGGER.debug("[Qianxiang] 限流回包失败（玩家已断线？）：{}", t.toString());
             }
@@ -83,10 +84,23 @@ public final class AlchemyTableAIHandler {
                 result = new PhaseAIRecipeService.RecipeResult(java.util.List.of(), "", true);
             }
             final var finalResult = result;
+            // reqId 在 AI 线程上才有效（WQ-71，与锻造台同构）：读出真 id 随响应下发。
+            final String reqId = AIGateway.currentRequestId();
+            try {
+                AIGateway.logRequest(reqId, payload.request(),
+                        context.player() == null ? "" : context.player().getUUID().toString(),
+                        finalResult.proposals().size(),
+                        PhaseAIRecipeService.lastDroppedMaterials(),
+                        finalResult.fallback() ? PhaseAIRecipeService.lastFallbackReason() : "");
+            } catch (Throwable t) {
+                Qianxiang.LOGGER.debug("[Qianxiang] 飞轮请求日志失败（无害）：{}", t.toString());
+            }
             try {
                 context.enqueueWork(() -> {
                     try {
                         context.reply(new AiResponsePayload(
+                                payload.seq(),
+                                reqId,
                                 finalResult.proposals(),
                                 finalResult.confirmMessage() == null ? "" : finalResult.confirmMessage(),
                                 finalResult.suggestQuestions() == null

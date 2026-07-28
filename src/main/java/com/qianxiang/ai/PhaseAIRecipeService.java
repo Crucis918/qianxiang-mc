@@ -177,6 +177,10 @@ public final class PhaseAIRecipeService {
      */
     public static RecipeResult ask(String playerWant, String targetType, String targetTier,
                                     List<String> currentMaterials, String mode, List<String> allowedMaterials) {
+        // 飞轮日志追踪（WQ-71）：本次 ask 的剔除材料与兜底原因，handler 在同一
+        // AI 线程 ask 返回后立即读取（单线程执行器，无串扰）。
+        LAST_DROPPED.get().clear();
+        LAST_FALLBACK_REASON.set("");
         try {
             String type = safeType(targetType);
             String tier = safeTier(targetTier);
@@ -190,6 +194,7 @@ public final class PhaseAIRecipeService {
                 lib = lib.stream().filter(e -> allowed.contains(e.registryName())).toList();
             }
             if (lib.isEmpty()) {
+                LAST_FALLBACK_REASON.set("材料库为空");
                 return "confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
                         : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
@@ -198,12 +203,14 @@ public final class PhaseAIRecipeService {
             // confirm 模式的任务是「评价玩家已放的材料」——槽是空的就没什么可评价，
             // 送去问 AI 只会得到一段重新推荐（还白烧一次 token）。
             if ("confirm".equals(m) && (mats == null || mats.isEmpty())) {
+                LAST_FALLBACK_REASON.set("confirm 空槽直接兜底");
                 return FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials);
             }
 
             String systemPrompt = buildSystemPrompt(lib, playerWant, type, tier, mats, m, allowed != null);
             var aiOpt = AIGateway.chat(playerWant, systemPrompt);
             if (aiOpt.isEmpty()) {
+                LAST_FALLBACK_REASON.set("AI 无响应（离线/超时/熔断）");
                 return "confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
                         : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
@@ -217,6 +224,7 @@ public final class PhaseAIRecipeService {
             List<RecipeProposal> proposals = parseProposals(root, type);
             proposals = restrictToWhitelist(proposals, allowed);
             if (proposals.isEmpty()) {
+                LAST_FALLBACK_REASON.set("解析后无有效方案");
                 return "confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
                         : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
@@ -226,6 +234,7 @@ public final class PhaseAIRecipeService {
                 proposals = ensureTierMatch(proposals, type, tier);
                 proposals = restrictToWhitelist(proposals, allowed);
                 if (proposals.isEmpty()) {
+                    LAST_FALLBACK_REASON.set("档位匹配后无方案");
                     return FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
                 }
             }
@@ -236,10 +245,28 @@ public final class PhaseAIRecipeService {
             }
             return new RecipeResult(proposals, confirmMessage, fallback, questions);
         } catch (Throwable t) {
+            LAST_FALLBACK_REASON.set("ask 异常：" + t.getClass().getSimpleName());
             Qianxiang.LOGGER.warn("[Qianxiang] PhaseAIRecipeService.ask 异常，退 FallbackRecipes：{}",
                     t.getClass().getSimpleName() + ": " + t.getMessage());
             return FallbackRecipes.propose3(playerWant, targetType, targetTier);
         }
+    }
+
+    // ===================== 飞轮日志追踪（WQ-71，同 AI 线程读后即清） =====================
+
+    /** 本次 ask 剔除的不存在材料（AI 编的名）；handler 在 ask 返回后读取写日志。 */
+    private static final ThreadLocal<List<String>> LAST_DROPPED = ThreadLocal.withInitial(ArrayList::new);
+    /** 本次 ask 落兜底的原因（"" = 未兜底）。 */
+    private static final ThreadLocal<String> LAST_FALLBACK_REASON = ThreadLocal.withInitial(() -> "");
+
+    /** 本次 ask 被剔除的材料名（同一 AI 线程有效）。 */
+    public static List<String> lastDroppedMaterials() {
+        return List.copyOf(LAST_DROPPED.get());
+    }
+
+    /** 本次 ask 的兜底原因（"" = AI 正常产出）。 */
+    public static String lastFallbackReason() {
+        return LAST_FALLBACK_REASON.get();
     }
 
     /**
@@ -293,12 +320,6 @@ public final class PhaseAIRecipeService {
 
     private static String buildSystemPrompt(List<MaterialLibrary.MaterialEntry> lib, String request,
                                             String targetType, String targetTier,
-                                            List<String> currentMaterials, String mode) {
-        return buildSystemPrompt(lib, request, targetType, targetTier, currentMaterials, mode, false);
-    }
-
-    private static String buildSystemPrompt(List<MaterialLibrary.MaterialEntry> lib, String request,
-                                            String targetType, String targetTier,
                                             List<String> currentMaterials, String mode, boolean restricted) {
         String typeDesc = typeDescription(targetType);
         String tierDesc = tierDescription(targetTier);
@@ -335,7 +356,8 @@ public final class PhaseAIRecipeService {
                 allowedSet.add(e.registryName());
             }
         }
-        var groups = MaterialRecall.recall(lib, request, targetType, tierFromString(targetTier), allowedSet);
+        var groups = MaterialRecall.recall(lib, request, targetType, tierFromString(targetTier), allowedSet,
+                currentMaterials);
         sb.append("【候选材料】（已按你的需求筛选，registryName | 显示名 | 功能算子 | 档位）\n");
         sb.append("只能从下列材料中挑选，registryName 必须原样照抄（含命名空间、全小写）。\n");
         for (MaterialRecall.Group g : groups) {
@@ -348,16 +370,17 @@ public final class PhaseAIRecipeService {
                   .append('\n');
             }
         }
-        sb.append("\n【功能性需求指引】\n");
-        sb.append("材料库已扩展功能算子：POISON(中毒)/FROST(霜冻)/LEVITATION(漂浮)/STRENGTH(力量)/");
-        sb.append("NIGHT_VISION(夜视)/SPEED_BOOST(迅捷)/JUMP_BOOST(跳跃)/RESISTANCE(抗性)/FIRE_RESIST(抗火)/");
-        sb.append("WATER_BREATH(水下呼吸)/REGENERATION(再生)/GROWTH(催熟)/AREA_HARVEST(广域采集)。\n");
-        sb.append("玩家可能要求功能性物品，例如「反伤装甲」「夜视头盔」「能耕3×3地的锄头」「催熟5×5作物的水壶」。\n");
-        sb.append("- armor（装备/防具）需求：优先挑 DEFENSE/BASE_HIDE/RESISTANCE/REFLECT 类材料；");
-        sb.append("夜视/迅捷/跳跃/抗火/水下呼吸/再生等穿戴效果，选带对应功能算子的材料。\n");
-        sb.append("- tool（工具）需求：优先挑 AREA_HARVEST/GROWTH 类功能性材料，再配 BASE_METAL/BASE_WOOD 基底。\n");
-        sb.append("- weapon（武器）需求：除 EDGE/IGNITE/LIFESTEAL 外，中毒选 POISON、冰冻选 FROST、增伤选 STRENGTH。\n");
-        appendFreeEffectSection(sb);
+        if (!isConfirm) {
+            // 【功能性需求指引】是「如何从零挑功能材料」的推荐向指引，对评价任务只是噪声（WQ-66③）。
+            sb.append("\n【功能性需求指引】\n");
+            sb.append("材料库已扩展功能算子：POISON(中毒)/FROST(霜冻)/LEVITATION(漂浮)/STRENGTH(力量)/");
+            sb.append("NIGHT_VISION(夜视)/SPEED_BOOST(迅捷)/JUMP_BOOST(跳跃)/RESISTANCE(抗性)/FIRE_RESIST(抗火)/");
+            sb.append("WATER_BREATH(水下呼吸)/REGENERATION(再生)/GROWTH(催熟)/AREA_HARVEST(广域采集)。\n");
+            sb.append("玩家可能要求功能性物品，例如「反伤装甲」「夜视头盔」「能耕3×3地的锄头」「催熟5×5作物的水壶」。\n");
+            // 各类型的选料优先级已在上文「目标产物类型」一行（typeDescription）写明，
+            // 这里不再重复列举（WQ-66④：功能性指引与 typeDescription 去重）。
+            appendFreeEffectSection(sb);
+        }
         sb.append("\n【强度代价】\n");
         sb.append("游戏机制：强力产物必带代价。强度总分 >8 或正面效果 ≥3 种时，");
         sb.append("系统会自动给产物附加 1~2 个代价效果（frail 易碎=耐久消耗加倍 / heavy 沉重=移速下降 / ");
@@ -365,8 +388,15 @@ public final class PhaseAIRecipeService {
         sb.append("强度越高代价越多。具体代价按主导效果映射：吸血→耗力、高攻→沉重、多效果→不稳/诅咒。\n");
         sb.append("因此：不要无脑堆强度，适度即好；若玩家明确要强力的武器/装备，尽管给强组合，");
         sb.append("但必须在 summary 中说明它将付出的代价，例如「这把武器很强但会带来迟缓」「吸血猛但吃着费力」。\n");
-        appendFreeSpellSection(sb, targetType);
-        appendMovesetSection(sb, targetType);
+        // 自由法术段只在 magic 需求时插入（WQ-66②）：非 magic 需求这段近 1K 字符全是噪声。
+        if ("magic".equals(safeType(targetType))) {
+            appendFreeSpellSection(sb, targetType);
+        }
+        // EF 动画库段（≈3.5K 字符）只在玩家描述了攻击动作时才插入（WQ-66①）——
+        // 「一把剑」这种普通需求背着整个动画库，是把 num_ctx 8192 撑爆的主因之一。
+        if (mentionsAttackAction(request)) {
+            appendMovesetSection(sb, targetType);
+        }
         if (!isConfirm) {
             // 这三段都是「如何从零挑材料」的指引，对评价任务只是噪声，
             // 砍掉能显著提高 confirm 模式的命中率（也省 token）。
@@ -379,11 +409,7 @@ public final class PhaseAIRecipeService {
             sb.append("1. 评估这组材料能否实现玩家需求、是否符合目标类型与档位。\n");
             sb.append("2. 在 confirmMessage 中给出结论与修改建议：替换、添加、降级/升级。\n");
             sb.append("3. proposals 中放 1~2 个方案：第 1 个用已给材料做评价，第 2 个（可选）给出建议调整后的材料。\n");
-            sb.append("4. 只输出 JSON，不要 Markdown、不要解释。格式：\n");
-            sb.append("{\"proposals\":[");
-            sb.append("{\"materials\":[\"qianxiang:xxx\",\"qianxiang:yyy\"],\"summary\":\"当前组合评价\"},");
-            sb.append("{\"materials\":[\"qianxiang:zzz\",\"qianxiang:www\"],\"summary\":\"建议调整\"}");
-            sb.append("],\"confirmMessage\":\"结论与修改建议\"}\n");
+            sb.append("4. 输出格式严格遵守文末【输出格式】段（confirmMessage 填结论与建议）。\n");
             sb.append("5. magic 类型且玩家在描述法术时，每个 proposal 可加可选 spell 字段（见【自由法术系统】）。\n");
             sb.append("6. 玩家在描述攻击动作时，每个 proposal 可加可选 moveset 字段（见【动作定制】）。\n");
         } else {
@@ -391,28 +417,71 @@ public final class PhaseAIRecipeService {
             sb.append("2. 每个方案选 2~").append(maxProposalMaterials()).append(" 个材料，覆盖玩家需求与目标类型约束；");
             sb.append("普通需求 2~4 个即可，只有「全部负面/全部增益」这类全集需求才用满上限（见【效果词典】）。\n");
             sb.append("3. 必须给出 1~3 个方案；其中至少一个方案的平均档位要与目标档位 ").append(tierDesc).append(" 匹配。\n");
-            sb.append("4. 只输出 JSON，不要 Markdown、不要解释。格式：\n");
-            sb.append("{\"proposals\":[");
-            sb.append("{\"materials\":[\"qianxiang:xxx\",\"minecraft:yyy\"],\"summary\":\"方案一句话说明\"},");
-            sb.append("{\"materials\":[\"minecraft:zzz\",\"qianxiang:www\"],\"summary\":\"若无法完全匹配档位，给出最接近方案并说明\"}");
-            sb.append("],\"confirmMessage\":\"\"}\n");
-            sb.append("5. magic 类型且玩家在描述法术时，每个 proposal 必须加 spell 字段（见【自由法术系统】），例如：\n");
-            sb.append("{\"materials\":[\"minecraft:blaze_powder\",\"minecraft:redstone\"],\"summary\":\"追踪火球\",");
-            sb.append("\"spell\":{\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"homing\"],\"power\":1}}\n");
+            sb.append("4. 输出格式严格遵守文末【输出格式】段。\n");
+            sb.append("5. magic 类型且玩家在描述法术时，每个 proposal 必须加 spell 字段（见【自由法术系统】）。\n");
             sb.append("6. 【反问】若玩家需求模糊（没说清想要的造型或效果，例如只说「一把武器」），");
             sb.append("在 JSON 顶层加 \"questions\" 字段：2~3 个极短的追问选项词（如 [\"巨剑\",\"匕首\",\"火焰\"]），");
             sb.append("每个词都必须能直接追加到玩家输入末尾来细化需求；需求已足够具体则省略该字段。\n");
-            sb.append("7. 玩家描述了攻击动作时，每个 proposal 可加可选 moveset 字段（见【动作定制】），例如：\n");
-            sb.append("{\"materials\":[\"qianxiang:ember_iron\",\"qianxiang:beast_fang\"],\"summary\":\"三段连斩太刀\",");
-            sb.append("\"moveset\":{\"category\":\"tachi\",\"combos\":[\"epicfight:biped/combat/tachi_auto1\",");
-            sb.append("\"epicfight:biped/combat/tachi_auto2\",\"epicfight:biped/combat/tachi_auto3\"],\"collider\":\"tachi\"}}\n");
+            sb.append("7. 玩家描述了攻击动作时，每个 proposal 可加可选 moveset 字段（见【动作定制】）。\n");
         }
-        return sb.toString();
+        // 【输出格式】独立成段放末尾（WQ-66⑥）：输出契约是模型最不能忘的东西，
+        // 埋在规则列表中部容易被前面的说明书淹没。
+        sb.append("\n【输出格式】\n");
+        sb.append("只输出一个 JSON 对象，不要 Markdown 围栏、不要任何解释文字。骨架：\n");
+        sb.append("{\"proposals\":[{\"materials\":[\"registryName1\",\"registryName2\"],\"summary\":\"一句话说明\"}],");
+        sb.append("\"confirmMessage\":\"\",\"questions\":[\"可选追问词\"]}\n");
+        sb.append("magic 需求时 proposal 另加 \"spell\" 字段；玩家描述攻击动作时另加 \"moveset\" 字段；");
+        sb.append("无反问时省略 \"questions\"。\n");
+        // few-shot（WQ-39④ / WQ-66⑥）：两条完整 输入→输出 示例，覆盖
+        // 「模糊需求给 questions」与「magic 明确需求给 spell」两个最易错的形态。
+        sb.append("\n【示例】\n");
+        sb.append("输入：玩家需求「一把武器」（weapon/稀有，需求模糊）→ 输出：");
+        sb.append("{\"proposals\":[],\"confirmMessage\":\"\",\"questions\":[\"巨剑\",\"匕首\",\"火焰\"]}\n");
+        sb.append("输入：玩家需求「追踪火球法杖」（magic/稀有，需求明确）→ 输出：");
+        sb.append("{\"proposals\":[{\"materials\":[\"minecraft:blaze_powder\",\"minecraft:redstone\"],");
+        sb.append("\"summary\":\"追踪火球\",\"spell\":{\"element\":\"fire\",\"form\":\"projectile\",");
+        sb.append("\"effect\":\"damage\",\"modifiers\":[\"homing\"],\"power\":2}}],\"confirmMessage\":\"\"}\n");
+        String prompt = sb.toString();
+        // prompt 长度日志（WQ-66⑤）：验收「日志确认 <8KB」此前无从执行——
+        // 没有这条日志，瘦身是否达标只能靠猜。字符≈token（中文），对照 num_ctx=8192。
+        Qianxiang.LOGGER.info("[Qianxiang] AI prompt 构建完成：mode={} type={} tier={}，{} 字符 / {} 字节",
+                mode, targetType, targetTier, prompt.length(),
+                prompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        return prompt;
+    }
+
+    /** 玩家输入是否描述了攻击动作（决定要不要插入 ≈3.5K 字符的 EF 动画库段）。 */
+    private static boolean mentionsAttackAction(String request) {
+        if (request == null) return false;
+        String t = request.toLowerCase(Locale.ROOT);
+        for (String k : ACTION_KEYWORDS) {
+            if (t.contains(k)) return true;
+        }
+        return false;
+    }
+
+    /** 动作描述关键词（与【动作定制】段的语义匹配表同源）。 */
+    private static final String[] ACTION_KEYWORDS = {
+            "连斩", "连击", "连刺", "回旋", "突刺", "突进", "冲刺", "重劈", "重击",
+            "跳劈", "空斩", "快攻", "双刀", "双持", "拔刀", "居合", "乱舞", "骑乘",
+            "combo", "slash", "dash", "stab", "moveset"
+    };
+
+    /**
+     * 测试入口：暴露 prompt 构造的最终产物（分段裁剪与长度是 AI 可用性的硬约束，
+     * 断言拼好的整串而不是某个内部判据）。
+     */
+    public static String buildPromptForTest(String request, String targetType, String targetTier,
+                                            List<String> currentMaterials, String mode) {
+        return buildSystemPrompt(MaterialLibrary.snapshot(), request, safeType(targetType),
+                safeTier(targetTier), currentMaterials == null ? List.of() : currentMaterials,
+                mode == null ? "recommend" : mode, false);
     }
 
     /**
      * 自由法术系统指引：magic 类型需求可以要求元素×形式×效果×修饰的自由组合，不限魔法类型。
      * LLM 需把玩家的法术描述翻译成 spell JSON（契约：element/form/effect/modifiers/power）。
+     * <p>只在 type==magic 时被调用（WQ-66②）——非 magic 需求这段全是噪声。
      */
     private static void appendFreeSpellSection(StringBuilder sb, String targetType) {
         sb.append("\n【自由法术系统】\n");
@@ -430,13 +499,9 @@ public final class PhaseAIRecipeService {
         sb.append("示例：「追踪火球」={\"element\":\"fire\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"homing\"],\"power\":2}；");
         sb.append("「范围治疗」={\"element\":\"nature\",\"form\":\"aoe\",\"effect\":\"heal\",\"modifiers\":[],\"power\":2}；");
         sb.append("「雷链」={\"element\":\"lightning\",\"form\":\"projectile\",\"effect\":\"damage\",\"modifiers\":[\"chain\"],\"power\":3}。\n");
-        if ("magic".equals(safeType(targetType))) {
-            sb.append("当前是 magic 需求：请从玩家描述中提炼上述组合，填进每个 proposal 的 spell 字段；");
-            sb.append("材料需与元素呼应（火→烈焰粉/岩浆膏，冰→雪球/冰，雷→红石+金，自然→骨粉/种子，");
-            sb.append("暗影→墨囊/回响，神圣→金胡萝卜/荧石，鲜血→蜘蛛眼/血根，末影→末影珍珠，奥术→青金石/裂隙精髓）。\n");
-        } else {
-            sb.append("当前不是 magic 需求，可忽略 spell 字段。\n");
-        }
+        sb.append("当前是 magic 需求：请从玩家描述中提炼上述组合，填进每个 proposal 的 spell 字段；");
+        sb.append("材料需与元素呼应（火→烈焰粉/岩浆膏，冰→雪球/冰，雷→红石+金，自然→骨粉/种子，");
+        sb.append("暗影→墨囊/回响，神圣→金胡萝卜/荧石，鲜血→蜘蛛眼/血根，末影→末影珍珠，奥术→青金石/裂隙精髓）。\n");
     }
 
     /**
@@ -550,8 +615,9 @@ public final class PhaseAIRecipeService {
     private static List<RecipeProposal> parseProposals(JsonObject obj, String targetType) {
         if (obj == null) return List.of();
         List<RecipeProposal> result = new ArrayList<>();
-        if (obj.has("proposals") && obj.get("proposals").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("proposals")) {
+        JsonElement proposalsEl = fieldIgnoreCase(obj, "proposals");
+        if (proposalsEl != null && proposalsEl.isJsonArray()) {
+            for (JsonElement el : proposalsEl.getAsJsonArray()) {
                 if (!el.isJsonObject()) continue;
                 RecipeProposal p = parseSingleProposal(el.getAsJsonObject(), targetType);
                 if (!p.materialNames().isEmpty()) {
@@ -574,8 +640,9 @@ public final class PhaseAIRecipeService {
     private static String extractConfirmMessage(JsonObject obj) {
         if (obj == null) return "";
         try {
-            if (obj.has("confirmMessage") && obj.get("confirmMessage").isJsonPrimitive()) {
-                return obj.get("confirmMessage").getAsString();
+            JsonElement el = fieldIgnoreCase(obj, "confirmMessage");
+            if (el != null && el.isJsonPrimitive()) {
+                return el.getAsString();
             }
         } catch (Exception ignored) {}
         return "";
@@ -588,11 +655,12 @@ public final class PhaseAIRecipeService {
     private static List<String> extractQuestions(JsonObject obj) {
         if (obj == null) return List.of();
         try {
-            if (!obj.has("questions") || !obj.get("questions").isJsonArray()) {
+            JsonElement questionsEl = fieldIgnoreCase(obj, "questions");
+            if (questionsEl == null || !questionsEl.isJsonArray()) {
                 return List.of();
             }
             List<String> out = new ArrayList<>();
-            for (JsonElement el : obj.getAsJsonArray("questions")) {
+            for (JsonElement el : questionsEl.getAsJsonArray()) {
                 if (!el.isJsonPrimitive()) continue;
                 String q = el.getAsString().trim();
                 if (q.isEmpty() || q.length() > 12 || out.contains(q)) continue;
@@ -607,8 +675,9 @@ public final class PhaseAIRecipeService {
 
     private static RecipeProposal parseSingleProposal(JsonObject obj, String targetType) {
         Set<String> picks = new LinkedHashSet<>();
-        if (obj.has("materials") && obj.get("materials").isJsonArray()) {
-            for (JsonElement el : obj.getAsJsonArray("materials")) {
+        JsonElement materialsEl = fieldIgnoreCase(obj, "materials");
+        if (materialsEl != null && materialsEl.isJsonArray()) {
+            for (JsonElement el : materialsEl.getAsJsonArray()) {
                 if (!el.isJsonPrimitive()) continue;
                 String name = el.getAsString();
                 if (name == null || name.isBlank()) continue;
@@ -619,13 +688,15 @@ public final class PhaseAIRecipeService {
                 if (entry.isPresent()) {
                     picks.add(entry.get().registryName());
                 } else {
+                    LAST_DROPPED.get().add(name); // 飞轮日志：dropped_materials（WQ-71）
                     Qianxiang.LOGGER.warn("[Qianxiang] AI 输出了不存在的材料，已剔除：{}", name);
                 }
             }
         }
 
-        String summary = obj.has("summary") && obj.get("summary").isJsonPrimitive()
-                ? obj.get("summary").getAsString()
+        JsonElement summaryEl = fieldIgnoreCase(obj, "summary");
+        String summary = summaryEl != null && summaryEl.isJsonPrimitive()
+                ? summaryEl.getAsString()
                 : "";
 
         if (picks.isEmpty()) {
@@ -756,10 +827,20 @@ public final class PhaseAIRecipeService {
      *   <li>markdown 围栏 <code>```json ... ```</code>；</li>
      *   <li>推理模型（deepseek-r1 等）的 {@code <think>...</think>} 块——
      *       块里常含花括号，会把起点定位到思考内容里；</li>
-     *   <li>回包末尾追加闲聊 → 末个 }} 不是 JSON 的结尾；</li>
+     *   <li>回包前置寒暄/末尾追加闲聊，寒暄里还可能带花括号（如「{想法}」）；</li>
      *   <li>顶层是数组（模型直接给了 proposals 列表）→ 包一层再返回。</li>
      * </ul>
-     * 策略：先剥围栏与 think 块，再用括号配平找<b>第一个完整</b>的对象/数组。
+     * 策略：先剥围栏与 think 块，然后——
+     * <ol>
+     *   <li><b>优先取包含 {@code "proposals"} 键的完整对象</b>（WQ-65）。
+     *       旧实现无脑取第一个配平对象：对 {@code [{...},{...}]} 会命中数组内
+     *       第一个方案对象直接返回，顶层数组的包装分支成了死代码，
+     *       后果不是解析失败而是<b>静默只保留第一个方案</b>，其余方案丢失无日志；
+     *       寒暄里的杂散花括号（不含 proposals 键）也会被跳过，不会污染结果。</li>
+     *   <li>数组早于对象出现 → 模型直接给了方案列表，包一层 {@code {"proposals":...}}；</li>
+     *   <li>否则退回第一个配平对象（兼容旧版单方案格式）；</li>
+     *   <li>最后兜底顶层数组包装。</li>
+     * </ol>
      */
     /**
      * 把 AI 原始回包解析成 JSON 对象；失败返回 null。
@@ -793,6 +874,14 @@ public final class PhaseAIRecipeService {
         return extractJson(raw);
     }
 
+    /**
+     * 测试入口：把 AI 原始回包一路解析成方案列表（抽取 → 解析 → 真实性校验的最终产出，
+     * 数组/大小写/寒暄容错是否生效，看这个列表而不是中间字符串）。
+     */
+    public static List<RecipeProposal> parseProposalsForTest(String rawAiOutput, String targetType) {
+        return parseProposals(parseAiRoot(rawAiOutput), targetType);
+    }
+
     private static String extractJson(String raw) {
         if (raw == null || raw.isBlank()) return null;
 
@@ -806,12 +895,62 @@ public final class PhaseAIRecipeService {
         // ② 剥 markdown 围栏标记（内容保留）
         text = text.replaceAll("```[a-zA-Z]*", " ");
 
+        // ③ 优先取包含 "proposals" 键的完整对象——跳过寒暄里的杂散花括号，
+        //    也避免把顶层数组里的第一个方案对象误当整体（那会静默丢掉其余方案）。
+        String withProposals = firstObjectWithKey(text, "proposals");
+        if (withProposals != null) return withProposals;
+
+        int braceIdx = text.indexOf('{');
+        int bracketIdx = text.indexOf('[');
+        if (bracketIdx >= 0 && (braceIdx < 0 || bracketIdx < braceIdx)) {
+            // ④ 数组早于对象出现：模型直接给了方案列表，包一层 {"proposals":...}
+            String arr = firstBalanced(text, '[', ']');
+            if (arr != null) return "{\"proposals\":" + arr + "}";
+        }
+
+        // ⑤ 兼容旧版单方案格式（无 proposals 包装的裸对象）
         String obj = firstBalanced(text, '{', '}');
         if (obj != null) return obj;
 
-        // ③ 顶层数组：包一层成 {"proposals":[...]}
+        // ⑥ 兜底：顶层数组
         String arr = firstBalanced(text, '[', ']');
         if (arr != null) return "{\"proposals\":" + arr + "}";
+        return null;
+    }
+
+    /**
+     * 扫描文本中的配平对象，返回第一个<b>可解析且包含指定键</b>（大小写不敏感）的。
+     * 找不到返回 null。逐个用 Gson 验证——寒暄里的「{想法}」这类杂散片段
+     * 要么解析失败、要么没有该键，都会被跳过。
+     */
+    private static String firstObjectWithKey(String text, String key) {
+        int from = 0;
+        while (true) {
+            int start = text.indexOf('{', from);
+            if (start < 0) return null;
+            String seg = balancedFrom(text, start, '{', '}');
+            if (seg == null) return null;
+            try {
+                JsonObject obj = JsonParser.parseString(seg).getAsJsonObject();
+                if (fieldIgnoreCase(obj, key) != null) return seg;
+            } catch (Exception ignored) {
+                // 杂散花括号片段：跳过继续找
+            }
+            from = start + 1;
+        }
+    }
+
+    /**
+     * 大小写不敏感地取对象字段（WQ-65）。模型常把字段写成 {@code "Proposals"}、
+     * {@code "Materials"}——严格匹配会让整份合法回包静默落兜底。
+     */
+    private static JsonElement fieldIgnoreCase(JsonObject obj, String key) {
+        if (obj == null || key == null) return null;
+        JsonElement direct = obj.get(key);
+        if (direct != null) return direct;
+        for (java.util.Map.Entry<String, JsonElement> e : obj.entrySet()) {
+            if (e.getKey().equalsIgnoreCase(key)) return e.getValue();
+        }
         return null;
     }
 
@@ -822,6 +961,14 @@ public final class PhaseAIRecipeService {
     private static String firstBalanced(String text, char open, char close) {
         int start = text.indexOf(open);
         if (start < 0) return null;
+        return balancedFrom(text, start, open, close);
+    }
+
+    /**
+     * 从指定位置（必须是 {@code open}）起做括号配平，取出完整片段。
+     * 配平不到结尾返回 null。
+     */
+    private static String balancedFrom(String text, int start, char open, char close) {
         int depth = 0;
         boolean inString = false;
         boolean escaped = false;

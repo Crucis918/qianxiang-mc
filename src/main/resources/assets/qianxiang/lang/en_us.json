@@ -584,7 +584,7 @@
   "advancement.qianxiang.blueprint_share.title": "Knowledge Shared",
   "advancement.qianxiang.blueprint_share.desc": "Export, import, publish or take a blueprint",
   "advancement.qianxiang.legendary_material.title": "Legendary Phase Material",
-  "advancement.qianxiang.legendary_material.desc": "Obtain a Void Shard or Reverse Core — the far end of forging",
+  "advancement.qianxiang.legendary_material.desc": "Obtain a Warden Core — the far end of forging",
   "entity.qianxiang.spell_projectile": "Spell Projectile",
   "entity.qianxiang.myriad_warden": "Myriad Warden",
   "item.qianxiang.myriad_warden_spawn_egg": "Myriad Warden Spawn Egg",
@@ -846,5 +846,6 @@
   "item.qianxiang.warden_core": "Warden Core",
   "item.qianxiang.warden_core.lore": "The core left when the watching body falls, holding all myriad life — the sole key to legendary gear.",
   "advancement.qianxiang.forge_legendary.title": "Forged of the Core",
-  "advancement.qianxiang.forge_legendary.desc": "Forge legendary gear using a Warden Core"
+  "advancement.qianxiang.forge_legendary.desc": "Forge legendary gear using a Warden Core",
+  "qianxiang.phasefn.holy": "Holy"
 }

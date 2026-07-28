@@ -20,8 +20,26 @@ import java.util.List;
  *   <li>材料槽有空位（或可堆叠同种物品）</li>
  * </ol>
  * 若材料槽已满，服务端会向客户端回一条提示（目前通过聊天栏/动作栏提示，避免新增包）。
+ * <p>
+ * {@code replace}=true（点整张方案卡，WQ-75）：服务端先把材料槽里的现有材料
+ * 全部退回玩家背包，再放入本方案材料——连点两张卡是「替换」而不是「叠加」，
+ * 产物强度才与卡片摘要一致。点单个材料条目时为 false（叠加语义不变）。
+ * {@code reqId}（WQ-71）：客户端暂存的响应 reqId 原样回传——
+ * 采纳日志用它对上请求行，不走 ThreadLocal（主线程读到的是假 id）。
  */
-public record AiPlaceMaterialsPayload(List<String> materialNames) implements CustomPacketPayload {
+public record AiPlaceMaterialsPayload(List<String> materialNames,
+                                      boolean replace,
+                                      String reqId) implements CustomPacketPayload {
+
+    /** 兼容旧两参构造（无 reqId）：reqId = ""。 */
+    public AiPlaceMaterialsPayload(List<String> materialNames, boolean replace) {
+        this(materialNames, replace, "");
+    }
+
+    /** 兼容旧单参构造：replace = false（叠加）。 */
+    public AiPlaceMaterialsPayload(List<String> materialNames) {
+        this(materialNames, false, "");
+    }
 
     public static final Type<AiPlaceMaterialsPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "ai_place_materials"));
@@ -33,6 +51,8 @@ public record AiPlaceMaterialsPayload(List<String> materialNames) implements Cus
                     ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8,
                             com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS),
                     AiPlaceMaterialsPayload::materialNames,
+                    ByteBufCodecs.BOOL, AiPlaceMaterialsPayload::replace,
+                    ByteBufCodecs.stringUtf8(64), AiPlaceMaterialsPayload::reqId,
                     AiPlaceMaterialsPayload::new);
 
     @Override

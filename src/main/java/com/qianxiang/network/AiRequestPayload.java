@@ -22,16 +22,31 @@ import java.util.List;
  *   <li>{@code mode} —— "recommend"（AI 推荐）或 "confirm"（确认当前材料）</li>
  *   <li>{@code allowedMaterials} —— 玩家在「材料筛选」里勾选的材料白名单（registry name）；
  *       空列表 = 不限制（全选/未勾选筛选，AI 可用全部材料）</li>
+ *   <li>{@code seq} —— 客户端自增请求序号：服务端在 {@link AiResponsePayload} 里原样带回，
+ *       客户端据此丢弃落后响应（WQ-76）</li>
  * </ul>
  */
-public record AiRequestPayload(String request, String targetType, String targetTier,
+public record AiRequestPayload(int seq, String request, String targetType, String targetTier,
                                List<String> currentMaterials, String mode,
                                List<String> allowedMaterials) implements CustomPacketPayload {
+
+    /** 含序号的六参构造：allowedMaterials 空 = 不限制。 */
+    public AiRequestPayload(int seq, String request, String targetType, String targetTier,
+                            List<String> currentMaterials, String mode) {
+        this(seq, request, targetType, targetTier, currentMaterials, mode, List.of());
+    }
+
+    /** 兼容旧六参构造（无序号）：seq = 0。 */
+    public AiRequestPayload(String request, String targetType, String targetTier,
+                            List<String> currentMaterials, String mode,
+                            List<String> allowedMaterials) {
+        this(0, request, targetType, targetTier, currentMaterials, mode, allowedMaterials);
+    }
 
     /** 兼容旧五参构造：allowedMaterials 空 = 不限制。 */
     public AiRequestPayload(String request, String targetType, String targetTier,
                             List<String> currentMaterials, String mode) {
-        this(request, targetType, targetTier, currentMaterials, mode, List.of());
+        this(0, request, targetType, targetTier, currentMaterials, mode, List.of());
     }
 
     /** 玩家需求文本上限（会原样进 prompt）。 */
@@ -47,21 +62,36 @@ public record AiRequestPayload(String request, String targetType, String targetT
             new Type<>(ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "ai_request"));
 
     public static final StreamCodec<FriendlyByteBuf, AiRequestPayload> STREAM_CODEC =
-            StreamCodec.composite(
-                    // 全部字段限长：需求文本进 prompt 直发 LLM（注入+烧 token），
-                    // 材料列表每条都触发全注册表扫描，默认上限 32767/Integer.MAX_VALUE 太宽。
-                    ByteBufCodecs.stringUtf8(MAX_REQUEST_CHARS), AiRequestPayload::request,
-                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::targetType,
-                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::targetTier,
-                    ByteBufCodecs.collection(ArrayList::new,
-                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS),
-                            com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS),
-                    AiRequestPayload::currentMaterials,
-                    ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS), AiRequestPayload::mode,
-                    ByteBufCodecs.collection(ArrayList::new,
-                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS), MAX_ALLOWED_MATERIALS),
-                    AiRequestPayload::allowedMaterials,
-                    AiRequestPayload::new);
+            StreamCodec.of(
+                    (buf, p) -> {
+                        // 全部字段限长：需求文本进 prompt 直发 LLM（注入+烧 token），
+                        // 材料列表每条都触发全注册表扫描，默认上限 32767/Integer.MAX_VALUE 太宽。
+                        buf.writeVarInt(p.seq());
+                        ByteBufCodecs.stringUtf8(MAX_REQUEST_CHARS).encode(buf, p.request());
+                        ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).encode(buf, p.targetType());
+                        ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).encode(buf, p.targetTier());
+                        ByteBufCodecs.collection(ArrayList::new,
+                                        ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS),
+                                        com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS)
+                                .encode(buf, new ArrayList<>(p.currentMaterials()));
+                        ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).encode(buf, p.mode());
+                        ByteBufCodecs.collection(ArrayList::new,
+                                        ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS), MAX_ALLOWED_MATERIALS)
+                                .encode(buf, new ArrayList<>(p.allowedMaterials()));
+                    },
+                    buf -> new AiRequestPayload(
+                            buf.readVarInt(),
+                            ByteBufCodecs.stringUtf8(MAX_REQUEST_CHARS).decode(buf),
+                            ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).decode(buf),
+                            ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).decode(buf),
+                            ByteBufCodecs.collection(ArrayList::new,
+                                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS),
+                                            com.qianxiang.menu.ForgeTableMenu.MATERIAL_SLOTS)
+                                    .decode(buf),
+                            ByteBufCodecs.stringUtf8(MAX_SHORT_FIELD_CHARS).decode(buf),
+                            ByteBufCodecs.collection(ArrayList::new,
+                                            ByteBufCodecs.stringUtf8(MAX_ITEM_ID_CHARS), MAX_ALLOWED_MATERIALS)
+                                    .decode(buf)));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

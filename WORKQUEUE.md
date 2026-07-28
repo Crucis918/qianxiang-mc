@@ -694,7 +694,7 @@ WQ-46 ✅（三次解析合一、缓存以 `PhaseMaterialRegistry.all()` 身份�
 **修法**：两个计数器改为各自独立衰减（成功才清零，另一类失败不清）；非 2xx 计入独立的
 "端点错误"计数并同样能触发熔断。
 
-## WQ-64 [ ] 【中·返工 WQ-42】response_format 无降级路径，会让部分兼容端点整条 AI 全挂
+## WQ-64 [x] 完成(b166793) 【中·返工 WQ-42】response_format 无降级路径，会让部分兼容端点整条 AI 全挂
 
 位置和 temperature=0.2 都对，但不支持 `response_format` 的"OpenAI 兼容"端点（旧版
 llama.cpp server、部分自建代理、一些国产兼容层）会 400 → `send()` 返回 null → 静默兜底，
@@ -702,7 +702,7 @@ llama.cpp server、部分自建代理、一些国产兼容层）会 400 → `sen
 **修法**：400 且 body 提及 response_format/unsupported 时，去掉该字段重发一次，并把
 "本端点不支持结构化输出"记进内存开关（进程内不再重试该字段）。
 
-## WQ-65 [ ] 【中·返工 WQ-43】extractJson 顶层数组分支是死代码，且测试掩盖了缺陷
+## WQ-65 [x] 完成(b166793) 【中·返工 WQ-43】extractJson 顶层数组分支是死代码，且测试掩盖了缺陷
 
 `PhaseAIRecipeService.java:808-813`：`firstBalanced(text,'{','}')` 先执行，对
 `[{...},{...}]` 会命中数组内**第一个对象**并直接返回，第 ③ 行的 `{"proposals":...}` 包装
@@ -717,7 +717,7 @@ llama.cpp server、部分自建代理、一些国产兼容层）会 400 → `sen
 `{"name":"a{b}c"}` 不会算错；剥 `<think>` 用精确标签匹配不误伤正文尖括号；解析失败 WARN
 +前 300 字已补。）
 
-## WQ-66 [ ] 【中·返工 WQ-39/44】prompt 仍约 19K 字符，超过刚设的 num_ctx 8192
+## WQ-66 [x] 完成(b166793) 【中·返工 WQ-39/44】prompt 仍约 19K 字符，超过刚设的 num_ctx 8192
 
 材料段确实从 ~114KB 降到 ~4.5KB（`MaterialRecall` 三组召回 24/12/48 上限，关键词不命中时
 按产物类型退回常用算子——**"我要一把剑"有米下锅，这点做对了**）。但静态说明书没削：
@@ -731,7 +731,7 @@ llama.cpp server、部分自建代理、一些国产兼容层）会 400 → `sen
 "日志确认 <8KB"目前无从执行；⑥补 few-shot 与独立【输出格式】段（工单④⑤未做，
 现有内联示例本身 JSON 合法，不污染输出，可保留）。
 
-## WQ-67 [ ] 【低·返工 WQ-39】召回三处边缘：白名单空池、confirm 当前材料缺席、UGC 材料被压低
+## WQ-67 [x] 完成(b166793) 【低·返工 WQ-39】召回三处边缘：白名单空池、confirm 当前材料缺席、UGC 材料被压低
 
 ①`MaterialRecall.java:97` 补足组要求 `!functions().isEmpty()`——玩家勾选的材料若全是无算子
 概念物品，三组全空而 prompt 仍写"只能从下列材料中挑选"，缺"实在没有就取前 N 条"保底。
@@ -763,7 +763,7 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 两个 challenge，父链完整、lang 683 键齐）、WQ-61 ✅（判据降为常量 rift_essence，兜底
 "一定配得齐"成立）。
 
-## WQ-68 [ ] 【严重·返工 WQ-57】退款代码全程是死的——被过期快照整体覆盖（侦察会话已亲自核实）
+## WQ-68 [x] 完成(b166793) 【严重·返工 WQ-57·已核实结单】退款代码全程是死的——被过期快照整体覆盖（侦察会话已亲自核实）
 
 `SpellCastHandler.castCustomSpell:124` 在调 `cast()` **之前**读 `PlayerSpellData data`；
 `cast()` 内 `settleCast` 用 `setData` 写回退款；返回后 `:143-146` 又用**过期快照**
@@ -771,6 +771,8 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 （record 语义，整体替换）。**退款写入被无条件丢弃**，只剩 actionbar 提示。
 旧硬编码法术路径 `:85/:103` 同样结构。
 **修法**：扣蓝移到 `cast()` 之前，或结算后重新 `serverPlayer.getData(...)` 再叠加冷却。
+
+**修理备注（主会话核实结单）**：法术改造轮已按后一方案修复——`SpellCastHandler:123-130` 结算后重读 attachment（`after`）再扣蓝，settleCast 退款与血换蓝 +20 不再被旧快照覆盖；`castWhitelistRejectsUnlearned` 等测试锁定法力净变化口径。
 
 **同时更正我方此前的判断（重要）**：复核报告二里说"WQ-8 的退蓝是无限法力电池"——
 在同步形式（AoE/beam/touch）上**从未真实发生**，正是被这同一处覆盖吃掉了。真正会退到账的
@@ -784,7 +786,7 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 ②`CAST_TALLY` 是 ThreadLocal 且 projectile 的标记会滞留到下次 `cast()` 的 `resetTally`
 才清；将来若出现嵌套施法会互踩（低危）。
 
-## WQ-69 [ ] 【中·返工 WQ-59】去程两类塌陷仍在、区块加载判断未做，单据状态与实现不符
+## WQ-69 [x] 完成(b166793) 【中·返工 WQ-59】去程两类塌陷仍在、区块加载判断未做，单据状态与实现不符
 
 已达成：基座材质换黑曜石；回程 `mayBuildPlatform=false` 不再改主世界地形。
 **未达成**：①全空气柱（虚空上方）去程仍在 `clamp(startY)=minBuildHeight+1` 铺基座，玩家
@@ -796,7 +798,7 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 需确认是否为有意设计。
 遗留低危：`ensureReturnAnchor:93` 的 1183 次 `getBlockState` 全量扫描原样保留。
 
-## WQ-70 [ ] 【低】forge_legendary 的 powerScore>=12 门槛形同虚设 + 两处文案矛盾
+## WQ-70 [x] 完成(b166793) 【低】forge_legendary 的 powerScore>=12 门槛形同虚设 + 两处文案矛盾
 
 ①`ForgeTableMenu:41/:199-203` 新增的 `powerScore >= 12.0` 判据：warden_core 单件
 （LEGENDARY×3.2 + mana/resistance/strength）自身就贡献约 15.6~18，**恒过阈值**，
@@ -826,7 +828,17 @@ prompt 全表遍历+逐物品 new ItemStack，未走缓存，与 WQ-46 想根治
 非 200 的错误体走 latest.log 不进 jsonl——WQ-53 的凭据泄露没有从新日志漏回来。
 WQ-45 的子项②③（六组关键词补齐、七材料全部可达）与 WQ-47 的三代轮转已达标，返工时不必重做。
 
-## WQ-71 [ ] 【严重·返工 WQ-47】req_id 跨线程失效，飞轮地基没打上（侦察会话已亲自核实）
+## WQ-71 [x] 完成(b166793) 【严重·返工 WQ-47】req_id 跨线程失效，飞轮地基没打上（侦察会话已亲自核实）
+
+> 修理备注：①reqId 走 WQ-2 回传链路——`AiResponsePayload` 加 reqId（AI 线程读出真值下发）、
+> 客户端 ClientForgeTableAI/ClientAlchemyTableAI 暂存、`AiPlaceMaterialsPayload` 加 reqId 回传，
+> handler 采纳日志用回传真 id，ThreadLocal 不再跨线程传递；②jsonl 全部落盘改投
+> `AIGateway.LOG_EXECUTOR`（qianxiang-ai-log 单线程），主线程/AI 线程零文件 IO；
+> ③请求行拆两层：HTTP 层 event="http"，业务层 `AIGateway.logRequest` event="request"
+> 带 player_uuid/proposal_count/dropped_materials/fallback_reason（PhaseAIRecipeService
+> 同线程 ThreadLocal 追踪）；④adopt 只记实际放入的材料（placed 名单，非请求名单）。
+> GameTest `QianxiangReqIdGameTests.reqIdFlowsFromRequestToAdoption` 覆盖全链路。
+
 
 `AIGateway:100/120` 的 `CURRENT_REQ_ID` 是 **ThreadLocal**，在 AI 执行线程（单线程
 `qianxiang-ai`）赋值；而采纳回写 `AiPlaceMaterialsHandler:81-85` 在 `enqueueWork` 里、
@@ -844,7 +856,7 @@ WQ-45 的子项②③（六组关键词补齐、七材料全部可达）与 WQ-4
 HTTP 层）。
 ③低危：`anyPlaced` 只要放进 1 件就记录**整个** materialNames，over-report。
 
-## WQ-72 [ ] 【中·返工 WQ-45】档位塌缩子项零改动，两条验收实测不成立
+## WQ-72 [x] 完成(b166793) 【中·返工 WQ-45】档位塌缩子项零改动，两条验收实测不成立
 
 工单子项④在 diff 里**一行未改**：`pickBaseByTier:754-780`/`pickEffectByTier:792-818`/
 `defaultFillers:847` 原样，16 格里仍有 8 格 base==effect（magic RARE/LEGENDARY、armor 全四档、
@@ -883,7 +895,7 @@ base 就是 RARE 档的 ember_iron）。
 > 零处实参不足）。只有 `qianxiang.forge_table.msg.recommend` 与 `qianxiang.spell.custom`
 > 两个带格式串的死键（全库无引用），可删可留。**此项无需再侦察。**
 
-## WQ-73 [ ] 【高】「清空」按钮清不掉推荐卡片，且不撤销服务端已记的提案选择（已亲自核实）
+## WQ-73 [x] 完成(b166793) 【高】「清空」按钮清不掉推荐卡片，且不撤销服务端已记的提案选择（已亲自核实）
 
 ①`ForgeTableScreen:705-716` 的 `clearRequest()` 把 `lastAiResult=null` 后立刻
 `ClientForgeTableAI.setListener(...)`，而 `setListener`（`ClientForgeTableAI:47-52`）会
@@ -909,7 +921,7 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 `aiRequestStartMillis` 超过 AI 超时上限时强制退出 PARSING。（与 WQ-62 的 30 秒超时联动：
 超时提到 30s 后这个卡死窗口会更长更明显，两单建议一起做。）
 
-## WQ-75 [ ] 【高】连点两张方案卡 → 材料叠加而非替换，产物与卡片写的强度对不上
+## WQ-75 [x] 完成(b166793) 【高】连点两张方案卡 → 材料叠加而非替换，产物与卡片写的强度对不上
 
 `ForgeTableScreen:1424-1438` 的 `applyProposal` 只在"一个空槽都没有"时拒绝，服务端
 `AiPlaceMaterialsHandler:50-78` 的 `findMaterialSlot` 一路找空槽塞。点方案 A（3 个料）再点
@@ -917,7 +929,7 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 强度/摘要完全对不上，玩家会以为 AI 算错了**。点同一张两次同理。
 **修法**：`AiPlaceMaterialsPayload` 加 `replace` 标志，服务端先把现有材料退回背包再放。
 
-## WQ-76 [ ] 【高】请求无序号 + receive 无条件重置索引 → 产物法术与玩家点的卡片不符（已亲自核实）
+## WQ-76 [x] 完成(b166793) 【高】请求无序号 + receive 无条件重置索引 → 产物法术与玩家点的卡片不符（已亲自核实）
 
 `ClientForgeTableAI:32-44` 全链路无 requestId/时间戳，`receive()` 一律覆盖 `lastResult`
 并**无条件 `reportProposalIndex(0)`**。触发：问 AI → 点第 3 张卡（已报索引 2 并放料）→
@@ -926,7 +938,7 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 **修法**：`AiRequestPayload`/`AiResponsePayload` 加自增 seq，客户端丢弃落后响应；
 `receive()` 只在无有效选择时才报 0；顺手给选中卡片加边框高亮（本单最便宜的可见性改进）。
 
-## WQ-77 [ ] 【中】从子页面返回 / 改窗口大小 → 需求文本丢失、蓝图选中项被打回第 0 条
+## WQ-77 [x] 完成(b166793) 【中】从子页面返回 / 改窗口大小 → 需求文本丢失、蓝图选中项被打回第 0 条
 
 `ForgeTableScreen:295-299,443`：`init()` 新建 `EditBox` 从不回填旧值（只有说明书模板路径经
 `pendingGuideText` 特判），且 `if (!clientBlueprints.isEmpty()) selectedBlueprint = 0;`。
@@ -934,14 +946,14 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 触发 `init()`）→ 需求没了、接着点「使用蓝图」会用错蓝图。F11 全屏切换同样触发。
 **修法**：`init()` 开头存 `requestBox.getValue()` 末尾回填；`selectedBlueprint` 只在 `<0` 时置 0。
 
-## WQ-78 [ ] 【中】蓝图超过 8 条时选中项滚出可视区，仍可被误用
+## WQ-78 [x] 完成(b166793) 【中】蓝图超过 8 条时选中项滚出可视区，仍可被误用
 
 `ForgeTableScreen:1490-1496,1579-1596`：`renderBlueprintPanel` 死画前
 `BLUEPRINT_MAX_VISIBLE=8` 条，而 `cycleBlueprint` 在全表取模——第 9 条起面板里没有任何一行
 高亮，玩家看不出当前选的是谁就点了「使用蓝图」。
 **修法**：加 `scrollOffset`，`cycleBlueprint` 后把 `selectedBlueprint` 夹进可视窗口再渲染。
 
-## WQ-79 [ ] 【中】静态缓存跨世界残留未登记 + 蓝图失败提示仍能刷屏
+## WQ-79 [x] 完成(b166793) 【中】静态缓存跨世界残留未登记 + 蓝图失败提示仍能刷屏
 
 ①`ForgeTableScreen.HISTORY`（:277）与 `ClientMaterialFilter.UNCHECKED`（:62）都是 static
 且**没登记进 `ClientStateReset.resetAll()`**（该类注释本身就写了"任何新增静态客户端缓存都应
@@ -951,7 +963,7 @@ AI 法术和自定义名。**修法**：`clearRequest()` 末尾补 `reportPropos
 2 条/秒往聊天栏刷 `blueprint.save.invalid`，10 秒 20 条。**修法**：改走 actionbar
 （`displayClientMessage(...,true)`）或"相同 key 5 秒内只发一次"。
 
-## WQ-80 [ ] 【低】渲染细节三项
+## WQ-80 [x] 完成(b166793) 【低】渲染细节三项
 
 ①`ForgeTableScreen:1273-1279` vs `1355-1364`：只有反问没有方案时（需求很模糊），
 `cards.empty` 文字与 chips 都画在 x=`leftPos+8`、y≈91，**完全重叠**，文字被 chip 底板压住
@@ -1270,7 +1282,7 @@ cleaver/bow/wand/pickaxe/shovel）由 `upscale16to32` 最近邻 ×2 兜底；
 
 ---
 
-## WQ-87 [x] 完成(待提交) 【大·交互重做 + 键位根治】合成台 GUI 完整操作面 + 键位避让 EF
+## WQ-87 [x] 完成(b166793) 【大·交互重做 + 键位根治】合成台 GUI 完整操作面 + 键位避让 EF
 
 > 编号备注：本单初次登记误用 WQ-63（与旧熔断单撞号）改 WQ-81，又与 fc749c3 已回填的
 > WQ-81（法术六步改造）撞号，现统一重编为 WQ-87。
@@ -1310,7 +1322,7 @@ openMenu 分派、校验槽位属玩家背包区（RESULT_SLOT+1 起 36 格）�
 
 ---
 
-## WQ-88 [x] 完成(待提交) 【大·AI 健壮性 + 主动建议】WQ-62/63/74 三联修复 + 「能做啥」提示条
+## WQ-88 [x] 完成(b166793) 【大·AI 健壮性 + 主动建议】WQ-62/63/74 三联修复 + 「能做啥」提示条
 
 **范围**：①WQ-62——`AIConfig` 默认文件模板 timeout 5→30、引入 `config_version`，
 `parse()` 一次性迁移（无版本号且 ≤10 → 抬 30 写回 + INFO，只迁移一次）；
@@ -1346,7 +1358,7 @@ PARSING）+ actionbar「AI 正在思考中」，两 Screen 加 70s 本地超时�
 
 ---
 
-## WQ-89 [x] 完成(待提交) 【大·审计 + 工具】算子落地矩阵 + 手持生效链 + 数值复核 + 截图眼
+## WQ-89 [x] 完成(b166793) 【大·审计 + 工具】算子落地矩阵 + 手持生效链 + 数值复核 + 截图眼
 
 **范围**：①算子落地矩阵 GameTest（`QianxiangFunctionMatrixGameTests`）——25 个
 PhaseFunction 各挑代表物品（功能 tag/PhaseData），单材料走完整 compose，
@@ -1376,7 +1388,7 @@ ATTACK_SPEED 4+0.4=4.4 落属性图，满力一击假人掉血 == 5.0；
 
 ---
 
-## WQ-90 [x] 完成(待提交) 【大·可达性】相师/商人自然刷新 + 首进世界指引 + 编号整顿
+## WQ-90 [x] 完成(b166793) 【大·可达性】相师/商人自然刷新 + 首进世界指引 + 编号整顿
 
 **范围**：①流浪相师主世界自然刷新——`data/neoforge/biome_modifier/wandering_sage_overworld.json`
 （neoforge:add_spawns，五大村庄群系 plains/desert/savanna/taiga/snowy_plains，

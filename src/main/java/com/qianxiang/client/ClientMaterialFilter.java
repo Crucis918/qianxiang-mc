@@ -61,6 +61,14 @@ public final class ClientMaterialFilter {
     /** 未勾选集合（默认空 = 全选）。仅客户端内存，不进存档。 */
     private static final Set<ResourceLocation> UNCHECKED = new LinkedHashSet<>();
 
+    /**
+     * 切换世界/断线时清空勾选状态（登记在 {@link ClientStateReset#resetAll}，WQ-79①）——
+     * 否则旧世界的白名单会在新世界继续悄悄裁剪 AI 可用材料。
+     */
+    public static void resetForWorldChange() {
+        UNCHECKED.clear();
+    }
+
     public static boolean isChecked(ResourceLocation id) {
         return id != null && !UNCHECKED.contains(id);
     }

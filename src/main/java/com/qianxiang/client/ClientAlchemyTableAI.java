@@ -18,10 +18,31 @@ public final class ClientAlchemyTableAI {
     private static volatile ClientForgeTableAI.AiResult lastResult = null;
     private static java.util.function.Consumer<ClientForgeTableAI.AiResult> onResult = null;
 
+    /** 客户端自增请求序号（仅客户端主线程读写）：服务端原样带回，用于丢弃落后响应（WQ-76）。 */
+    private static int nextSeq = 0;
+    /** 已接受响应的最大序号：序号比它小的响应一律丢弃。 */
+    private static int lastAcceptedSeq = 0;
+    /**
+     * 玩家显式点选过的方案索引（{@link SpellJsonReportPayload#NONE} = 无有效选择）。
+     * 粘性：新响应到达不重置（服务端保留的是该选择解析出的法术，与台上材料一致，WQ-76）。
+     */
+    private static int selectedIndex = SpellJsonReportPayload.NONE;
+
     private ClientAlchemyTableAI() {}
+
+    /** 发新 AI 请求前取一个自增序号（随 {@link com.qianxiang.network.AiRequestPayload} 上行）。 */
+    public static int nextRequestSeq() {
+        return ++nextSeq;
+    }
 
     /** 由 {@link com.qianxiang.network.QianxiangPayloads} 的网络 handler 按当前界面分派调用。 */
     public static void receive(AiResponsePayload payload) {
+        // 落后响应丢弃（WQ-76）：限流空包会插队先到，序号更小的真实响应不得盖回。
+        if (payload.seq() < lastAcceptedSeq) {
+            return;
+        }
+        lastAcceptedSeq = payload.seq();
+        lastReqId = payload.reqId() == null ? "" : payload.reqId();
         boolean fallback = !payload.proposals().isEmpty()
                 && payload.proposals().stream().allMatch(
                         com.qianxiang.ai.PhaseAIRecipeService.RecipeProposal::isFallback);
@@ -31,10 +52,11 @@ public final class ClientAlchemyTableAI {
         if (onResult != null) {
             onResult.accept(lastResult);
         }
-        // AI 响应到达即把「选中第 0 条」同步给服务端炼金台；
-        // 玩家改选其他方案时 screen 会再报一次索引（后者覆盖前者）。
-        reportProposalIndex(payload.proposals().isEmpty()
-                ? SpellJsonReportPayload.NONE : 0);
+        // 只在无有效选择时才报 0（WQ-76）；自动报 0 不算用户选择，不写入 selectedIndex。
+        if (selectedIndex == SpellJsonReportPayload.NONE) {
+            sendIndex(payload.proposals().isEmpty()
+                    ? SpellJsonReportPayload.NONE : 0);
+        }
     }
 
     /** 当前打开的炼金台 UI 注册一个回调，收到结果时刷新。 */
@@ -54,6 +76,18 @@ public final class ClientAlchemyTableAI {
     public static void resetForWorldChange() {
         onResult = null;
         lastResult = null;
+        lastReqId = "";
+        selectedIndex = SpellJsonReportPayload.NONE;
+        nextSeq = 0;
+        lastAcceptedSeq = 0;
+    }
+
+    /** 最近一次响应的飞轮 reqId（WQ-71：放料回传用；无则 ""）。 */
+    private static volatile String lastReqId = "";
+
+    /** 最近一次响应的 reqId（放料回传用；无则 ""）。 */
+    public static String lastReqId() {
+        return lastReqId;
     }
 
     /** 读取最近一次结果（screen 每帧用）。 */
@@ -69,6 +103,12 @@ public final class ClientAlchemyTableAI {
      * 任何异常吞掉——回传失败不该影响客户端 UI。
      */
     public static void reportProposalIndex(int index) {
+        selectedIndex = index;
+        sendIndex(index);
+    }
+
+    /** 实际发包（不触碰 {@link #selectedIndex}）：用户选择与「无选择时自动报 0」共用。 */
+    private static void sendIndex(int index) {
         try {
             PacketDistributor.sendToServer(new SpellJsonReportPayload(index));
         } catch (Throwable t) {

@@ -25,11 +25,42 @@ public final class ClientForgeTableAI {
 
     private static volatile AiResult lastResult = null;
     private static Consumer<AiResult> onResult = null;
+    /** 最近一次响应的飞轮 reqId（WQ-71）：放料时随 {@code AiPlaceMaterialsPayload} 回传。 */
+    private static volatile String lastReqId = "";
+
+    /** 客户端自增请求序号（仅客户端主线程读写）：服务端原样带回，用于丢弃落后响应（WQ-76）。 */
+    private static int nextSeq = 0;
+    /** 已接受响应的最大序号：序号比它小的响应一律丢弃（如被限流空包插队的真实响应）。 */
+    private static int lastAcceptedSeq = 0;
+    /**
+     * 玩家显式点选过的方案索引（{@link SpellJsonReportPayload#NONE} = 无有效选择）。
+     * 粘性：新响应到达<b>不</b>重置它——服务端保留的是该选择解析出的法术/名称，
+     * 与台上材料（同一张卡放入的）保持一致；若每次响应都改报 0，
+     * 产物法术会变成新列表第 0 条而材料还是旧卡的（WQ-76）。
+     */
+    private static int selectedIndex = SpellJsonReportPayload.NONE;
 
     private ClientForgeTableAI() {}
 
+    /** 发新 AI 请求前取一个自增序号（随 {@link com.qianxiang.network.AiRequestPayload} 上行）。 */
+    public static int nextRequestSeq() {
+        return ++nextSeq;
+    }
+
+    /** 当前是否有玩家显式点选的有效选择（界面高亮/调试可见性用）。 */
+    public static int selectedIndex() {
+        return selectedIndex;
+    }
+
     /** 由 {@link com.qianxiang.network.QianxiangPayloads} 的网络 handler 调用。 */
     public static void receive(AiResponsePayload payload) {
+        // 落后响应丢弃：限流空包会插队先到，若随后再放行序号更小的真实响应，
+        // 旧结果会盖掉新状态（WQ-76）。
+        if (payload.seq() < lastAcceptedSeq) {
+            return;
+        }
+        lastAcceptedSeq = payload.seq();
+        lastReqId = payload.reqId() == null ? "" : payload.reqId();
         boolean fallback = !payload.proposals().isEmpty()
                 && payload.proposals().stream().allMatch(PhaseAIRecipeService.RecipeProposal::isFallback);
         lastResult = new AiResult(payload.proposals(), payload.confirmMessage(), fallback,
@@ -37,10 +68,13 @@ public final class ClientForgeTableAI {
         if (onResult != null) {
             onResult.accept(lastResult);
         }
-        // AI 响应到达即把「选中第 0 条」同步给服务端锻造台；
-        // 玩家改选其他方案时 applyProposal 会再报一次索引（后者覆盖前者）。
-        reportProposalIndex(payload.proposals().isEmpty()
-                ? SpellJsonReportPayload.NONE : 0);
+        // 只在无有效选择时才报 0：玩家已点过卡片的话，服务端保留的就是那张卡的
+        // 法术/名称，与台上材料一致，不能被新响应改报成新列表第 0 条（WQ-76）。
+        // 自动报 0 不算「用户选择」，不写入 selectedIndex。
+        if (selectedIndex == SpellJsonReportPayload.NONE) {
+            sendIndex(payload.proposals().isEmpty()
+                    ? SpellJsonReportPayload.NONE : 0);
+        }
     }
 
     /** 当前打开的锻造台 UI 注册一个回调，收到结果时刷新。 */
@@ -64,6 +98,15 @@ public final class ClientForgeTableAI {
     public static void resetForWorldChange() {
         onResult = null;
         lastResult = null;
+        lastReqId = "";
+        selectedIndex = SpellJsonReportPayload.NONE;
+        nextSeq = 0;
+        lastAcceptedSeq = 0;
+    }
+
+    /** 最近一次响应的 reqId（放料回传用；无则 ""）。 */
+    public static String lastReqId() {
+        return lastReqId;
     }
 
     /** 读取最近一次结果（screen 每帧用）。 */
@@ -79,6 +122,12 @@ public final class ClientForgeTableAI {
      * 任何异常吞掉——回传失败不该影响客户端 UI。
      */
     public static void reportProposalIndex(int index) {
+        selectedIndex = index;
+        sendIndex(index);
+    }
+
+    /** 实际发包（不触碰 {@link #selectedIndex}）：用户选择与「无选择时自动报 0」共用。 */
+    private static void sendIndex(int index) {
         try {
             PacketDistributor.sendToServer(new SpellJsonReportPayload(index));
         } catch (Throwable t) {

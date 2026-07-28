@@ -215,15 +215,22 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private ClientForgeTableAI.AiResult lastAiResult = null;
     /** 用于旋转动画的角度（每帧递增）。 */
     private float spinAngle = 0f;
-    /** 高亮背包的剩余帧数（无空材料槽时点方案触发）。 */
-    private int highlightInventoryTicks = 0;
+    /** 高亮背包的截止时刻（{@link Util#getMillis()}，无空材料槽时点方案触发）。
+     *  用墙钟而非按帧递减——144FPS 下 60 帧只剩 0.4 秒，玩家根本看不见（WQ-80②，同类 WQ-24）。 */
+    private long highlightUntilMillis = 0L;
     /** 当前鼠标悬停的配方卡片索引，-1 表示无。 */
     private int hoveredCard = -1;
+    /** 玩家点选过的方案卡索引（-1=无）：渲染金色选中边框（WQ-76 选中高亮）。 */
+    private int selectedCard = -1;
+    /** 点选发生时的 AI 结果实例：新响应到达后旧卡已不在列表里，高亮随之消失（选择本身粘性保留在服务端）。 */
+    private ClientForgeTableAI.AiResult selectedCardResult = null;
 
     /** 客户端缓存的蓝图列表。 */
     private List<BlueprintData> clientBlueprints = new ArrayList<>();
     /** 当前选中的蓝图索引。 */
     private int selectedBlueprint = -1;
+    /** 蓝图面板可视窗滚动偏移（WQ-78：>8 条时选中项须夹进可视窗，不许滚出面板仍被误用）。 */
+    private int blueprintScroll = 0;
     /** 右侧扩展面板是否展开（折叠后只留一个展开小按钮，返回主界面视角）。 */
     private boolean extPanelExpanded = true;
 
@@ -260,8 +267,9 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
     /** AI 请求发出时刻（{@link Util#getMillis()}），-1 表示当前无进行中请求。 */
     private long aiRequestStartMillis = -1L;
-    /** 状态条闪烁剩余帧数与颜色（响应到达=绿 / 超时回退=黄）。 */
-    private int statusFlashTicks = 0;
+    /** 状态条闪烁截止时刻（{@link Util#getMillis()}）与颜色（响应到达=绿 / 超时回退=黄）。
+     *  毫秒截止而非按帧递减——高刷屏下按帧递减会一闪即逝（WQ-80②）。 */
+    private long statusFlashUntilMillis = 0L;
     private int statusFlashColor = 0xFF55FF55;
     /** 上一帧状态，用于检测 PARSING → 其他 的跳变。 */
     private Status prevStatusForFlash = Status.IDLE;
@@ -272,9 +280,14 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private String lastHintInput = null;
     private List<Component> hintLines = List.of();
 
-    /** 客户端历史记录缓存（跨 UI 打开保留）。 */
+    /** 客户端历史记录缓存（跨 UI 打开保留）。切换世界时由 {@link ClientStateReset} 清空。 */
     private static final List<HistoryEntry> HISTORY = new ArrayList<>();
     private boolean historyExpanded = false;
+
+    /** 切换世界/断线时清空历史（登记在 {@link ClientStateReset#resetAll}，WQ-79①）。 */
+    public static void clearHistory() {
+        HISTORY.clear();
+    }
 
     private record HistoryEntry(String request, String type, String tier, long time) {}
 
@@ -288,6 +301,8 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
     @Override
     protected void init() {
+        // WQ-77：子页面返回/窗口 resize 都会重走 init 重建输入框——先暂存旧值，末尾回填。
+        String prevRequestText = this.requestBox == null ? null : this.requestBox.getValue();
         super.init();
 
         // 自然语言输入框
@@ -393,6 +408,9 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         if (this.pendingGuideText != null) {
             this.requestBox.setValue(this.pendingGuideText);
             this.pendingGuideText = null;
+        } else if (prevRequestText != null) {
+            // WQ-77：无说明书模板时回填 resize/子页面往返前的需求文本
+            this.requestBox.setValue(prevRequestText);
         }
 
         // 「AI 设置」按钮（扩展面板底部）：打开 ForgeAIConfigScreen 配置小页面
@@ -459,9 +477,16 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             } else if (this.selectedBlueprint < 0 && !this.clientBlueprints.isEmpty()) {
                 this.selectedBlueprint = 0;
             }
+            clampBlueprintScroll();
         });
         this.clientBlueprints = new ArrayList<>(ClientBlueprintCache.get());
-        if (!this.clientBlueprints.isEmpty()) this.selectedBlueprint = 0;
+        // WQ-77：蓝图选中项跨 init 保留——只在越界/未选时归位，不再无条件打回第 0 条
+        if (this.clientBlueprints.isEmpty()) {
+            this.selectedBlueprint = -1;
+        } else if (this.selectedBlueprint < 0 || this.selectedBlueprint >= this.clientBlueprints.size()) {
+            this.selectedBlueprint = 0;
+        }
+        clampBlueprintScroll();
         PacketDistributor.sendToServer(new BlueprintListRequestPayload());
     }
 
@@ -715,6 +740,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(
+                ClientForgeTableAI.nextRequestSeq(),
                 request, TYPES[typeIndex], TIERS[tierIndex], collectCurrentMaterials(), "recommend",
                 collectAllowedMaterials()));
     }
@@ -726,6 +752,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(
+                ClientForgeTableAI.nextRequestSeq(),
                 request, TYPES[typeIndex], TIERS[tierIndex], collectCurrentMaterials(), "confirm",
                 collectAllowedMaterials()));
     }
@@ -767,12 +794,16 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         this.lastAiResult = null;
         this.status = Status.IDLE;
         this.aiRequestStartMillis = -1L;
-        this.statusFlashTicks = 0;
-        ClientForgeTableAI.clearListener();
-        ClientForgeTableAI.setListener(result -> {
-            this.lastAiResult = result;
-            this.status = (result != null && !result.proposals().isEmpty()) ? Status.READY : Status.IDLE;
-        });
+        this.statusFlashUntilMillis = 0L;
+        this.selectedCard = -1;
+        this.selectedCardResult = null;
+        // WQ-73①：不要在这里 clearListener+setListener 重注册——setListener 会同步回放
+        // static lastResult，旧推荐卡一帧不消失地原样塞回。init 注册的 listener 从未被
+        // 移除（onClose 才清），这里无需任何重注册。
+        // WQ-73②：同时撤销服务端已记的提案选择——否则玩家清空后手动改材料，
+        // 产物仍带着已清空的 AI 法术与自定义名。
+        ClientForgeTableAI.reportProposalIndex(
+                com.qianxiang.network.SpellJsonReportPayload.NONE);
     }
 
     private void cycleType() {
@@ -925,10 +956,9 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             // 解析中做脉冲透明度
             int alpha = 0x55 + (int) (0x55 * Math.sin(statusPulse * 0.15));
             color = (0x00AAFF | (Math.clamp(alpha, 0, 255) << 24));
-        } else if (statusFlashTicks > 0) {
+        } else if (statusFlashUntilMillis > Util.getMillis()) {
             // 响应到达/超时回退后的短暂闪烁（绿=正常响应，黄=兜底回退）
-            statusFlashTicks--;
-            if ((statusFlashTicks / 3) % 2 == 0) {
+            if (((statusFlashUntilMillis - Util.getMillis()) / 150) % 2 == 0) {
                 color = statusFlashColor;
             }
         }
@@ -953,7 +983,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         if (prevStatusForFlash == Status.PARSING && status != Status.PARSING) {
             aiRequestStartMillis = -1L;
             if (lastAiResult != null) {
-                statusFlashTicks = 30;
+                statusFlashUntilMillis = Util.getMillis() + 1500L;
                 statusFlashColor = lastAiResult.fallback() ? 0xFFFFFF55 : 0xFF55FF55;
             }
         }
@@ -1426,6 +1456,15 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             int bgColor = hover ? 0x55FFFFFF : 0x22FFFFFF;
             g.fill(cx, cy, cx + CARD_W, cy + CARD_H, bgColor);
 
+            // WQ-76：选中卡片金色描边（只认点选时的那份结果，新响应到达旧卡高亮消失）
+            if (i == selectedCard && lastAiResult == selectedCardResult) {
+                int sel = 0xCCFFD700;
+                g.fill(cx, cy, cx + CARD_W, cy + 1, sel);
+                g.fill(cx, cy + CARD_H - 1, cx + CARD_W, cy + CARD_H, sel);
+                g.fill(cx, cy, cx + 1, cy + CARD_H, sel);
+                g.fill(cx + CARD_W - 1, cy, cx + CARD_W, cy + CARD_H, sel);
+            }
+
             // 产物图标（按类型预估）
             ItemStack product = estimateProductIcon(TYPES[typeIndex]);
             g.renderItem(product, cx + 4, cy + 2);
@@ -1536,6 +1575,10 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         int x = leftPos + CARD_X;
         if (!lastAiResult.proposals().isEmpty()) {
             x += this.font.width(Component.translatable("qianxiang.forge_table.cards.title")) + 8;
+        } else {
+            // WQ-80①：只有反问没有方案时，标题行画的是 cards.empty 占位文案——
+            // chips 同样要右移让开，否则文字被 chip 底板完全压住。
+            x += this.font.width(Component.translatable("qianxiang.forge_table.cards.empty")) + 8;
         }
         int maxRight = leftPos + PREVIEW_X - 4;
         List<SuggestChip> out = new ArrayList<>();
@@ -1602,24 +1645,33 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         if (proposal.materialNames().isEmpty()) return;
 
         if (countEmptyMaterialSlots() == 0) {
-            this.highlightInventoryTicks = 60;
+            this.highlightUntilMillis = Util.getMillis() + 3000L;
             return;
         }
 
         // 先回传「选了第几条」（包序保证服务端先记下选择再放料），
         // 服务端放料触发 slotsChanged 时产物即按该提案的法术/名称组合。
         ClientForgeTableAI.reportProposalIndex(index);
-        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(proposal.materialNames()));
+        this.selectedCard = index;
+        this.selectedCardResult = lastAiResult;
+        // WQ-75：点整张卡 = 替换语义——服务端先退回台上现有材料再放本方案材料，
+        // 连点两张卡不再叠成大杂烩（产物强度与卡片摘要一致）。
+        // WQ-71：随包回传响应 reqId，采纳日志才能对上请求行。
+        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
+                proposal.materialNames(), true, ClientForgeTableAI.lastReqId()));
     }
 
-    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料。 */
+    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料（叠加，非替换）。 */
     private void applyProposalMaterial(int cardIndex, int materialIndex) {
         if (lastAiResult == null) return;
         var proposal = lastAiResult.proposals().get(cardIndex);
         if (materialIndex < 0 || materialIndex >= proposal.materialNames().size()) return;
         ClientForgeTableAI.reportProposalIndex(cardIndex);
+        this.selectedCard = cardIndex;
+        this.selectedCardResult = lastAiResult;
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
-                List.of(proposal.materialNames().get(materialIndex))));
+                List.of(proposal.materialNames().get(materialIndex)), false,
+                ClientForgeTableAI.lastReqId()));
     }
 
     private int countEmptyMaterialSlots() {
@@ -1652,10 +1704,10 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
     /** 无空材料槽时点方案：半透明红色闪烁覆盖玩家背包区。 */
     private void renderInventoryHighlight(GuiGraphics g) {
-        if (highlightInventoryTicks > 0) {
-            highlightInventoryTicks--;
-            int alpha = (int) (0x33 + 0x33 * Math.sin(highlightInventoryTicks * 0.3));
-            int color = 0xFF0000 | (alpha << 24);
+        long remain = highlightUntilMillis - Util.getMillis();
+        if (remain > 0) {
+            int alpha = (int) (0x33 + 0x33 * Math.sin(remain * 0.018));
+            int color = 0xFF0000 | (Math.clamp(alpha, 0, 255) << 24);
             g.fill(leftPos + 7, topPos + 175, leftPos + 169, topPos + 253, color);
         }
     }
@@ -1675,9 +1727,26 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private void cycleBlueprint(int delta) {
         if (clientBlueprints.isEmpty()) {
             selectedBlueprint = -1;
+            blueprintScroll = 0;
             return;
         }
         selectedBlueprint = (selectedBlueprint + delta + clientBlueprints.size()) % clientBlueprints.size();
+        clampBlueprintScroll();
+    }
+
+    /** 把 {@link #selectedBlueprint} 夹进蓝图面板可视窗（{@link #BLUEPRINT_MAX_VISIBLE} 行）。 */
+    private void clampBlueprintScroll() {
+        if (clientBlueprints.isEmpty() || selectedBlueprint < 0) {
+            blueprintScroll = 0;
+            return;
+        }
+        blueprintScroll = Math.clamp(blueprintScroll, 0,
+                Math.max(0, clientBlueprints.size() - BLUEPRINT_MAX_VISIBLE));
+        if (selectedBlueprint < blueprintScroll) {
+            blueprintScroll = selectedBlueprint;
+        } else if (selectedBlueprint >= blueprintScroll + BLUEPRINT_MAX_VISIBLE) {
+            blueprintScroll = selectedBlueprint - BLUEPRINT_MAX_VISIBLE + 1;
+        }
     }
 
     // ========================== 锻造说明书 ==========================
@@ -1761,22 +1830,27 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
             return;
         }
 
-        for (int i = 0; i < clientBlueprints.size() && i < BLUEPRINT_MAX_VISIBLE; i++) {
+        // WQ-78：从 scrollOffset 起画可视窗，保证选中项总在面板内；
+        // WQ-80③：按像素宽度截断（substring 按 char 截会劈开 emoji 代理对渲染成乱码）
+        for (int row = 0; row < BLUEPRINT_MAX_VISIBLE; row++) {
+            int i = blueprintScroll + row;
+            if (i >= clientBlueprints.size()) break;
             BlueprintData bp = clientBlueprints.get(i);
             boolean selected = i == selectedBlueprint;
             if (selected) {
                 g.fill(x - 1, y - 1, x + EXT_PANEL_W, y + BLUEPRINT_LINE_H - 1, 0x33FFD700);
             }
-            String text = bp.name();
-            if (text.length() > 7) text = text.substring(0, 7) + "…";
-            Component line = Component.literal((selected ? "▶ " : "  ") + text);
-            g.drawString(this.font, line, x, y, selected ? 0xFFFFD700 : 0xFFE0E0E0, false);
             // 右侧对齐显示强度与材料数
             int matCount = bp.materials() == null ? 0 : bp.materials().size();
             String stats = Component.translatable("qianxiang.forge_table.blueprint.entry_stats",
                     String.format("%.1f", bp.power()), matCount).getString();
-            g.drawString(this.font, stats,
-                    x + EXT_PANEL_W - this.font.width(stats) - 1, y, 0xFFAAAAAA, false);
+            int statsW = this.font.width(stats);
+            String prefix = selected ? "▶ " : "  ";
+            String text = this.font.plainSubstrByWidth(bp.name(),
+                    Math.max(10, EXT_PANEL_W - statsW - this.font.width(prefix) - 4));
+            Component line = Component.literal(prefix + text);
+            g.drawString(this.font, line, x, y, selected ? 0xFFFFD700 : 0xFFE0E0E0, false);
+            g.drawString(this.font, stats, x + EXT_PANEL_W - statsW - 1, y, 0xFFAAAAAA, false);
             y += BLUEPRINT_LINE_H;
         }
     }
@@ -1821,9 +1895,9 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         for (HistoryEntry entry : HISTORY) {
             String typeText = Component.translatable("qianxiang.forge_table.type." + entry.type).getString();
             String tierText = Component.translatable("qianxiang.forge_table.tier." + entry.tier).getString();
-            String req = entry.request;
-            if (req.length() > 10) req = req.substring(0, 10) + "…";
-            Component line = Component.literal("[" + typeText + "/" + tierText + "] " + req);
+            // WQ-80③：按像素宽度截断（substring 按 char 截会劈开 emoji 代理对渲染成乱码）
+            String full = "[" + typeText + "/" + tierText + "] " + entry.request;
+            Component line = Component.literal(this.font.plainSubstrByWidth(full, EXT_PANEL_W));
             g.drawString(this.font, line, x, y, 0xFFE0E0E0, false);
             y += HISTORY_LINE_H;
         }

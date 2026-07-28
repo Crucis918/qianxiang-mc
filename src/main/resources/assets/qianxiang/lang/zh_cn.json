@@ -584,7 +584,7 @@
   "advancement.qianxiang.blueprint_share.title": "相授于人",
   "advancement.qianxiang.blueprint_share.desc": "导出、导入、发布或取用一份蓝图",
   "advancement.qianxiang.legendary_material.title": "传奇相材",
-  "advancement.qianxiang.legendary_material.desc": "获得虚空裂片或逆相之核——锻造的尽头",
+  "advancement.qianxiang.legendary_material.desc": "获得森罗之核——锻造的尽头",
   "entity.qianxiang.spell_projectile": "法术弹体",
   "entity.qianxiang.myriad_warden": "森罗守望者",
   "item.qianxiang.wandering_sage_spawn_egg": "流浪相师刷怪蛋",
@@ -846,5 +846,6 @@
   "item.qianxiang.warden_core": "森罗之核",
   "item.qianxiang.warden_core.lore": "守望之躯陨落时凝出的核，万象生机尽收其中——传奇之器唯赖此物。",
   "advancement.qianxiang.forge_legendary.title": "以核铸相",
-  "advancement.qianxiang.forge_legendary.desc": "用森罗之核锻造出一件传奇相器"
+  "advancement.qianxiang.forge_legendary.desc": "用森罗之核锻造出一件传奇相器",
+  "qianxiang.phasefn.holy": "圣辉"
 }

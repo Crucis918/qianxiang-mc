@@ -10,7 +10,6 @@ import com.qianxiang.phase.PhaseTier;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -37,7 +36,13 @@ public final class FallbackRecipes {
         String type = PhaseAIRecipeService.safeType(targetType);
         PhaseTier tier = PhaseAIRecipeService.tierFromString(targetTier);
 
+        // 被否定词明确排除的材料（「不要火的剑」→ 烬铁/余烬水晶）。
+        // 方案 2/3 不走关键词表，必须显式排除——否则 normalize 剥掉否定语义后，
+        // 玩家实际看到的结果里仍有被明确拒绝的材料（WQ-72④ 的实测缺陷）。
+        Set<String> blocked = negatedMaterials(playerWant);
+
         Set<String> keywordPicks = keywordPicks(want);
+        keywordPicks.removeAll(blocked);
 
         // 自由法术解析：magic 需求把自然语言翻成 spell JSON（契约：element/form/effect/modifiers/power），
         // 并把元素对应的材料补进关键词方案。
@@ -60,19 +65,19 @@ public final class FallbackRecipes {
 
         // 方案 1：以关键词命中为主，再补齐类型与档位
         LinkedHashSet<String> p1 = new LinkedHashSet<>(keywordPicks);
-        ensureTypeCoverage(p1, type);
-        ensureTierCoverage(p1, type, tier);
-        proposals.add(makeProposal(p1, spellJson.isEmpty()
+        ensureTypeCoverage(p1, type, blocked);
+        ensureTierCoverage(p1, type, tier, blocked);
+        proposals.add(makeProposal(p1, type, tier, spellJson.isEmpty()
                 ? "qianxiang.forge_table.summary.fallback.keyword"
-                : "qianxiang.forge_table.summary.fallback.spell", spellJson, movesetJson));
+                : "qianxiang.forge_table.summary.fallback.spell", spellJson, movesetJson, blocked));
 
         // 方案 2：严格按目标档位构造的「标准方案」
-        proposals.add(makeProposal(new LinkedHashSet<>(buildExactTier(type, tier)),
-                "qianxiang.forge_table.summary.fallback.tier_exact"));
+        proposals.add(makeProposal(new LinkedHashSet<>(buildExactTier(type, tier, blocked)), type, tier,
+                "qianxiang.forge_table.summary.fallback.tier_exact", "", "", blocked));
 
         // 方案 3：同类型下的另一种效果组合
-        proposals.add(makeProposal(new LinkedHashSet<>(buildAlternative(type, tier, keywordPicks)),
-                "qianxiang.forge_table.summary.fallback.alternative", spellJson, movesetJson));
+        proposals.add(makeProposal(new LinkedHashSet<>(buildAlternative(type, tier, keywordPicks, blocked)),
+                type, tier, "qianxiang.forge_table.summary.fallback.alternative", spellJson, movesetJson, blocked));
 
         proposals.removeIf(p -> p.materialNames().size() < 2);
         if (proposals.isEmpty()) {
@@ -227,8 +232,9 @@ public final class FallbackRecipes {
         proposals.add(new PhaseAIRecipeService.RecipeProposal(materials, power, summaryKey));
         if (!suggestions.isEmpty()) {
             LinkedHashSet<String> suggestSet = new LinkedHashSet<>(suggestions);
-            ensureTypeCoverage(suggestSet, type);
-            proposals.add(makeProposal(suggestSet, "qianxiang.forge_table.summary.fallback.suggest"));
+            ensureTypeCoverage(suggestSet, type, Set.of());
+            proposals.add(makeProposal(suggestSet, type, tier,
+                    "qianxiang.forge_table.summary.fallback.suggest"));
         }
         return new PhaseAIRecipeService.RecipeResult(proposals, confirmKey, true);
     }
@@ -246,33 +252,31 @@ public final class FallbackRecipes {
      */
     public static PhaseAIRecipeService.RecipeProposal closestTierProposal(String targetType, PhaseTier target) {
         String type = PhaseAIRecipeService.safeType(targetType);
-        List<String> materials = buildExactTier(type, target);
+        List<String> materials = buildExactTier(type, target, Set.of());
         if (materials.size() < 2) {
-            materials = buildExactTier(type, PhaseTier.COMMON);
+            materials = buildExactTier(type, PhaseTier.COMMON, Set.of());
         }
-        return makeProposal(new LinkedHashSet<>(materials),
+        return makeProposal(new LinkedHashSet<>(materials), type, target,
                 "qianxiang.forge_table.summary.fallback.closest_tier");
     }
 
     // ===================== 方案构造工具 =====================
 
-    private static PhaseAIRecipeService.RecipeProposal makeProposal(Set<String> picks, String summaryKey) {
-        return makeProposal(picks, summaryKey, "");
+    private static PhaseAIRecipeService.RecipeProposal makeProposal(Set<String> picks, String type,
+                                                                    PhaseTier tier, String summaryKey) {
+        return makeProposal(picks, type, tier, summaryKey, "", "", Set.of());
     }
 
-    private static PhaseAIRecipeService.RecipeProposal makeProposal(Set<String> picks, String summaryKey, String spellJson) {
-        return makeProposal(picks, summaryKey, spellJson, "");
-    }
-
-    private static PhaseAIRecipeService.RecipeProposal makeProposal(Set<String> picks, String summaryKey,
-                                                                    String spellJson, String movesetJson) {
+    private static PhaseAIRecipeService.RecipeProposal makeProposal(Set<String> picks, String type, PhaseTier tier,
+                                                                    String summaryKey, String spellJson,
+                                                                    String movesetJson, Set<String> blocked) {
         List<String> materialNames = new ArrayList<>(picks);
         int cap = PhaseAIRecipeService.maxProposalMaterials(); // 随材料槽位数缩放（全集组合用）
         if (materialNames.size() > cap) {
             materialNames = new ArrayList<>(materialNames.subList(0, cap));
         }
         if (materialNames.size() < 2) {
-            materialNames.addAll(defaultFillers());
+            materialNames.addAll(defaultFillers(type, tier, blocked));
         }
         LinkedHashSet<String> unique = new LinkedHashSet<>(materialNames);
         materialNames = new ArrayList<>(unique);
@@ -285,8 +289,8 @@ public final class FallbackRecipes {
     }
 
     private static PhaseAIRecipeService.RecipeProposal defaultProposal() {
-        return makeProposal(new LinkedHashSet<>(List.of("qianxiang:ember_iron", "qianxiang:beast_fang")),
-                "qianxiang.forge_table.summary.fallback.default");
+        return makeProposal(new LinkedHashSet<>(defaultFillers("weapon", PhaseTier.COMMON, Set.of())),
+                "weapon", PhaseTier.COMMON, "qianxiang.forge_table.summary.fallback.default");
     }
 
     /** 从玩家输入提取关键词命中的材料集合。 */
@@ -296,27 +300,34 @@ public final class FallbackRecipes {
     }
 
     private static Set<String> keywordPicks(String want) {
+        return keywordPicks(want, true);
+    }
+
+    private static Set<String> keywordPicks(String want, boolean allowDefaults) {
         Set<String> picks = new LinkedHashSet<>();
 
         if (wantsIgnite(want)) {
             picks.add("qianxiang:ember_iron");
             picks.add("qianxiang:ember_crystal");
         }
-        if (matchesAny(want, "吸血", "血", "blood", "drain", "leech")) {
+        // 单字键（血/骨/防/护/甲/术）一律升级为 2 字以上词——裸单字 contains 误伤面太大（WQ-72③）
+        if (matchesAny(want, "吸血", "鲜血", "血液", "血刃", "blood", "drain", "leech")) {
             picks.add("qianxiang:bloodroot");
         }
         if (matchesAny(want, "锋", "刃", "刀", "剑", "edge", "blade", "sword", "sharp")) {
             picks.add("qianxiang:beast_fang");
             picks.add("qianxiang:dragon_bone");
         }
-        if (matchesAny(want, "骨", "bone", "skeleton")) {
+        if (matchesAny(want, "骨头", "白骨", "龙骨", "骨骼", "骸骨", "bone", "skeleton")) {
             picks.add("qianxiang:dragon_bone");
         }
-        if (matchesAny(want, "盾", "防", "护", "甲", "defense", "defence", "shield", "guard", "tank")) {
+        if (matchesAny(want, "盾", "防御", "防守", "防护", "守护", "护甲", "铠甲", "盔甲", "防具",
+                "defense", "defence", "shield", "guard", "tank")) {
             picks.add("qianxiang:abyss_iron");
             picks.add("qianxiang:salamander_gland");
         }
-        if (matchesAny(want, "法", "魔", "术", "mana", "magic", "spell", "wizard", "mage")) {
+        if (matchesAny(want, "法术", "法杖", "法器", "魔法", "魔典", "咒术", "奥术", "秘术", "魔力",
+                "mana", "magic", "spell", "wizard", "mage")) {
             picks.add("qianxiang:rift_essence");
         }
         if (matchesAny(want, "治疗", "回血", "生命", "heal", "recovery", "medic")) {
@@ -396,7 +407,8 @@ public final class FallbackRecipes {
                 addIfExists(picks, "minecraft:scute");
             }
         }
-        if (matchesAny(want, "抗火", "防火", "耐火", "fire resist", "fire_resist", "fireproof")) {
+        if (matchesAny(want, "抗火", "防火", "耐火", "免疫火", "fire resist", "fire_resist", "fireproof",
+                "immune to fire", "fire immune")) {
             addIfExists(picks, "minecraft:magma_cream");
         }
         if (matchesAny(want, "水下呼吸", "水下", "潜水", "water breath", "waterbreath", "water")) {
@@ -414,23 +426,37 @@ public final class FallbackRecipes {
             if (growth != null) picks.add(growth);
         }
         // ---- 宽泛需求：全正面 / 全负面 / 随机 ----
+        // 「去除/解除诅咒」是净化诉求（holy），不是「全负面」——裸「诅咒」词组必须避开这个语境，
+        // 否则「去除诅咒的剑」会被塞进一整组 debuff 材料，正好与玩家的意思相反（WQ-72②）
+        if (wantsCurseRemoval(want)) {
+            picks.add("qianxiang:holy_shard");
+        }
         if (matchesAny(want, "所有效果", "全效果", "全部正面", "所有正面", "正面全", "全部增益", "所有增益", "增益全",
                 "buff全要", "buff 全要", "全buff", "全 buff", "所有buff", "all buff", "all positive", "every buff")) {
             picks.addAll(positiveCombo(EffectGlossary.BUFFS.size()));
         }
         if (matchesAny(want, "所有负面", "全负面", "全部负面", "负面全", "debuff全要", "debuff 全要",
-                "全debuff", "全 debuff", "所有debuff", "诅咒", "curse", "all negative", "every debuff")) {
+                "全debuff", "全 debuff", "所有debuff", "all negative", "every debuff")
+                || (matchesAny(want, "诅咒", "curse") && !wantsCurseRemoval(want))) {
             picks.addAll(negativeCombo(EffectGlossary.DEBUFFS.size()));
         }
         if (matchesAny(want, "随机", "随便", "惊喜", "random", "surprise", "whatever")) {
             picks.addAll(randomCombo());
         }
 
-        if (picks.isEmpty()) {
-            picks.add("qianxiang:ember_iron");
+        if (picks.isEmpty() && allowDefaults) {
+            // 空命中默认料保持 COMMON 档（余烬水晶+兽牙）——此前给的是 RARE 烬铁，
+            // 「普通武器」需求会被塞进跨档材料（WQ-72① 验收点）
+            picks.add("qianxiang:ember_crystal");
             picks.add("qianxiang:beast_fang");
         }
         return picks;
+    }
+
+    /** 「去除/解除/驱散/净化诅咒」= 净化诉求（不是把诅咒当想要的效果）。 */
+    private static boolean wantsCurseRemoval(String want) {
+        return matchesAny(want, "去除诅咒", "解除诅咒", "驱散诅咒", "净化诅咒",
+                "remove curse", "curse removal", "cleanse");
     }
 
     /** 材料存在于材料库才加入方案（原版材料依赖功能 tag 覆盖，未必在库）。返回是否加入。 */
@@ -602,7 +628,7 @@ public final class FallbackRecipes {
                 element = "holy";
                 materials.add("minecraft:golden_carrot");
                 materials.add("minecraft:glowstone_dust");
-            } else if (matchesAny(want, "吸血", "鲜血", "血", "blood")) {
+            } else if (matchesAny(want, "吸血", "鲜血", "血液", "blood")) {
                 element = "blood";
                 materials.add("minecraft:spider_eye");
                 materials.add("qianxiang:bloodroot");
@@ -663,61 +689,66 @@ public final class FallbackRecipes {
         return best;
     }
 
-    /** 保证方案覆盖目标类型所需的基础/效果算子。 */
-    private static void ensureTypeCoverage(Set<String> picks, String type) {
+    /** 保证方案覆盖目标类型所需的基础/效果算子（补位料避开被否定的材料）。 */
+    private static void ensureTypeCoverage(Set<String> picks, String type, Set<String> blocked) {
         boolean hasBase = hasBaseForType(new ArrayList<>(picks), type);
         boolean hasEffect = hasEffectForType(new ArrayList<>(picks), type);
 
         if (!hasBase) {
-            String base = pickBase(type);
+            String base = pickBase(type, blocked);
             if (base != null) picks.add(base);
         }
         if (!hasEffect) {
-            String effect = pickEffect(type);
+            String effect = pickEffect(type, blocked);
             if (effect != null) picks.add(effect);
         }
     }
 
-    /** 若方案里没有目标档位材料，则尽量补一个同类型、目标档位的材料。 */
-    private static void ensureTierCoverage(Set<String> picks, String type, PhaseTier tier) {
+    /** 若方案里没有目标档位材料，则尽量补一个同类型、目标档位的材料（避开被否定/Boss 独占料）。 */
+    private static void ensureTierCoverage(Set<String> picks, String type, PhaseTier tier, Set<String> blocked) {
         for (String name : picks) {
             var opt = MaterialLibrary.find(name);
             if (opt.isPresent() && opt.get().tier() == tier) return;
         }
-        var opt = PhaseAIRecipeService.findByTypeAndTier(type, tier);
-        if (opt.isPresent()) {
-            picks.add(opt.get().registryName());
-        } else {
+        String found = pickFromTierPool(type, tier, false, null, blocked);
+        if (found == null) {
             PhaseTier closest = closestAvailableTier(type, tier);
-            var alt = PhaseAIRecipeService.findByTypeAndTier(type, closest);
-            alt.ifPresent(e -> picks.add(e.registryName()));
+            found = pickFromTierPool(type, closest, false, null, blocked);
+        }
+        if (found != null) {
+            picks.add(found);
         }
     }
 
-    /** 构造一个严格按目标档位的 2 材料方案。 */
-    private static List<String> buildExactTier(String type, PhaseTier tier) {
+    /** 构造一个严格按目标档位的 2 材料方案：基底与效果都出自 (type,tier) 池且互不相同。 */
+    private static List<String> buildExactTier(String type, PhaseTier tier, Set<String> blocked) {
         LinkedHashSet<String> picks = new LinkedHashSet<>();
-        String base = pickBaseByTier(type, tier);
-        String effect = pickEffectByTier(type, tier);
+        String base = pickFromTierPool(type, tier, true, null, blocked);
+        String effect = pickFromTierPool(type, tier, false, base, blocked);
+        if (effect == null) {
+            // 池里同档只有基底类材料时，退为「同档的另一件料」，保证 2 件且同档
+            effect = pickFromTierPool(type, tier, true, base, blocked);
+        }
         if (base != null) picks.add(base);
         if (effect != null) picks.add(effect);
         if (picks.size() < 2) {
-            ensureTierCoverage(picks, type, tier);
+            ensureTierCoverage(picks, type, tier, blocked);
         }
         if (picks.size() < 2) {
-            picks.addAll(defaultFillers());
+            picks.addAll(defaultFillers(type, tier, blocked));
         }
         return new ArrayList<>(picks);
     }
 
     /** 构造一个同类型下的替代效果方案。 */
-    private static List<String> buildAlternative(String type, PhaseTier tier, Set<String> keywordPicks) {
+    private static List<String> buildAlternative(String type, PhaseTier tier, Set<String> keywordPicks,
+                                                 Set<String> blocked) {
         LinkedHashSet<String> picks = new LinkedHashSet<>(keywordPicks);
-        ensureTypeCoverage(picks, type);
-        ensureTierCoverage(picks, type, tier);
+        ensureTypeCoverage(picks, type, blocked);
+        ensureTierCoverage(picks, type, tier, blocked);
         if (picks.size() >= 2) {
             List<String> list = new ArrayList<>(picks);
-            String altEffect = pickAltEffect(type, tier, list.get(list.size() - 1));
+            String altEffect = pickAltEffect(type, tier, list.get(list.size() - 1), blocked);
             if (altEffect != null) {
                 list.set(list.size() - 1, altEffect);
                 picks = new LinkedHashSet<>(list);
@@ -728,97 +759,91 @@ public final class FallbackRecipes {
 
     // ===================== 材料选择器 =====================
 
-    private static String pickBase(String type) {
-        return switch (PhaseAIRecipeService.safeType(type)) {
+    /**
+     * 兜底池永不选用的材料：
+     * <ul>
+     *   <li>{@code warden_core}（森罗之核）：Boss 独占掉落。材料库查的是注册表索引，装着 mod 就恒在库里，
+     *       而不是「玩家手上有核」——兜底方案若要求它，没打过守望者的玩家在 AI 掉线时拿到的是
+     *       永远配不齐的方案（放料会静默失败，玩家完全不知道为什么）。兜底的价值在于「一定能做出来」。</li>
+     *   <li>{@code reverse_core}（逆相之核）：机制开关（反转产物全部概念），自身零数值贡献，
+     *       混进兜底「标准方案」会把产物效果整个反转。</li>
+     * </ul>
+     */
+    private static final Set<String> FALLBACK_EXCLUDED = Set.of(
+            "qianxiang:warden_core", "qianxiang:reverse_core");
+
+    /**
+     * 档位塌缩修复（WQ-72①）：基底/效果料不再查 16 格 (type×tier) 硬编码表
+     * （其中 8 格 base==effect 撞同一材料，weapon COMMON 的 base 还是 RARE 档烬铁），
+     * 改为从材料库按 (type,tier) 实时筛池。
+     * <p>优先级：同类型+角色匹配 → 角色匹配（类型放宽）→ 同类型（角色放宽）→ 同档任意料。
+     * 永不返回 {@link #FALLBACK_EXCLUDED} 与 {@code blocked}（玩家明确否定的）材料。
+     *
+     * @param wantBase true 找基底料（骨架算子），false 找效果料
+     */
+    private static String pickFromTierPool(String type, PhaseTier tier, boolean wantBase,
+                                           String exclude, Set<String> blocked) {
+        String classOnly = null;
+        String typeOnly = null;
+        String any = null;
+        for (var e : MaterialLibrary.snapshot()) {
+            if (e.tier() != tier) continue;
+            String name = e.registryName();
+            if (name.equals(exclude) || blocked.contains(name) || FALLBACK_EXCLUDED.contains(name)) continue;
+            boolean classMatch = wantBase
+                    ? isBaseFor(e.functions(), type)
+                    : isEffectFor(e.functions(), type);
+            boolean typeMatch = PhaseAIRecipeService.matchesType(e, type);
+            if (typeMatch && classMatch) return name;
+            if (classMatch && classOnly == null) classOnly = name;
+            if (typeMatch && typeOnly == null) typeOnly = name;
+            if (any == null) any = name;
+        }
+        if (classOnly != null) return classOnly;
+        if (typeOnly != null) return typeOnly;
+        return any;
+    }
+
+    private static String pickBase(String type, Set<String> blocked) {
+        String dft = switch (PhaseAIRecipeService.safeType(type)) {
             case "magic" -> "qianxiang:glimmer_wood_sap";
             case "armor" -> "qianxiang:shadowhide_patch";
             case "tool"  -> "qianxiang:ember_iron";
             default      -> "qianxiang:ember_iron";
         };
-    }
-
-    /**
-     * 传奇档催化剂：材料库里有森罗之核就选它，否则退回裂隙精髓。
-     * <p>此前 8 处传奇档全部映射 rift_essence，传奇档毫无多样性，也让
-     * Boss 独占掉落在兜底路径上完全没有存在感。攻击向/法术向优先用核。
-     */
-    private static String legendaryCatalyst() {
-        // 不能用 MaterialLibrary.exists —— 它查的是注册表索引，装着 mod 就恒为 true，
-        // 而不是「玩家手上有核」。那样所有攻击/法术向的传奇兜底方案都会要求
-        // Boss 独占材料，没打过守望者的玩家在 AI 掉线时拿到的是永远配不齐的方案
-        // （放料会静默失败，玩家完全不知道为什么）。
-        // 兜底的价值在于「一定能做出来」，所以这里退回人人可得的裂隙精髓。
-        return "qianxiang:rift_essence";
+        if (!blocked.contains(dft)) return dft;
+        // 默认料被玩家否定时，从全库挑同类型基底（低档位优先，保证做得出来）
+        for (PhaseTier tier : PhaseTier.values()) {
+            String alt = pickFromTierPool(type, tier, true, null, blocked);
+            if (alt != null) return alt;
+        }
+        return null;
     }
 
     private static String pickBaseByTier(String type, PhaseTier tier) {
-        return switch (PhaseAIRecipeService.safeType(type)) {
-            case "magic" -> switch (tier) {
-                case COMMON -> "qianxiang:glimmer_wood_sap";
-                case RARE -> "qianxiang:bloodroot";
-                case EPIC -> "qianxiang:dragon_bone";
-                case LEGENDARY -> legendaryCatalyst();
-            };
-            case "armor" -> switch (tier) {
-                case COMMON -> "qianxiang:shadowhide_patch";
-                case RARE -> "qianxiang:abyss_iron";
-                case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> "qianxiang:rift_essence";
-            };
-            case "tool" -> switch (tier) {
-                case COMMON -> "qianxiang:ember_iron";
-                case RARE -> "qianxiang:abyss_iron";
-                case EPIC -> "qianxiang:dragon_bone";
-                case LEGENDARY -> "qianxiang:rift_essence";
-            };
-            default -> switch (tier) { // weapon
-                case COMMON -> "qianxiang:ember_iron";
-                case RARE -> "qianxiang:ember_iron";
-                case EPIC -> "qianxiang:dragon_bone";
-                case LEGENDARY -> legendaryCatalyst();
-            };
-        };
+        return pickFromTierPool(type, tier, true, null, Set.of());
     }
 
-    private static String pickEffect(String type) {
-        return switch (PhaseAIRecipeService.safeType(type)) {
+    private static String pickEffect(String type, Set<String> blocked) {
+        String dft = switch (PhaseAIRecipeService.safeType(type)) {
             case "magic" -> "qianxiang:rift_essence";
             case "armor" -> "qianxiang:abyss_iron";
             case "tool"  -> "qianxiang:beast_fang";
             default      -> "qianxiang:beast_fang";
         };
+        if (!blocked.contains(dft)) return dft;
+        for (PhaseTier tier : PhaseTier.values()) {
+            String alt = pickFromTierPool(type, tier, false, null, blocked);
+            if (alt != null) return alt;
+        }
+        return null;
     }
 
     private static String pickEffectByTier(String type, PhaseTier tier) {
-        return switch (PhaseAIRecipeService.safeType(type)) {
-            case "magic" -> switch (tier) {
-                case COMMON -> "qianxiang:ember_crystal";
-                case RARE -> "qianxiang:bloodroot";
-                case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> legendaryCatalyst();
-            };
-            case "armor" -> switch (tier) {
-                case COMMON -> "qianxiang:shadowhide_patch";
-                case RARE -> "qianxiang:abyss_iron";
-                case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> "qianxiang:rift_essence";
-            };
-            case "tool" -> switch (tier) {
-                case COMMON -> "qianxiang:beast_fang";
-                case RARE -> "qianxiang:ember_iron";
-                case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> "qianxiang:rift_essence";
-            };
-            default -> switch (tier) { // weapon
-                case COMMON -> "qianxiang:beast_fang";
-                case RARE -> "qianxiang:bloodroot";
-                case EPIC -> "qianxiang:salamander_gland";
-                case LEGENDARY -> legendaryCatalyst();
-            };
-        };
+        return pickFromTierPool(type, tier, false, null, Set.of());
     }
 
-    private static String pickAltEffect(String type, PhaseTier tier, String currentEffect) {
+    private static String pickAltEffect(String type, PhaseTier tier, String currentEffect, Set<String> blocked) {
         List<String> candidates = new ArrayList<>();
         switch (PhaseAIRecipeService.safeType(type)) {
             case "magic" -> candidates.addAll(List.of(
@@ -835,6 +860,7 @@ public final class FallbackRecipes {
                     "qianxiang:dragon_bone", "qianxiang:salamander_gland"));
         }
         candidates.remove(currentEffect);
+        candidates.removeAll(blocked);
         for (String c : candidates) {
             var opt = MaterialLibrary.find(c);
             if (opt.isPresent() && Math.abs(opt.get().tier().ordinal() - tier.ordinal()) <= 1) {
@@ -844,18 +870,33 @@ public final class FallbackRecipes {
         return candidates.isEmpty() ? null : candidates.getFirst();
     }
 
-    private static List<String> defaultFillers() {
-        return List.of("qianxiang:ember_iron", "qianxiang:beast_fang");
+    /**
+     * 保底填料：随 (type,tier) 从档位池取——此前恒为「烬铁(RARE)+兽牙(COMMON)」，
+     * 会把 LEGENDARY 方案的平均档拖成 RARE、又给「普通武器」塞进 RARE 材料（WQ-72①）。
+     */
+    private static List<String> defaultFillers(String type, PhaseTier tier, Set<String> blocked) {
+        List<String> out = new ArrayList<>();
+        String first = pickFromTierPool(type, tier, true, null, blocked);
+        String second = pickFromTierPool(type, tier, false, first, blocked);
+        if (second == null) second = pickFromTierPool(type, tier, true, first, blocked);
+        if (first != null) out.add(first);
+        if (second != null) out.add(second);
+        // 数据包把整个档位清空时的最后兜底：两件人人可得的 COMMON 基底
+        for (String f : List.of("qianxiang:glimmer_wood_sap", "qianxiang:shadowhide_patch")) {
+            if (out.size() >= 2) break;
+            if (!out.contains(f) && !blocked.contains(f)) out.add(f);
+        }
+        return out;
     }
 
     private static List<String> suggestBase(String type, PhaseTier tier) {
         String base = pickBaseByTier(type, tier);
-        return base != null ? List.of(base) : defaultFillers();
+        return base != null ? List.of(base) : defaultFillers(type, tier, Set.of());
     }
 
     private static List<String> suggestEffect(String type, PhaseTier tier) {
         String effect = pickEffectByTier(type, tier);
-        return effect != null ? List.of(effect) : defaultFillers();
+        return effect != null ? List.of(effect) : defaultFillers(type, tier, Set.of());
     }
 
     private static List<String> suggestUpgrade(String type, PhaseTier tier) {
@@ -882,48 +923,54 @@ public final class FallbackRecipes {
     static boolean hasBaseForType(List<String> materials, String type) {
         for (String name : materials) {
             var opt = MaterialLibrary.find(name);
-            if (opt.isEmpty()) continue;
-            Set<PhaseFunction> fns = opt.get().functions();
-            if (fns == null) continue;
-            switch (PhaseAIRecipeService.safeType(type)) {
-                case "magic" -> { if (fns.contains(PhaseFunction.BASE_WOOD) || fns.contains(PhaseFunction.BASE_METAL)) return true; }
-                case "armor" -> { if (fns.contains(PhaseFunction.BASE_HIDE) || fns.contains(PhaseFunction.BASE_METAL)) return true; }
-                case "tool"  -> { if (fns.contains(PhaseFunction.BASE_METAL) || fns.contains(PhaseFunction.BASE_WOOD)) return true; }
-                default      -> { if (fns.contains(PhaseFunction.BASE_METAL) || fns.contains(PhaseFunction.BASE_BONE)
-                        || fns.contains(PhaseFunction.BASE_WOOD)) return true; }
-            }
+            if (opt.isPresent() && isBaseFor(opt.get().functions(), type)) return true;
         }
         return false;
+    }
+
+    /** 单材料是否是该类型的基底料（骨架算子）。 */
+    private static boolean isBaseFor(Set<PhaseFunction> fns, String type) {
+        if (fns == null) return false;
+        return switch (PhaseAIRecipeService.safeType(type)) {
+            case "magic" -> fns.contains(PhaseFunction.BASE_WOOD) || fns.contains(PhaseFunction.BASE_METAL);
+            case "armor" -> fns.contains(PhaseFunction.BASE_HIDE) || fns.contains(PhaseFunction.BASE_METAL);
+            case "tool"  -> fns.contains(PhaseFunction.BASE_METAL) || fns.contains(PhaseFunction.BASE_WOOD);
+            default      -> fns.contains(PhaseFunction.BASE_METAL) || fns.contains(PhaseFunction.BASE_BONE)
+                    || fns.contains(PhaseFunction.BASE_WOOD);
+        };
     }
 
     static boolean hasEffectForType(List<String> materials, String type) {
         for (String name : materials) {
             var opt = MaterialLibrary.find(name);
-            if (opt.isEmpty()) continue;
-            Set<PhaseFunction> fns = opt.get().functions();
-            if (fns == null) continue;
-            switch (PhaseAIRecipeService.safeType(type)) {
-                case "magic" -> { if (fns.contains(PhaseFunction.MANA) || fns.contains(PhaseFunction.IGNITE)
-                        || fns.contains(PhaseFunction.LIFESTEAL) || fns.contains(PhaseFunction.SLOW)
-                        || fns.contains(PhaseFunction.HEAL) || fns.contains(PhaseFunction.REFLECT)
-                        || PhaseAIRecipeService.hasFn(fns, "POISON") || PhaseAIRecipeService.hasFn(fns, "FROST")
-                        || PhaseAIRecipeService.hasFn(fns, "REGENERATION")) return true; }
-                case "armor" -> { if (fns.contains(PhaseFunction.DEFENSE) || fns.contains(PhaseFunction.REFLECT)
-                        || fns.contains(PhaseFunction.MANA)
-                        || PhaseAIRecipeService.hasFn(fns, "RESISTANCE") || PhaseAIRecipeService.hasFn(fns, "NIGHT_VISION")
-                        || PhaseAIRecipeService.hasFn(fns, "SPEED_BOOST") || PhaseAIRecipeService.hasFn(fns, "JUMP_BOOST")
-                        || PhaseAIRecipeService.hasFn(fns, "FIRE_RESIST") || PhaseAIRecipeService.hasFn(fns, "WATER_BREATH")
-                        || PhaseAIRecipeService.hasFn(fns, "REGENERATION")) return true; }
-                case "tool"  -> { if (fns.contains(PhaseFunction.EDGE) || fns.contains(PhaseFunction.IGNITE)
-                        || fns.contains(PhaseFunction.SLOW) || fns.contains(PhaseFunction.DEFENSE)
-                        || PhaseAIRecipeService.hasFn(fns, "AREA_HARVEST") || PhaseAIRecipeService.hasFn(fns, "GROWTH")) return true; }
-                default      -> { if (fns.contains(PhaseFunction.EDGE) || fns.contains(PhaseFunction.IGNITE)
-                        || fns.contains(PhaseFunction.LIFESTEAL)
-                        || PhaseAIRecipeService.hasFn(fns, "POISON") || PhaseAIRecipeService.hasFn(fns, "FROST")
-                        || PhaseAIRecipeService.hasFn(fns, "STRENGTH") || PhaseAIRecipeService.hasFn(fns, "LEVITATION")) return true; }
-            }
+            if (opt.isPresent() && isEffectFor(opt.get().functions(), type)) return true;
         }
         return false;
+    }
+
+    /** 单材料是否带该类型的效果算子。 */
+    private static boolean isEffectFor(Set<PhaseFunction> fns, String type) {
+        if (fns == null) return false;
+        return switch (PhaseAIRecipeService.safeType(type)) {
+            case "magic" -> fns.contains(PhaseFunction.MANA) || fns.contains(PhaseFunction.IGNITE)
+                    || fns.contains(PhaseFunction.LIFESTEAL) || fns.contains(PhaseFunction.SLOW)
+                    || fns.contains(PhaseFunction.HEAL) || fns.contains(PhaseFunction.REFLECT)
+                    || PhaseAIRecipeService.hasFn(fns, "POISON") || PhaseAIRecipeService.hasFn(fns, "FROST")
+                    || PhaseAIRecipeService.hasFn(fns, "REGENERATION");
+            case "armor" -> fns.contains(PhaseFunction.DEFENSE) || fns.contains(PhaseFunction.REFLECT)
+                    || fns.contains(PhaseFunction.MANA)
+                    || PhaseAIRecipeService.hasFn(fns, "RESISTANCE") || PhaseAIRecipeService.hasFn(fns, "NIGHT_VISION")
+                    || PhaseAIRecipeService.hasFn(fns, "SPEED_BOOST") || PhaseAIRecipeService.hasFn(fns, "JUMP_BOOST")
+                    || PhaseAIRecipeService.hasFn(fns, "FIRE_RESIST") || PhaseAIRecipeService.hasFn(fns, "WATER_BREATH")
+                    || PhaseAIRecipeService.hasFn(fns, "REGENERATION");
+            case "tool"  -> fns.contains(PhaseFunction.EDGE) || fns.contains(PhaseFunction.IGNITE)
+                    || fns.contains(PhaseFunction.SLOW) || fns.contains(PhaseFunction.DEFENSE)
+                    || PhaseAIRecipeService.hasFn(fns, "AREA_HARVEST") || PhaseAIRecipeService.hasFn(fns, "GROWTH");
+            default      -> fns.contains(PhaseFunction.EDGE) || fns.contains(PhaseFunction.IGNITE)
+                    || fns.contains(PhaseFunction.LIFESTEAL)
+                    || PhaseAIRecipeService.hasFn(fns, "POISON") || PhaseAIRecipeService.hasFn(fns, "FROST")
+                    || PhaseAIRecipeService.hasFn(fns, "STRENGTH") || PhaseAIRecipeService.hasFn(fns, "LEVITATION");
+        };
     }
 
     private static PhaseTier closestAvailableTier(String type, PhaseTier target) {
@@ -1037,10 +1084,11 @@ public final class FallbackRecipes {
             int from = 0;
             while ((idx = lower.indexOf(negation, from)) >= 0) {
                 int after = idx + negation.length();
-                int consumed = matchEffectKeywordAt(lower, after);
-                if (consumed > 0) {
+                String kw = matchEffectKeywordAt(lower, after);
+                if (kw != null) {
                     // 连否定词带被否定的效果词一起挖掉，其余语境原样保留
-                    lower = lower.substring(0, idx) + " " + lower.substring(after + consumed);
+                    int kwEnd = lower.indexOf(kw, after) + kw.length();
+                    lower = lower.substring(0, idx) + " " + lower.substring(kwEnd);
                     from = idx + 1;
                 } else {
                     from = after;
@@ -1050,25 +1098,57 @@ public final class FallbackRecipes {
         return lower;
     }
 
-    /** 从 pos 起能匹配到的最长已知效果词长度；匹配不到返回 0。 */
-    private static int matchEffectKeywordAt(String text, int pos) {
+    /**
+     * 提取被否定词明确排除的材料：逐个否定前缀找「否定词 + 效果词」配对，
+     * 命中效果词对应的材料组整组拉黑。供不走关键词表的方案 2/3 与补位逻辑排除——
+     * 否则 normalize 剥掉语义后，「不要火的剑」的标准方案里仍有烬铁（WQ-72④）。
+     */
+    private static Set<String> negatedMaterials(String rawWant) {
+        if (rawWant == null) return Set.of();
+        String lower = rawWant.toLowerCase(Locale.ROOT);
+        Set<String> blocked = new LinkedHashSet<>();
+        for (String negation : NEGATION_PREFIXES) {
+            int idx;
+            int from = 0;
+            while ((idx = lower.indexOf(negation, from)) >= 0) {
+                String kw = matchEffectKeywordAt(lower, idx + negation.length());
+                if (kw != null) {
+                    blocked.addAll(keywordPicks(kw, false));
+                    from = idx + 1;
+                } else {
+                    from = idx + negation.length();
+                }
+            }
+        }
+        return blocked;
+    }
+
+    /** 从 pos 起（跳过空白）能匹配到的最长已知效果词；匹配不到返回 null。 */
+    private static String matchEffectKeywordAt(String text, int pos) {
         int skip = 0;
         while (pos + skip < text.length() && Character.isWhitespace(text.charAt(pos + skip))) {
             skip++;
         }
-        int best = 0;
+        String best = null;
         for (String kw : NEGATABLE_EFFECT_KEYWORDS) {
-            if (text.startsWith(kw, pos + skip) && kw.length() > best) {
-                best = kw.length();
+            if (text.startsWith(kw, pos + skip) && (best == null || kw.length() > best.length())) {
+                best = kw;
             }
         }
-        return best == 0 ? 0 : skip + best;
+        return best;
     }
 
-    /** 真正表达「我不想要」的前缀。注意不含「抗/防」——那在本模组是功能词。 */
+    /**
+     * 真正表达「我不想要」的前缀。注意：
+     * <ul>
+     *   <li>不含「抗/防」——那在本模组是功能词；</li>
+     *   <li>不含「免疫/去除」——「免疫火焰的靴子」「去除诅咒的剑」是玩家明确要的功能
+     *       （FIRE_RESIST/净化），当否定词剥除会把需求整个吃掉，造成反向误伤（WQ-72②）。</li>
+     * </ul>
+     */
     private static final String[] NEGATION_PREFIXES = {
             "不要", "不用", "不带", "不想要", "不需要", "别要", "别用", "没有",
-            "去掉", "去除", "排除", "免疫", "no ", "not ", "without ", "anti-", "anti "
+            "去掉", "排除", "no ", "not ", "without ", "anti-", "anti "
     };
 
     /** 可被否定的效果词（与各关键词组同源；长词在前不影响，匹配时取最长）。 */
@@ -1090,11 +1170,12 @@ public final class FallbackRecipes {
 
     /**
      * 是否想要「点燃」效果。
-     * <p>必须排除「抗火/防火/耐火」语境：它们含「火」字但表达的是 FIRE_RESIST，
-     * 裸 contains 会让「抗火靴」同时被塞进烬铁与余烬石——正好是玩家想抵抗的东西。
+     * <p>必须排除「抗火/防火/耐火/免疫火」语境：它们含「火」字但表达的是 FIRE_RESIST，
+     * 裸 contains 会让「抗火靴」「免疫火焰的靴子」同时被塞进烬铁与余烬石——正好是玩家想抵抗的东西。
      */
     private static boolean wantsIgnite(String want) {
-        if (matchesAny(want, "抗火", "防火", "耐火", "fire resist", "fire_resist", "fireproof")) {
+        if (matchesAny(want, "抗火", "防火", "耐火", "免疫火", "fire resist", "fire_resist", "fireproof",
+                "immune to fire", "fire immune")) {
             return false;
         }
         return matchesAny(want, "火", "灼", "烧", "燃", "fire", "burn", "ignite", "flame");
@@ -1102,9 +1183,40 @@ public final class FallbackRecipes {
 
     private static boolean matchesAny(String text, String... keys) {
         for (String k : keys) {
-            if (k != null && !k.isEmpty() && text.contains(k)) return true;
+            if (k == null || k.isEmpty()) continue;
+            // 短英文词（≤3 个纯字母）按词边界匹配——否则 "ice" 会被 "a nice sword" 命中（WQ-72③）
+            if (k.length() <= 3 && isAsciiLetters(k)) {
+                if (containsWord(text, k)) return true;
+            } else if (text.contains(k)) {
+                return true;
+            }
         }
         return false;
+    }
+
+    private static boolean isAsciiLetters(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 'a' || c > 'z') return false;
+        }
+        return true;
+    }
+
+    /** 词边界 contains：左右两侧都不能是英文字母。输入已转小写。 */
+    private static boolean containsWord(String text, String word) {
+        int idx = text.indexOf(word);
+        while (idx >= 0) {
+            boolean leftOk = idx == 0 || !isAsciiLetter(text.charAt(idx - 1));
+            int end = idx + word.length();
+            boolean rightOk = end >= text.length() || !isAsciiLetter(text.charAt(end));
+            if (leftOk && rightOk) return true;
+            idx = text.indexOf(word, idx + 1);
+        }
+        return false;
+    }
+
+    private static boolean isAsciiLetter(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     }
 
     private static double estimatePower(List<String> materialNames) {
@@ -1143,21 +1255,23 @@ public final class FallbackRecipes {
             out.add(new KeywordHint("qianxiang.phasefn.ignite",
                     List.of("qianxiang:ember_iron", "qianxiang:ember_crystal")));
         }
-        if (matchesAny(want, "吸血", "血", "blood", "drain", "leech")) {
+        if (matchesAny(want, "吸血", "鲜血", "血液", "血刃", "blood", "drain", "leech")) {
             out.add(new KeywordHint("qianxiang.phasefn.lifesteal", List.of("qianxiang:bloodroot")));
         }
         if (matchesAny(want, "锋", "刃", "刀", "剑", "edge", "blade", "sword", "sharp")) {
             out.add(new KeywordHint("qianxiang.phasefn.edge",
                     List.of("qianxiang:beast_fang", "qianxiang:dragon_bone")));
         }
-        if (matchesAny(want, "骨", "bone", "skeleton")) {
+        if (matchesAny(want, "骨头", "白骨", "龙骨", "骨骼", "骸骨", "bone", "skeleton")) {
             out.add(new KeywordHint("qianxiang.phasefn.base_bone", List.of("qianxiang:dragon_bone")));
         }
-        if (matchesAny(want, "盾", "防", "护", "甲", "defense", "defence", "shield", "guard", "tank")) {
+        if (matchesAny(want, "盾", "防御", "防守", "防护", "守护", "护甲", "铠甲", "盔甲", "防具",
+                "defense", "defence", "shield", "guard", "tank")) {
             out.add(new KeywordHint("qianxiang.phasefn.defense",
                     List.of("qianxiang:abyss_iron", "qianxiang:salamander_gland")));
         }
-        if (matchesAny(want, "法", "魔", "术", "mana", "magic", "spell", "wizard", "mage")) {
+        if (matchesAny(want, "法术", "法杖", "法器", "魔法", "魔典", "咒术", "奥术", "秘术", "魔力",
+                "mana", "magic", "spell", "wizard", "mage")) {
             out.add(new KeywordHint("qianxiang.phasefn.mana", List.of("qianxiang:rift_essence")));
         }
         if (matchesAny(want, "治疗", "回血", "生命", "heal", "recovery", "medic")) {
@@ -1199,8 +1313,12 @@ public final class FallbackRecipes {
             out.add(new KeywordHint("qianxiang.phasefn.resistance",
                     List.of("minecraft:turtle_scute", "minecraft:scute")));
         }
-        if (matchesAny(want, "抗火", "防火", "耐火", "fire resist", "fire_resist", "fireproof")) {
+        if (matchesAny(want, "抗火", "防火", "耐火", "免疫火", "fire resist", "fire_resist", "fireproof",
+                "immune to fire", "fire immune")) {
             out.add(new KeywordHint("qianxiang.phasefn.fire_resist", List.of("minecraft:magma_cream")));
+        }
+        if (wantsCurseRemoval(want)) {
+            out.add(new KeywordHint("qianxiang.phasefn.holy", List.of("qianxiang:holy_shard")));
         }
         if (matchesAny(want, "水下呼吸", "水下", "潜水", "water breath", "waterbreath", "water")) {
             out.add(new KeywordHint("qianxiang.phasefn.water_breath", List.of("minecraft:pufferfish")));

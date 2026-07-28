@@ -55,6 +55,14 @@ public final class AIClient {
     /** 本次失败是否为「端点回了非 2xx」（持续 400/500 = 端点故障，也要能熔断）。 */
     private static final ThreadLocal<Boolean> LAST_ENDPOINT_ERROR = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
+    /**
+     * 内存开关：本端点不支持 {@code response_format} 时置 true（WQ-64）。
+     * 部分「OpenAI 兼容」端点（旧版 llama.cpp server、自建代理、部分国产兼容层）
+     * 见到该字段直接 400——命中一次后本进程内不再携带，避免每次请求白发两发 HTTP。
+     * 进程级记忆即可：端点能力是部署属性，不随存档变化；重启后重新探测一次的代价可接受。
+     */
+    private static volatile boolean RESPONSE_FORMAT_UNSUPPORTED = false;
+
     /** 供 {@link AIGateway} 熔断判定用：仅在同线程、紧随一次失败的 {@link #chat} 之后调用才有意义。 */
     static boolean lastFailureWasConnectionIssue() {
         return LAST_CONNECT_ISSUE.get();
@@ -80,7 +88,14 @@ public final class AIClient {
      * @return 模型回答的纯文本；连不上/超时/解析失败一律返回 {@link Optional#empty()}
      */
     public static Optional<String> chat(String userMessage, String systemPrompt) {
-        AIConfig cfg = AIConfig.get();
+        return chat(AIConfig.get(), userMessage, systemPrompt);
+    }
+
+    /**
+     * 显式指定配置的完整入口（生产路径是上面的两参 {@link #chat(String, String)} +
+     * {@link AIConfig#get()}；本重载供 GameTest 注入指向本地桩端点的配置）。
+     */
+    public static Optional<String> chat(AIConfig cfg, String userMessage, String systemPrompt) {
         LAST_CONNECT_ISSUE.set(Boolean.FALSE);
         LAST_REQUEST_TIMEOUT.set(Boolean.FALSE);
         LAST_ENDPOINT_ERROR.set(Boolean.FALSE);
@@ -171,17 +186,40 @@ public final class AIClient {
         body.addProperty("model", cfg.model);
         body.addProperty("stream", false);
         body.addProperty("temperature", TEMPERATURE);
-        // 结构化输出：要求回包是 JSON 对象（OpenAI 兼容端点通用字段）
-        JsonObject responseFormat = new JsonObject();
-        responseFormat.addProperty("type", "json_object");
-        body.add("response_format", responseFormat);
+        // 结构化输出：要求回包是 JSON 对象（OpenAI 兼容端点通用字段）。
+        // 但不支持它的「OpenAI 兼容」端点会直接 400——已探测到不支持的端点
+        // 本进程内不再携带该字段（见 RESPONSE_FORMAT_UNSUPPORTED）。
+        if (!RESPONSE_FORMAT_UNSUPPORTED) {
+            JsonObject responseFormat = new JsonObject();
+            responseFormat.addProperty("type", "json_object");
+            body.add("response_format", responseFormat);
+        }
         body.add("messages", buildMessages(userMessage, systemPrompt));
 
         // apiKey 为空 → 不带 Authorization 头（兼容本地无鉴权服务，如 LM Studio）
         String auth = (cfg.apiKey == null || cfg.apiKey.isBlank()) ? null : "Bearer " + cfg.apiKey.trim();
-        HttpResponse<String> resp = send(cfg, cfg.normalizedBaseUrl() + "/v1/chat/completions",
-                GSON.toJson(body), auth);
-        if (resp == null) return Optional.empty();
+        String url = cfg.normalizedBaseUrl() + "/v1/chat/completions";
+        HttpResponse<String> resp = sendRaw(cfg, url, GSON.toJson(body), auth);
+
+        // 降级路径（WQ-64）：400 且错误体提及 response_format/unsupported →
+        // 去掉该字段重发一次，并记住「本端点不支持结构化输出」。
+        if (resp.statusCode() == 400 && !RESPONSE_FORMAT_UNSUPPORTED
+                && mentionsUnsupportedResponseFormat(resp.body())) {
+            RESPONSE_FORMAT_UNSUPPORTED = true;
+            Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 端点不支持 response_format（400），已去掉该字段重发，"
+                    + "本进程内后续请求不再携带。错误体：{}",
+                    cfg.provider, truncate(resp.body(), 200));
+            body.remove("response_format");
+            resp = sendRaw(cfg, url, GSON.toJson(body), auth);
+        }
+        if (resp.statusCode() / 100 != 2) {
+            // 端点故障标记：持续 400/500 不是「内容不可用」，应计入熔断（WQ-63）。
+            // 注意只在「最终结果」是非 2xx 时置位——降级重发成功的 400 不算端点故障。
+            LAST_ENDPOINT_ERROR.set(Boolean.TRUE);
+            Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 非 2xx 响应 status={} body={}",
+                    cfg.provider, resp.statusCode(), truncate(resp.body(), 200));
+            return Optional.empty();
+        }
         String respBody = resp.body();
         if (respBody == null || respBody.isBlank()) return Optional.empty();
 
@@ -216,12 +254,11 @@ public final class AIClient {
     }
 
     /**
-     * 发 POST 并校验 2xx。
+     * 发 POST，返回原始响应（含非 2xx）——是否降级、是否计端点故障由调用方决定。
      *
      * @param authorization Authorization 头完整值（如 "Bearer sk-..."），null 表示不带该头
-     * @return 2xx 响应；非 2xx 打日志并返回 null
      */
-    private static HttpResponse<String> send(AIConfig cfg, String url, String jsonBody, String authorization)
+    private static HttpResponse<String> sendRaw(AIConfig cfg, String url, String jsonBody, String authorization)
             throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -231,8 +268,18 @@ public final class AIClient {
             builder.header("Authorization", authorization);
         }
         HttpRequest req = builder.POST(HttpRequest.BodyPublishers.ofString(jsonBody)).build();
+        return HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+    }
 
-        HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+    /**
+     * 发 POST 并校验 2xx。
+     *
+     * @param authorization Authorization 头完整值（如 "Bearer sk-..."），null 表示不带该头
+     * @return 2xx 响应；非 2xx 打日志并返回 null
+     */
+    private static HttpResponse<String> send(AIConfig cfg, String url, String jsonBody, String authorization)
+            throws Exception {
+        HttpResponse<String> resp = sendRaw(cfg, url, jsonBody, authorization);
         if (resp.statusCode() / 100 != 2) {
             // 端点故障标记：持续 400/500 不是「内容不可用」，应计入熔断（WQ-63）
             LAST_ENDPOINT_ERROR.set(Boolean.TRUE);
@@ -241,6 +288,23 @@ public final class AIClient {
             return null;
         }
         return resp;
+    }
+
+    /**
+     * 400 错误体是否在说「不认 response_format / 参数不支持」（WQ-64 的降级判据）。
+     * 各类兼容端点的措辞不一（llama.cpp、FastChat、国产兼容层），
+     * 按工单口径宽松匹配 response_format 或 unsupported 即可——误判的代价只是
+     * 少发一个可选字段，不会丢功能。
+     */
+    static boolean mentionsUnsupportedResponseFormat(String body) {
+        if (body == null) return false;
+        String lower = body.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("response_format") || lower.contains("unsupported");
+    }
+
+    /** 测试入口：重置 response_format 支持探测的进程内记忆（用例间隔离）。 */
+    public static void resetResponseFormatSupportForTest() {
+        RESPONSE_FORMAT_UNSUPPORTED = false;
     }
 
     private static String truncate(String s, int max) {

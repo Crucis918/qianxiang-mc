@@ -60,6 +60,9 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private ClientForgeTableAI.AiResult lastAiResult;
     private Status status = Status.IDLE;
     private long aiRequestStartMillis;
+    /** 玩家点选过的方案卡索引（-1=无）与点选时的结果实例：渲染选中高亮（WQ-76）。 */
+    private int selectedCard = -1;
+    private ClientForgeTableAI.AiResult selectedCardResult = null;
 
     public AlchemyTableScreen(AlchemyTableMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
@@ -69,11 +72,16 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
     @Override
     protected void init() {
+        // WQ-77 同病：窗口 resize 会重走 init 重建输入框——先暂存旧值，末尾回填。
+        String prevRequestText = this.requestBox == null ? null : this.requestBox.getValue();
         super.init();
         this.requestBox = new EditBox(this.font, leftPos + INPUT_X, topPos + INPUT_Y, INPUT_W, INPUT_H,
                 Component.empty());
         this.requestBox.setMaxLength(80);
         this.requestBox.setHint(Component.translatable("qianxiang.alchemy_table.hint.request"));
+        if (prevRequestText != null) {
+            this.requestBox.setValue(prevRequestText);
+        }
         this.addRenderableWidget(this.requestBox);
 
         this.askButton = Button.builder(
@@ -311,6 +319,14 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
             if (hovered) {
                 g.fill(x, y, x + CARD_W, y + CARD_H, 0x30FFFFFF);
             }
+            // WQ-76：选中卡片金色描边（只认点选时的那份结果，新响应到达旧卡高亮消失）
+            if (i == selectedCard && lastAiResult == selectedCardResult) {
+                int sel = 0xCCFFD700;
+                g.fill(x, y, x + CARD_W, y + 1, sel);
+                g.fill(x, y + CARD_H - 1, x + CARD_W, y + CARD_H, sel);
+                g.fill(x, y, x + 1, y + CARD_H, sel);
+                g.fill(x + CARD_W - 1, y, x + CARD_W, y + CARD_H, sel);
+            }
             var proposal = proposals.get(i);
             String summary = proposal.summary() == null ? "" : proposal.summary();
             g.drawString(this.font, this.font.plainSubstrByWidth(summary, CARD_W - 4),
@@ -434,6 +450,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(
+                ClientAlchemyTableAI.nextRequestSeq(),
                 request, TARGET_TYPE, TARGET_TIER, collectCurrentMaterials(), "recommend"));
     }
 
@@ -443,6 +460,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(
+                ClientAlchemyTableAI.nextRequestSeq(),
                 request, TARGET_TYPE, TARGET_TIER, collectCurrentMaterials(), "confirm"));
     }
 
@@ -450,28 +468,37 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         this.requestBox.setValue("");
         this.lastAiResult = null;
         this.status = Status.IDLE;
+        this.selectedCard = -1;
+        this.selectedCardResult = null;
         ClientAlchemyTableAI.reportProposalIndex(
                 com.qianxiang.network.SpellJsonReportPayload.NONE);
     }
 
-    /** 点击某张方案卡：先回传「选了第几条」，再请求服务端放料（包序保证先记选择）。 */
+    /** 点击某张方案卡：先回传「选了第几条」，再请求服务端放料（包序保证先记选择）。
+     *  WQ-75：整卡点击 = 替换语义（服务端先退回台上现有材料再放），不再叠加。 */
     private void applyProposal(int index) {
         if (lastAiResult == null) return;
         var proposal = lastAiResult.proposals().get(index);
         if (proposal.materialNames().isEmpty()) return;
 
         ClientAlchemyTableAI.reportProposalIndex(index);
-        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(proposal.materialNames()));
+        this.selectedCard = index;
+        this.selectedCardResult = lastAiResult;
+        PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
+                proposal.materialNames(), true, ClientAlchemyTableAI.lastReqId()));
     }
 
-    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料。 */
+    /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料（叠加，非替换）。 */
     private void applyProposalMaterial(int cardIndex, int materialIndex) {
         if (lastAiResult == null) return;
         var proposal = lastAiResult.proposals().get(cardIndex);
         if (materialIndex < 0 || materialIndex >= proposal.materialNames().size()) return;
         ClientAlchemyTableAI.reportProposalIndex(cardIndex);
+        this.selectedCard = cardIndex;
+        this.selectedCardResult = lastAiResult;
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
-                List.of(proposal.materialNames().get(materialIndex))));
+                List.of(proposal.materialNames().get(materialIndex)), false,
+                ClientAlchemyTableAI.lastReqId()));
     }
 
     /** registry 名 → 物品栈（卡片材料图标用；不存在则空栈）。 */

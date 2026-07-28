@@ -40,6 +40,9 @@ public final class MaterialRecall {
     private static final int QUOTA_EFFECT = 24;
     private static final int QUOTA_BASE = 12;
 
+    /** 数据包注册材料（UGC）置顶保底的配额上限（数量有界，防把召回预算吃光）。 */
+    private static final int QUOTA_PINNED = 8;
+
     /** 一组召回结果。 */
     public record Group(String title, List<MaterialLibrary.MaterialEntry> entries) {}
 
@@ -59,6 +62,32 @@ public final class MaterialRecall {
                                      String targetType,
                                      PhaseTier targetTier,
                                      Set<String> allowed) {
+        return recall(lib, request, targetType, targetTier, allowed, List.of());
+    }
+
+    /**
+     * 按本次需求召回相关材料（带当前材料槽内容）。
+     * <p>
+     * 在三组检索式召回之外处理三处边缘（WQ-67）：
+     * <ol>
+     *   <li><b>confirm 当前材料并入候选</b>：prompt 一边说「只能从下列挑」一边要 AI
+     *       评价可能不在列表里的材料——当前材料强制置顶并入；</li>
+     *   <li><b>数据包注册材料（UGC）置顶保底</b>：{@code PhaseMaterialRegistry.all()}
+     *       的材料无条件置顶（有界）。此前排序「qianxiang: 优先 + 名称短优先」会系统性
+     *       压低官方样例 {@code minecraft:heart_of_the_sea} 这类长 id 非 qianxiang 命名空间
+     *       的 UGC 材料，「/reload 后 AI 立即可见」在 prompt 层被弱化成「相关才可见」；</li>
+     *   <li><b>白名单空池保底</b>：玩家勾选的材料全是无算子概念物品时三组全空，
+     *       而 prompt 仍写着「只能从下列材料中挑选」——此时取池内前 N 条兜底。</li>
+     * </ol>
+     *
+     * @param currentMaterials confirm 模式下玩家已放入的材料（registry name，可空）
+     */
+    public static List<Group> recall(List<MaterialLibrary.MaterialEntry> lib,
+                                     String request,
+                                     String targetType,
+                                     PhaseTier targetTier,
+                                     Set<String> allowed,
+                                     List<String> currentMaterials) {
         List<MaterialLibrary.MaterialEntry> pool = new ArrayList<>();
         for (MaterialLibrary.MaterialEntry e : lib) {
             if (allowed != null && !allowed.isEmpty() && !allowed.contains(e.registryName())) {
@@ -70,27 +99,62 @@ public final class MaterialRecall {
         Set<PhaseFunction> wanted = wantedFunctions(request, targetType);
         Comparator<MaterialLibrary.MaterialEntry> byRelevance = relevanceComparator(targetTier);
 
-        // ① 核心效果材料：命中需求关键词的功能算子
+        List<Group> groups = new ArrayList<>(5);
+        Set<String> taken = new LinkedHashSet<>();
+
+        // ⓪ confirm：当前材料强制并入候选（评价对象必须出现在「只能从这里挑」的列表里）
+        if (currentMaterials != null && !currentMaterials.isEmpty()) {
+            List<MaterialLibrary.MaterialEntry> current = new ArrayList<>();
+            for (String name : currentMaterials) {
+                if (name == null || name.isBlank()) continue;
+                var opt = MaterialLibrary.find(name);
+                if (opt.isPresent() && taken.add(opt.get().registryName())) {
+                    current.add(opt.get());
+                }
+            }
+            if (!current.isEmpty()) {
+                groups.add(new Group("玩家当前已放入材料（本次评价对象）", current));
+            }
+        }
+
+        // ① 数据包注册材料（UGC）无条件置顶保底：「/reload 后 AI 立即可见」的可见性保证
+        Set<String> registered = new LinkedHashSet<>();
+        for (net.minecraft.resources.ResourceLocation id : com.qianxiang.phase.PhaseMaterialRegistry.all().keySet()) {
+            registered.add(id.toString());
+        }
+        if (!registered.isEmpty()) {
+            List<MaterialLibrary.MaterialEntry> pinned = pool.stream()
+                    .filter(e -> registered.contains(e.registryName()))
+                    .filter(e -> !taken.contains(e.registryName()))
+                    .sorted(byRelevance)
+                    .limit(Math.min(QUOTA_PINNED, Math.max(0, MAX_TOTAL - taken.size())))
+                    .toList();
+            if (!pinned.isEmpty()) {
+                pinned.forEach(e -> taken.add(e.registryName()));
+                groups.add(new Group("数据包注册材料（phase_materials 定义，优先可见）", pinned));
+            }
+        }
+
+        // ② 核心效果材料：命中需求关键词的功能算子
         List<MaterialLibrary.MaterialEntry> effect = pool.stream()
+                .filter(e -> !taken.contains(e.registryName()))
                 .filter(e -> !e.functions().isEmpty() && intersects(e.functions(), wanted))
                 .sorted(byRelevance)
-                .limit(QUOTA_EFFECT)
+                .limit(Math.min(QUOTA_EFFECT, Math.max(0, MAX_TOTAL - taken.size())))
                 .toList();
-
-        Set<String> taken = new LinkedHashSet<>();
         effect.forEach(e -> taken.add(e.registryName()));
 
-        // ② 基底材料：与产物类型匹配的 BASE_*
+        // ③ 基底材料：与产物类型匹配的 BASE_*
         Set<PhaseFunction> bases = basesFor(targetType);
         List<MaterialLibrary.MaterialEntry> base = pool.stream()
                 .filter(e -> !taken.contains(e.registryName()))
                 .filter(e -> intersects(e.functions(), bases))
                 .sorted(byRelevance)
-                .limit(QUOTA_BASE)
+                .limit(Math.min(QUOTA_BASE, Math.max(0, MAX_TOTAL - taken.size())))
                 .toList();
         base.forEach(e -> taken.add(e.registryName()));
 
-        // ③ 辅料：补足名额，优先带任意功能算子的
+        // ④ 辅料：补足名额，优先带任意功能算子的
         int remaining = Math.max(0, MAX_TOTAL - taken.size());
         List<MaterialLibrary.MaterialEntry> extra = pool.stream()
                 .filter(e -> !taken.contains(e.registryName()))
@@ -99,10 +163,19 @@ public final class MaterialRecall {
                 .limit(remaining)
                 .toList();
 
-        List<Group> groups = new ArrayList<>(3);
         if (!effect.isEmpty()) groups.add(new Group("核心效果材料（优先从这里挑）", effect));
         if (!base.isEmpty()) groups.add(new Group("基底材料（决定耐久/骨架）", base));
         if (!extra.isEmpty()) groups.add(new Group("可选辅料", extra));
+
+        // ⑤ 白名单空池保底：池非空但三组全空（勾选的全是无算子概念物品）时，
+        //    取池内前 N 条兜底——prompt 写着「只能从下列挑」，下列就不能是空的。
+        if (groups.isEmpty() && !pool.isEmpty()) {
+            List<MaterialLibrary.MaterialEntry> any = pool.stream()
+                    .sorted(byRelevance)
+                    .limit(MAX_TOTAL)
+                    .toList();
+            groups.add(new Group("可选材料（无算子命中，按档位贴近度保底）", any));
+        }
         return groups;
     }
 

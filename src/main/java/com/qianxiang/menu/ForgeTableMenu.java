@@ -51,9 +51,10 @@ public class ForgeTableMenu extends AbstractContainerMenu {
     private static final long FORGE_SAGA_COOLDOWN_MS = 3_000L;
 
     /**
-     * 「传奇产物」的强度门槛（forge_legendary 成就用）。
-     * <p>森罗之核单件在 LEGENDARY 档就贡献可观强度，配任意基底都能轻松越过；
-     * 但拿核配一堆空气/纯辅料做出的弱产物达不到，与成就文案保持一致。
+     * 「传奇产物」判据之一（forge_legendary 成就用）：产物 powerScore 下限。
+     * <p><b>仅有这个门槛形同虚设</b>——森罗之核单件（LEGENDARY×3.2 + mana/resistance/strength）
+     * 自身就贡献约 15.6~18，恒过阈值，判据实际永远等价于「用过核」（WQ-70①）。
+     * 完整判据见 {@link #afterTakeResult}：含核 + 材料平均档位 LEGENDARY + 本阈值。
      */
     private static final double LEGENDARY_POWER_THRESHOLD = 12.0;
 
@@ -222,18 +223,25 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         }
         // 进程终点「以核铸相」：材料含森罗之核（Boss 独占掉落）**且产物确实够传奇**。
         // 必须在扣料之前检测——扣完就看不到核了。
-        // 只看材料有核是不够的：成就文案写的是「锻造出一件传奇相器」，
-        // 拿核配一堆垃圾料做出个弱产物也算达成的话，文案与实际就对不上了。
+        // 「够传奇」= 材料平均档位达 LEGENDARY 且产物 powerScore 过阈：
+        // 只看 powerScore 是恒真的（核单件就 15.6~18）；只看「有核」更不行——
+        // 成就文案写的是「锻造出一件传奇相器」，拿核配一堆普通废料做出的
+        // 非传奇产物算达成的话，文案与实际就对不上了（WQ-70①）。
         if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
             boolean usedCore = false;
+            List<String> materialNames = new ArrayList<>();
             for (int i = 0; i < MATERIAL_SLOTS; i++) {
-                if (container.getItem(i).is(com.qianxiang.QianxiangItems.WARDEN_CORE.get())) {
+                ItemStack s = container.getItem(i);
+                if (s.isEmpty()) continue;
+                if (s.is(com.qianxiang.QianxiangItems.WARDEN_CORE.get())) {
                     usedCore = true;
-                    break;
                 }
+                materialNames.add(BuiltInRegistries.ITEM.getKey(s.getItem()).toString());
             }
             var attrs = resultStack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
-            boolean legendaryGrade = attrs != null && attrs.powerScore() >= LEGENDARY_POWER_THRESHOLD;
+            boolean legendaryGrade = attrs != null
+                    && attrs.powerScore() >= LEGENDARY_POWER_THRESHOLD
+                    && averageMaterialTier(materialNames) == com.qianxiang.phase.PhaseTier.LEGENDARY;
             if (usedCore && legendaryGrade) {
                 com.qianxiang.QianxiangAdvancements.grant(
                         serverPlayer, com.qianxiang.QianxiangAdvancements.FORGE_LEGENDARY);
@@ -313,6 +321,25 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 记录相谱失败（不阻断合成）", t);
         }
+    }
+
+    /**
+     * 材料平均档位（材料库查不到的物品跳过——它们本来也不进相谱强度）。
+     * 用于 forge_legendary：核 + 普通废料的平均档会被拖到 LEGENDARY 以下。
+     */
+    private static com.qianxiang.phase.PhaseTier averageMaterialTier(List<String> materialNames) {
+        double sum = 0;
+        int count = 0;
+        for (String name : materialNames) {
+            var opt = com.qianxiang.ai.MaterialLibrary.find(name);
+            if (opt.isEmpty() || opt.get().tier() == null) continue;
+            sum += opt.get().tier().ordinal();
+            count++;
+        }
+        if (count == 0) return com.qianxiang.phase.PhaseTier.COMMON;
+        int avg = (int) Math.round(sum / count);
+        var values = com.qianxiang.phase.PhaseTier.values();
+        return values[Math.clamp(avg, 0, values.length - 1)];
     }
 
     /**

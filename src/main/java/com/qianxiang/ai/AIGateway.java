@@ -89,7 +89,33 @@ public final class AIGateway {
 
     private static final Object LOG_LOCK = new Object();
 
+    /**
+     * jsonl 落盘专用单线程（WQ-71）：所有 appendLine 统一投递到这里——
+     * 主线程（采纳回写）与 AI 线程（请求日志）都不再做文件 IO，
+     * 「jsonl 写入不影响主流程」的保证重新成立；单线程天然保序，
+     * LOG_LOCK 只剩轮转与写入之间的互斥。
+     */
+    private static final java.util.concurrent.ExecutorService LOG_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "qianxiang-ai-log");
+                t.setDaemon(true);
+                return t;
+            });
+
     private AIGateway() {}
+
+    /** 关服时停日志线程池（ForgeTableAIHandler.onServerStopping 调用）。 */
+    public static void shutdownLogExecutor() {
+        LOG_EXECUTOR.shutdownNow();
+    }
+
+    /** 测试钩子：等日志队列排空（断言 jsonl 前调用，最多等 2 秒）。 */
+    public static void flushLogForTest() {
+        try {
+            LOG_EXECUTOR.submit(() -> { }).get(2, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception ignored) {
+        }
+    }
 
     /**
      * 带缓存/重试/日志的 chat。契约同 {@link AIClient#chat}：永不抛，失败返回 empty。
@@ -342,7 +368,9 @@ public final class AIGateway {
         }
     }
 
-    /** 追加一行 jsonl；任何 IO 失败只记 debug，绝不影响主流程。 */
+    /** 追加一行 jsonl（HTTP 传输层结果）；任何 IO 失败只记 debug，绝不影响主流程。
+     *  event = "http"：只反映「请求是否拿到内容」，业务结果（几个方案/是否兜底）见
+     *  {@link #logRequest} 的 "request" 行——同一 req_id 串联。 */
     private static void log(AIConfig cfg, String userMessage, boolean cached, boolean retried,
                             boolean ok, long latencyMs, String reqId, String rawResponse) {
         try {
@@ -355,7 +383,7 @@ public final class AIGateway {
             o.addProperty("ok", ok);
             o.addProperty("latency_ms", latencyMs);
             o.addProperty("req_id", reqId);
-            o.addProperty("event", "request");
+            o.addProperty("event", "http");
             String want = userMessage == null ? "" : userMessage;
             o.addProperty("want", want.length() > 200 ? want.substring(0, 200) : want);
             if (rawResponse != null) {
@@ -365,6 +393,36 @@ public final class AIGateway {
             appendLine(o);
         } catch (Exception e) {
             Qianxiang.LOGGER.debug("[Qianxiang] AI 日志写入失败：{}", e.toString());
+        }
+    }
+
+    /**
+     * 业务层「请求」行（WQ-71 字段补齐）：handler 在 ask 完成后调用（AI 线程），
+     * 带 player_uuid / proposal_count / dropped_materials / fallback_reason——
+     * 此前只有 HTTP 层 ok 标志，「解析失败与成功在日志里长一样」。
+     * 落盘走 {@link #LOG_EXECUTOR}，调用线程零文件 IO。
+     */
+    public static void logRequest(String reqId, String want, String playerUuid,
+                                  int proposalCount, java.util.List<String> droppedMaterials,
+                                  String fallbackReason) {
+        try {
+            JsonObject o = new JsonObject();
+            o.addProperty("ts", java.time.Instant.now().toString());
+            o.addProperty("req_id", reqId == null ? "" : reqId);
+            o.addProperty("event", "request");
+            String w = want == null ? "" : want;
+            o.addProperty("want", w.length() > 200 ? w.substring(0, 200) : w);
+            o.addProperty("player_uuid", playerUuid == null ? "" : playerUuid);
+            o.addProperty("proposal_count", proposalCount);
+            var arr = new com.google.gson.JsonArray();
+            if (droppedMaterials != null) {
+                droppedMaterials.forEach(arr::add);
+            }
+            o.add("dropped_materials", arr);
+            o.addProperty("fallback_reason", fallbackReason == null ? "" : fallbackReason);
+            appendLine(o);
+        } catch (Exception e) {
+            Qianxiang.LOGGER.debug("[Qianxiang] AI 请求日志写入失败：{}", e.toString());
         }
     }
 
@@ -391,10 +449,21 @@ public final class AIGateway {
         }
     }
 
-    /** 追加一行 jsonl，带三代轮转。 */
+    /** 追加一行 jsonl，带三代轮转。实际文件 IO 全部在 {@link #LOG_EXECUTOR} 执行，
+     *  调用方（主线程/AI 线程）只做一次队列投递。 */
     private static void appendLine(JsonObject o) {
+        String line = o + System.lineSeparator();
         try {
-            String line = o + System.lineSeparator();
+            LOG_EXECUTOR.submit(() -> writeLine(line));
+        } catch (Exception e) {
+            // 执行器已停（关服尾段）：丢一条日志可接受，绝不影响主流程
+            Qianxiang.LOGGER.debug("[Qianxiang] AI 日志投递失败：{}", e.toString());
+        }
+    }
+
+    /** 日志线程上的实际写入（轮转 + append，LOG_LOCK 互斥）。 */
+    private static void writeLine(String line) {
+        try {
             synchronized (LOG_LOCK) {
                 Files.createDirectories(LOG_PATH.getParent());
                 if (Files.exists(LOG_PATH) && Files.size(LOG_PATH) > LOG_ROTATE_BYTES) {

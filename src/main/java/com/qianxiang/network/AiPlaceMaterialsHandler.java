@@ -67,15 +67,10 @@ public final class AiPlaceMaterialsHandler {
                 return;
             }
 
-            PlaceResult result = placeMaterials(player, container, fillOrder, wanted);
+            PlaceResult result = placeMaterials(player, container, fillOrder, wanted, payload.replace());
 
             if (result.placedCount() > 0) {
-                // 闭合「建议 → 采纳」链路：玩家真的把 AI 推荐的材料放上台了。
-                // 这是判断 AI 质量的唯一客观信号（调用次数说明不了任何问题）。
-                com.qianxiang.ai.AIGateway.logAdoption(
-                        com.qianxiang.ai.AIGateway.currentRequestId(),
-                        payload.materialNames(),
-                        player.getUUID().toString());
+                logAdoption(player, payload, result);
                 menu.slotsChanged(container);
                 container.setChanged();
                 player.getInventory().setChanged();
@@ -94,6 +89,20 @@ public final class AiPlaceMaterialsHandler {
     }
 
     /**
+     * 闭合「建议 → 采纳」链路（WQ-71）：reqId 用客户端回传的真 id
+     * （主线程读 ThreadLocal 是假 id，全服共用一个）；材料只记实际放入的
+     * （此前放进 1 件也记整个请求名单，over-report）。抽出来供 GameTest 直接驱动。
+     */
+    public static void logAdoption(Player player, AiPlaceMaterialsPayload payload, PlaceResult result) {
+        List<String> placedNames = new ArrayList<>();
+        for (Item item : result.placed()) {
+            placedNames.add(BuiltInRegistries.ITEM.getKey(item).toString());
+        }
+        com.qianxiang.ai.AIGateway.logAdoption(
+                payload.reqId(), placedNames, player.getUUID().toString());
+    }
+
+    /**
      * 把 wanted 逐件移入材料槽（每件 1 个）。
      * <p>
      * 取料按序翻 {@link com.qianxiang.phase.MaterialSources}：玩家背包 → 旅行背包 →
@@ -103,6 +112,19 @@ public final class AiPlaceMaterialsHandler {
      */
     public static PlaceResult placeMaterials(Player player, net.minecraft.world.Container container,
                                              int[] fillOrder, List<Item> wanted) {
+        return placeMaterials(player, container, fillOrder, wanted, false);
+    }
+
+    /**
+     * 把 wanted 逐件移入材料槽（每件 1 个），{@code replace}=true 时先把材料槽里的
+     * 现有材料全部退回玩家背包（WQ-75：连点两张方案卡 = 替换而非叠加，
+     * 产物强度才与卡片摘要一致）。
+     */
+    public static PlaceResult placeMaterials(Player player, net.minecraft.world.Container container,
+                                             int[] fillOrder, List<Item> wanted, boolean replace) {
+        if (replace) {
+            returnExistingMaterials(player, container, fillOrder);
+        }
         net.minecraft.core.BlockPos tablePos =
                 container instanceof net.minecraft.world.level.block.entity.BlockEntity be
                         ? be.getBlockPos() : player.blockPosition();
@@ -140,6 +162,19 @@ public final class AiPlaceMaterialsHandler {
             placed.add(item);
         }
         return new PlaceResult(placed.size(), List.copyOf(placed), List.copyOf(missing));
+    }
+
+    /** 替换语义的先手：材料槽现有物品全部退回玩家背包（背包满则掉脚下，不丢物品）。 */
+    private static void returnExistingMaterials(Player player, net.minecraft.world.Container container,
+                                                int[] fillOrder) {
+        for (int slot : fillOrder) {
+            ItemStack existing = container.getItem(slot);
+            if (existing.isEmpty()) continue;
+            container.setItem(slot, ItemStack.EMPTY);
+            if (!player.getInventory().add(existing)) {
+                player.drop(existing, false);
+            }
+        }
     }
 
     /** 按序遍历来源抽取至多 count 个；全部来源都没有返回空栈。 */
