@@ -38,6 +38,37 @@ public final class FactionEventHandler {
         }
 
         LivingEntity victim = event.getEntity();
+
+        // 熟练度 XP：主手持有物品击杀（受害者非玩家）即记，未开启不攒（Helper 内部判）。
+        // 守望者三轨各 +100；其余按目标最大生命 ×0.5（至少 1）。
+        try {
+            if (!(victim instanceof net.minecraft.world.entity.player.Player)) {
+                if (victim instanceof com.qianxiang.entity.QianxiangMyriadWarden) {
+                    com.qianxiang.cap.ProficiencyHelper.addXp(
+                            player, com.qianxiang.cap.ProficiencyTrack.COMBAT,
+                            com.qianxiang.cap.ProficiencyHelper.WARDEN_XP_EACH_TRACK);
+                    com.qianxiang.cap.ProficiencyHelper.addXp(
+                            player, com.qianxiang.cap.ProficiencyTrack.ARCANE,
+                            com.qianxiang.cap.ProficiencyHelper.WARDEN_XP_EACH_TRACK);
+                    com.qianxiang.cap.ProficiencyHelper.addXp(
+                            player, com.qianxiang.cap.ProficiencyTrack.CRAFT,
+                            com.qianxiang.cap.ProficiencyHelper.WARDEN_XP_EACH_TRACK);
+                } else {
+                    com.qianxiang.cap.ProficiencyHelper.addXp(
+                            player, com.qianxiang.cap.ProficiencyTrack.COMBAT,
+                            Math.max(1, (int) (victim.getMaxHealth()
+                                    * com.qianxiang.cap.ProficiencyHelper.KILL_XP_PER_MAX_HEALTH)));
+                }
+                // harvest 节点：击杀回血 2
+                int heal = com.qianxiang.cap.ProficiencyHelper.killHeal(player);
+                if (heal > 0 && player.isAlive()) {
+                    player.heal(heal);
+                }
+            }
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 熟练度击杀 XP 记账失败（不影响烙印）：{}", t.toString());
+        }
+
         if (!isSlaughterTarget(victim)) {
             return;
         }

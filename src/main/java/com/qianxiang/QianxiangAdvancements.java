@@ -19,6 +19,8 @@ public final class QianxiangAdvancements {
     public static final String FIRST_CAST = "story/first_cast";
     /** 第一次从卷轴学会法术。 */
     public static final String FIRST_SCROLL = "story/first_scroll";
+    /** 开启修行（熟练度）。 */
+    public static final String CULTIVATION = "story/cultivation";
     /** 用森罗之核锻出传奇相器（进程终点）。 */
     public static final String FORGE_LEGENDARY = "story/forge_legendary";
 

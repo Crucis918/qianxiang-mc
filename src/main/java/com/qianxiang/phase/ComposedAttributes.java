@@ -568,6 +568,21 @@ public record ComposedAttributes(
         );
     }
 
+    /** 覆盖耐久，其余字段保持不变（master 节点「产物耐久 +15%」用）。 */
+    public ComposedAttributes withDurability(int durability) {
+        if (this.durability == durability) return this;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
+                this.powerScore,
+                this.appearance,
+                this.extraEffects
+        );
+    }
+
     /** 固定 13 算子的扩展效果等级（ExtraEffects 子记录的便捷直达）。 */
     public EffectLevels effects() {
         return extraEffects.effects();

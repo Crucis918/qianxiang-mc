@@ -103,6 +103,16 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
         } else {
             composition = SpellScrollComposer.compose(materials);
         }
+        // midas 点金：10% 卷轴 power+1（未分配节点则原样）
+        if (composition.valid() && playerInventory.player != null) {
+            var spell = com.qianxiang.cap.ProficiencyHelper.applyMidas(
+                    playerInventory.player, composition.spell());
+            if (spell != composition.spell()) {
+                composition.result().set(
+                        com.qianxiang.QianxiangDataComponents.CUSTOM_SPELL.get(), spell);
+                composition = new SpellScrollComposer.Composition(composition.result(), spell);
+            }
+        }
         this.container.setItem(RESULT_SLOT, composition.result());
 
         if (this.container instanceof AlchemyTableBlockEntity be) {
@@ -151,6 +161,12 @@ public class AlchemyTableMenu extends AbstractContainerMenu {
             String entry = String.format("于炼金台炼得卷轴「%s」", spellName);
             SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
             player.setData(QianxiangAttachments.SAGA_DATA, saga.withEntry(entry).withBumpedPosition(1));
+            // 熟练度 XP：炼金 15（既有节流内，未开启不攒）
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                com.qianxiang.cap.ProficiencyHelper.addXp(serverPlayer,
+                        com.qianxiang.cap.ProficiencyTrack.CRAFT,
+                        com.qianxiang.cap.ProficiencyHelper.ALCHEMY_XP);
+            }
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 记录相谱失败（不阻断炼金）", t);
         }

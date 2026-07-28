@@ -1,0 +1,13 @@
+{
+  "parent": "qianxiang:story/alchemy_table",
+  "display": {
+    "icon": {"id": "minecraft:lapis_lazuli"},
+    "title": {"translate": "advancement.qianxiang.cultivation.title"},
+    "description": {"translate": "advancement.qianxiang.cultivation.desc"},
+    "frame": "task"
+  },
+  "rewards": {"experience": 25},
+  "criteria": {
+    "unlock_proficiency": {"trigger": "minecraft:impossible"}
+  }
+}

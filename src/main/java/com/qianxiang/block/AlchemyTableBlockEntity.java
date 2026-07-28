@@ -225,6 +225,19 @@ public class AlchemyTableBlockEntity extends BlockEntity implements WorldlyConta
         }
         var sel = selectionOf(viewer);
         var composition = com.qianxiang.phase.SpellScrollComposer.compose(materials, sel.spellJson());
+        // midas 点金（viewer 在场时；10% power+1，未分配原样）
+        if (composition.valid() && viewer != null) {
+            var owner = level.getPlayerByUUID(viewer);
+            if (owner != null) {
+                var spell = com.qianxiang.cap.ProficiencyHelper.applyMidas(owner, composition.spell());
+                if (spell != composition.spell()) {
+                    composition.result().set(
+                            com.qianxiang.QianxiangDataComponents.CUSTOM_SPELL.get(), spell);
+                    composition = new com.qianxiang.phase.SpellScrollComposer.Composition(
+                            composition.result(), spell);
+                }
+            }
+        }
         setItem(AlchemyTableMenu.RESULT_SLOT, composition.result());
         updateCraftingState();
     }

@@ -44,7 +44,8 @@ public final class ForgeTableAIHandler {
                 return;
             }
             if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
-                    player, "ai_request", AI_REQUEST_COOLDOWN_MS)) {
+                    player, "ai_request", (long) (AI_REQUEST_COOLDOWN_MS
+                            * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
                 return;
             }
             setBlockEntityState(player, ForgeTableBlockEntity.STATE_PARSING);

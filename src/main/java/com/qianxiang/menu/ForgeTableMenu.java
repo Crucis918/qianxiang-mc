@@ -188,6 +188,16 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         } else {
             composition = ForgeComposer.compose(materials);
         }
+        // 熟练度技艺节点：artisan 产物强度 +5% / master 耐久 +15%（未分配均中性）
+        if (composition.valid() && playerInventory.player != null) {
+            composition = new ForgeComposer.Composition(composition.result(),
+                    com.qianxiang.cap.ProficiencyHelper.applyCraftBonuses(
+                            composition.attributes(), playerInventory.player));
+            if (!composition.result().isEmpty()) {
+                composition.result().set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                        composition.attributes());
+            }
+        }
         this.container.setItem(RESULT_SLOT, composition.result());
 
         if (this.container instanceof ForgeTableBlockEntity be) {
@@ -294,6 +304,12 @@ public class ForgeTableMenu extends AbstractContainerMenu {
             String entry = String.format("以相之料锻得「%s」，强度 %.1f", name, power);
             SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
             player.setData(QianxiangAttachments.SAGA_DATA, saga.withEntry(entry).withBumpedPosition(1));
+            // 熟练度 XP：锻造 15（既有节流内，未开启不攒）
+            if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+                com.qianxiang.cap.ProficiencyHelper.addXp(serverPlayer,
+                        com.qianxiang.cap.ProficiencyTrack.CRAFT,
+                        com.qianxiang.cap.ProficiencyHelper.FORGE_XP);
+            }
         } catch (Throwable t) {
             Qianxiang.LOGGER.warn("[Qianxiang] 记录相谱失败（不阻断合成）", t);
         }

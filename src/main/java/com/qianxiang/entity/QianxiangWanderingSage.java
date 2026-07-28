@@ -2,6 +2,7 @@ package com.qianxiang.entity;
 
 import com.qianxiang.QianxiangItems;
 import com.qianxiang.QianxiangMaterials;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -64,5 +65,44 @@ public class QianxiangWanderingSage extends QianxiangNPCBase {
     @Override
     protected String getPriceHintKey() {
         return "qianxiang.npc.wandering_sage.price";
+    }
+
+    // ============================ 熟练度：开启 / 开树（潜行+右键） ============================
+
+    /** 开启确认窗：玩家 UUID → 首次提示时刻（5 秒内再次潜行右键即确认开启）。 */
+    private static final java.util.Map<java.util.UUID, Long> UNLOCK_CONFIRM_WINDOW =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long UNLOCK_CONFIRM_MS = 5_000L;
+
+    @Override
+    protected boolean onSneakInteract(ServerPlayer player) {
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        if (!data.unlocked()) {
+            // 未开启：5 秒确认窗 —— 首击提示，窗内再击确认开启
+            Long first = UNLOCK_CONFIRM_WINDOW.get(player.getUUID());
+            long now = System.currentTimeMillis();
+            if (first != null && now - first < UNLOCK_CONFIRM_MS) {
+                UNLOCK_CONFIRM_WINDOW.remove(player.getUUID());
+                com.qianxiang.cap.ProficiencyHelper.unlock(player);
+                var saga = player.getData(com.qianxiang.cap.QianxiangAttachments.SAGA_DATA);
+                player.setData(com.qianxiang.cap.QianxiangAttachments.SAGA_DATA,
+                        saga.withEntry("§d[修行] §r拜相师开启修行之路"));
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                        "qianxiang.proficiency.sage.congrats"));
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
+                        player, new com.qianxiang.network.OpenSkillTreePayload());
+            } else {
+                UNLOCK_CONFIRM_WINDOW.put(player.getUUID(), now);
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                        "qianxiang.proficiency.sage.offer"));
+            }
+            return true;
+        }
+        // 已开启：短对话 + 打开技能树
+        player.sendSystemMessage(net.minecraft.network.chat.Component.translatable(
+                "qianxiang.proficiency.sage.open_tree"));
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
+                player, new com.qianxiang.network.OpenSkillTreePayload());
+        return true;
     }
 }

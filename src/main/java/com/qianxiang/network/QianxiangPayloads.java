@@ -96,6 +96,28 @@ public final class QianxiangPayloads {
         registrar.playToServer(RitualStartPayload.TYPE, RitualStartPayload.STREAM_CODEC,
                 (payload, context) -> RitualStartHandler.handle(payload, context));
 
+        // 客户端→服务端：熟练度——分配节点 / 洗点 / 主动技能（战吼/涌动）。
+        registrar.playToServer(AllocateNodePayload.TYPE, AllocateNodePayload.STREAM_CODEC,
+                (payload, context) -> ProficiencyHandlers.handleAllocate(payload, context));
+        registrar.playToServer(RespecPayload.TYPE, RespecPayload.STREAM_CODEC,
+                (payload, context) -> ProficiencyHandlers.handleRespec(payload, context));
+        registrar.playToServer(ActivateSkillPayload.TYPE, ActivateSkillPayload.STREAM_CODEC,
+                (payload, context) -> ProficiencyHandlers.handleActivateSkill(payload, context));
+
+        // 服务端→客户端：全量同步熟练度；打开技能树界面（下一步客户端接 GUI）。
+        registrar.playToClient(ProficiencySyncPayload.TYPE, ProficiencySyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientProficiencyData.receive(payload);
+                    }
+                }));
+        registrar.playToClient(OpenSkillTreePayload.TYPE, OpenSkillTreePayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientProficiencyData.onOpenSkillTree();
+                    }
+                }));
+
         // 客户端→服务端：蓝图保存 / 使用 / 列表请求。
         registrar.playToServer(BlueprintSavePayload.TYPE, BlueprintSavePayload.STREAM_CODEC,
                 (payload, context) -> BlueprintServerHandler.handleSave(payload, context));

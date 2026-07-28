@@ -74,4 +74,16 @@ public final class QianxiangAttachments {
                     .serialize(PlayerFactionData.CODEC)
                     .copyOnDeath()
                     .build());
+
+    /**
+     * 玩家熟练度数据：三轨 xp/等级/技能点、已分配节点、相师开启标记。
+     *
+     * <p>{@code copyOnDeath()}：死亡后熟练度保留（与相谱/位格同为玩家铭刻）。</p>
+     */
+    public static final DeferredHolder<AttachmentType<?>, AttachmentType<PlayerProficiencyData>> PLAYER_PROFICIENCY_DATA =
+            ATTACHMENT_TYPES.register("player_proficiency_data",
+                    () -> AttachmentType.builder(PlayerProficiencyData::empty)
+                            .serialize(PlayerProficiencyData.CODEC)
+                            .copyOnDeath()
+                            .build());
 }

@@ -94,8 +94,11 @@ public abstract class QianxiangNPCBase extends Villager {
             return InteractionResult.PASS;
         }
 
-        // 潜行 + 右键：只对话（旧 MVP 路径），不开交易
+        // 潜行 + 右键：子类钩子优先（流浪相师=熟练度开启/开树），否则只对话（旧 MVP 路径），不开交易
         if (player.isSecondaryUseActive()) {
+            if (onSneakInteract(serverPlayer)) {
+                return InteractionResult.SUCCESS;
+            }
             sendGreeting(serverPlayer);
             return InteractionResult.SUCCESS;
         }
@@ -135,6 +138,10 @@ public abstract class QianxiangNPCBase extends Villager {
             PlayerFactionData before = player.getData(QianxiangAttachments.FACTION_DATA);
             PlayerFactionData after = before.withDiplomacy(1).updateTitle();
             player.setData(QianxiangAttachments.FACTION_DATA, after);
+            // 熟练度 XP：交易 5（既有节流内，未开启不攒）
+            com.qianxiang.cap.ProficiencyHelper.addXp(player,
+                    com.qianxiang.cap.ProficiencyTrack.CRAFT,
+                    com.qianxiang.cap.ProficiencyHelper.TRADE_XP);
 
             SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);
             String npcName = Component.translatable(getType().getDescriptionId()).getString();
@@ -148,6 +155,14 @@ public abstract class QianxiangNPCBase extends Villager {
 
     /** 子类填充自己的商品表（首次交互时调用一次，随实体 NBT 持久化）。 */
     protected abstract void populateTrades(MerchantOffers offers);
+
+    /**
+     * 潜行+右键的子类钩子：返回 true = 已消费（跳过普通对话）。
+     * 默认 false——只有流浪相师（熟练度开启/开树）覆写，深渊商人保持原对话。
+     */
+    protected boolean onSneakInteract(ServerPlayer player) {
+        return false;
+    }
 
     /** 子类提供自己的对话 key 前缀，如 {@code qianxiang.npc.wandering_sage}。 */
     protected abstract String getDialogPrefix();
@@ -191,7 +206,9 @@ public abstract class QianxiangNPCBase extends Villager {
     private void applyReputationPricing(ServerPlayer player, MerchantOffers offers) {
         int pct;
         try {
-            pct = discountPercent(player.getData(QianxiangAttachments.FACTION_DATA));
+            // 声望/烙印折扣 + 熟练度 network 节点（交易 5% 折扣；未分配 = 0）
+            pct = discountPercent(player.getData(QianxiangAttachments.FACTION_DATA))
+                    + com.qianxiang.cap.ProficiencyHelper.tradeDiscount(player);
         } catch (Exception e) {
             pct = 0;
         }

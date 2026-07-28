@@ -280,6 +280,19 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
         var sel = selectionOf(viewer);
         var composition = com.qianxiang.phase.ForgeComposer.compose(
                 materials, sel.spellJson(), sel.customName(), sel.movesetJson());
+        // 熟练度技艺节点加成（viewer 在场时；artisan 强度 / master 耐久，未分配中性）
+        if (composition.valid() && viewer != null) {
+            var owner = level.getPlayerByUUID(viewer);
+            if (owner != null) {
+                composition = new com.qianxiang.phase.ForgeComposer.Composition(composition.result(),
+                        com.qianxiang.cap.ProficiencyHelper.applyCraftBonuses(
+                                composition.attributes(), owner));
+                if (!composition.result().isEmpty()) {
+                    composition.result().set(com.qianxiang.QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(),
+                            composition.attributes());
+                }
+            }
+        }
         setItem(ForgeTableMenu.RESULT_SLOT, composition.result());
         updateCraftingState();
     }

@@ -39,6 +39,13 @@ public final class SpellHudRenderer {
 
         renderCooldownBar(graphics, mc.player, x, y + 11);
         renderLastCast(graphics, mc, data, x, y + 20);
+        // 战吼生效剩余秒数（ProficiencySyncPayload 快照；0 = 未生效）
+        if (ClientProficiencyData.warcryActiveMs > 0) {
+            graphics.drawString(mc.font,
+                    Component.translatable("qianxiang.hud.warcry_active",
+                            (ClientProficiencyData.warcryActiveMs + 999) / 1000),
+                    x, y + 29, 0xFFAA00, false);
+        }
     }
 
     /** 「上次施放：X」行（无记录不显示；法术已忘记则只显示 id 路径）。 */

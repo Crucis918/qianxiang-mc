@@ -43,7 +43,8 @@ public final class AlchemyTableAIHandler {
             return;
         }
         if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
-                player, "ai_request", AI_REQUEST_COOLDOWN_MS)) {
+                player, "ai_request", (long) (AI_REQUEST_COOLDOWN_MS
+                        * com.qianxiang.cap.ProficiencyHelper.aiCooldownMult(player)))) {
             return;
         }
         if (menu.getContainer() instanceof AlchemyTableBlockEntity be) {

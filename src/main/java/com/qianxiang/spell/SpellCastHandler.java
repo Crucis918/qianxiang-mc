@@ -94,17 +94,24 @@ public final class SpellCastHandler {
     public static boolean castCustomSpell(CustomSpell spell, ServerPlayer serverPlayer) {
         PlayerSpellData data = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
 
+        // 熟练度修正：蓝耗 ×mana 节点、冷却 ×quickcool、强度 ×focus/overload（未分配均中性）
+        double manaCostMult = com.qianxiang.cap.ProficiencyHelper.manaCostMult(serverPlayer);
+        int effectiveCost = (int) Math.ceil(spell.manaCost() * manaCostMult);
+        int effectiveCooldown = (int) Math.round(spell.cooldownTicks()
+                * com.qianxiang.cap.ProficiencyHelper.cooldownMult(serverPlayer));
+
         if (data.isOnCooldown(spell.id())) {
             notifyThrottled(serverPlayer, "qianxiang.spell.cooldown");
             return false;
         }
-        if (data.currentMana() < spell.manaCost()) {
+        if (data.currentMana() < effectiveCost) {
             notifyThrottled(serverPlayer, "qianxiang.spell.no_mana");
             return false;
         }
 
         // 增幅器结算：主手+副手法杖/魔法书的法术伤害加成合并为一个倍率传入效果引擎。
-        float damageMult = (float) AmplifierHelper.damageMultiplier(serverPlayer);
+        float damageMult = (float) (AmplifierHelper.damageMultiplier(serverPlayer)
+                * com.qianxiang.cap.ProficiencyHelper.spellDamageMult(serverPlayer, spell.power()));
         try {
             SpellEffectEngine.cast(spell, serverPlayer, damageMult);
         } catch (Throwable t) {
@@ -114,14 +121,22 @@ public final class SpellCastHandler {
 
         // 重读 attachment 再扣蓝：引擎结算可能已动过法力
         // （blood 血换蓝的 +20、settleCast 退款），用旧快照扣减会把它们整个抹掉。
+        // ripple 节点：10% 概率本次免蓝。
+        boolean freeCast = com.qianxiang.cap.ProficiencyHelper.rippleFreeChance(serverPlayer) > 0
+                && serverPlayer.level().getRandom().nextDouble()
+                < com.qianxiang.cap.ProficiencyHelper.rippleFreeChance(serverPlayer);
         PlayerSpellData after = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
         PlayerSpellData next = after
-                .withMana(after.currentMana() - spell.manaCost())
-                .setCooldown(spell.id(), spell.cooldownTicks());
+                .withMana(after.currentMana() - (freeCast ? 0 : effectiveCost))
+                .setCooldown(spell.id(), effectiveCooldown);
         if (next != after) {
             serverPlayer.setData(QianxiangAttachments.PLAYER_SPELL_DATA, next);
         }
         sync(serverPlayer);
+        // 熟练度 XP：施法成功按基础蓝耗 ×0.6（至少 1），未开启不攒
+        com.qianxiang.cap.ProficiencyHelper.addXp(serverPlayer,
+                com.qianxiang.cap.ProficiencyTrack.ARCANE,
+                Math.max(1, (int) com.qianxiang.cap.ProficiencyHelper.castXpOf(spell.manaCost())));
         com.qianxiang.QianxiangAdvancements.grant(serverPlayer,
                 com.qianxiang.QianxiangAdvancements.FIRST_CAST);
         return true;

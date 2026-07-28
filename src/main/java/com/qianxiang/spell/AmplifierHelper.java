@@ -38,10 +38,11 @@ public final class AmplifierHelper {
                 + amplifierOf(player.getOffhandItem()).manaBonus;
     }
 
-    /** 有效法力上限：{@code data.maxMana() + manaBonus(player)}（下限 1，防御负值配置）。 */
+    /** 有效法力上限：{@code data.maxMana() + manaBonus(player) + well 节点加成（下限 1，防御负值配置）。 */
     public static int effectiveMaxMana(Player player, PlayerSpellData data) {
         int base = data == null ? PlayerSpellData.DEFAULT_MAX_MANA : data.maxMana();
-        return Math.max(1, base + manaBonus(player));
+        return Math.max(1, base + manaBonus(player)
+                + com.qianxiang.cap.ProficiencyHelper.maxManaBonus(player));
     }
 
     private record Amp(double spellPowerPercent, int manaBonus) {

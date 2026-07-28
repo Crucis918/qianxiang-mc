@@ -1814,6 +1814,225 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
+    // ============================ 熟练度（服务端核心） ============================
+
+    /** 击杀记 combat XP：大生命目标给更多；未开启不攒。 */
+    @GameTest(template = "item_concept")
+    public static void combatXpAccruesOnKill(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+
+        // 未开启：击杀不攒 xp
+        var zombie1 = helper.spawn(net.minecraft.world.entity.EntityType.ZOMBIE,
+                new net.minecraft.core.BlockPos(1, 2, 1));
+        com.qianxiang.event.FactionEventHandler.onLivingDeath(new net.neoforged.neoforge.event.entity.living.LivingDeathEvent(
+                zombie1, player.damageSources().playerAttack(player)));
+        var locked = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(locked.combatXp() == 0, "未开启熟练度时击杀不应攒 xp，实际 " + locked.combatXp());
+
+        // 开启后：僵尸(20 血)→10xp；猪(10 血)→5xp，大生命给更多
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        var zombie2 = helper.spawn(net.minecraft.world.entity.EntityType.ZOMBIE,
+                new net.minecraft.core.BlockPos(1, 2, 1));
+        com.qianxiang.event.FactionEventHandler.onLivingDeath(new net.neoforged.neoforge.event.entity.living.LivingDeathEvent(
+                zombie2, player.damageSources().playerAttack(player)));
+        var afterZombie = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(afterZombie.combatXp() == 10,
+                "击杀 20 血僵尸应得 10 xp（20×0.5），实际 " + afterZombie.combatXp());
+
+        var pig = helper.spawn(net.minecraft.world.entity.EntityType.PIG,
+                new net.minecraft.core.BlockPos(1, 2, 1));
+        com.qianxiang.event.FactionEventHandler.onLivingDeath(new net.neoforged.neoforge.event.entity.living.LivingDeathEvent(
+                pig, player.damageSources().playerAttack(player)));
+        var afterPig = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(afterPig.combatXp() == 15,
+                "再击杀 10 血猪应累计 15 xp，实际 " + afterPig.combatXp());
+        helper.assertTrue(afterPig.combatXp() > 10, "大生命目标应给更多 xp（正+负双断言）");
+        helper.succeed();
+    }
+
+    /** 施法记 arcane XP：真实 cast 路径 → xp == 基础蓝耗 ×0.6（±1）。 */
+    @GameTest(template = "item_concept")
+    public static void arcaneXpFromCast(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        player.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA)
+                        .learn(com.qianxiang.spell.CustomSpell.FIREBALL));
+
+        helper.assertTrue(com.qianxiang.spell.SpellCastHandler.castLearnedSpell(
+                player, com.qianxiang.spell.CustomSpell.FIREBALL.id().toString()), "施法应成功");
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        int expected = Math.max(1, (int) (com.qianxiang.spell.CustomSpell.FIREBALL.manaCost() * 0.6));
+        helper.assertTrue(Math.abs(data.arcaneXp() - expected) <= 1,
+                "施法 xp 应为 " + expected + "（蓝耗×0.6），实际 " + data.arcaneXp());
+        helper.succeed();
+    }
+
+    /** 升级发点：addXp 过阈值 → 等级 +1 且技能点 +1。 */
+    @GameTest(template = "item_concept")
+    public static void levelUpGrantsPoint(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        int threshold = com.qianxiang.cap.ProficiencyHelper.xpForLevel(1);
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.COMBAT, threshold);
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(data.combatLevel() == 1,
+                "xp 达 " + threshold + " 应升 1 级，实际 " + data.combatLevel());
+        helper.assertTrue(data.combatPoints() == 1,
+                "升级应发 1 技能点，实际 " + data.combatPoints());
+        helper.assertTrue(data.combatXp() == 0,
+                "升级消耗后余 xp 应为 0，实际 " + data.combatXp());
+        helper.succeed();
+    }
+
+    /** 分配校验：无点拒、前置不足拒（T2 无 T1）、合法点成功（正+负双断言）。 */
+    @GameTest(template = "item_concept")
+    public static void allocationValidation(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade1"),
+                "无技能点时点 blade1 应被拒");
+
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.COMBAT,
+                com.qianxiang.cap.ProficiencyHelper.xpForLevel(1));
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade2"),
+                "无 T1 时点 T2 的 blade2 应被拒（前置不足）");
+
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade1"),
+                "有点且 T1 无前置时点 blade1 应成功");
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(data.hasAllocated("blade1"), "分配后 allocated 应含 blade1");
+        helper.assertTrue(data.combatPoints() == 0,
+                "分配应扣 1 点（1-1=0），实际 " + data.combatPoints());
+        helper.succeed();
+    }
+
+    /** 被动效果落值：blade1→近战 ×1.05；mana1→蓝耗 ×0.92；well→有效上限 +10。 */
+    @GameTest(template = "item_concept")
+    public static void passiveEffectsApply(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+
+        // 未分配：全部中性
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.meleeDamageMult(player) == 1.0,
+                "未分配时近战倍率应为 1.0");
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.COMBAT,
+                com.qianxiang.cap.ProficiencyHelper.xpForLevel(1));
+        com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade1");
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.meleeDamageMult(player) == 1.05,
+                "blade1 应使近战倍率 1.05，实际 "
+                        + com.qianxiang.cap.ProficiencyHelper.meleeDamageMult(player));
+
+        // ARCANE 一次性给足两点的量（80+242=322 → 2 级 2 点），分别点 mana1 与 well
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.ARCANE, 500);
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "mana1"),
+                "mana1 应可分配");
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.manaCostMult(player) == 0.92,
+                "mana1 应使蓝耗 ×0.92，实际 "
+                        + com.qianxiang.cap.ProficiencyHelper.manaCostMult(player));
+
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "well"),
+                "well 应可分配");
+        int effectiveMax = com.qianxiang.spell.AmplifierHelper.effectiveMaxMana(player,
+                player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA));
+        helper.assertTrue(effectiveMax == 110,
+                "well 应使有效法力上限 100+10=110，实际 " + effectiveMax);
+        helper.succeed();
+    }
+
+    /** 洗点返还：allocated 清空、点数=等级返还、绿宝石 -10；无绿宝石拒。 */
+    @GameTest(template = "item_concept")
+    public static void respecRefunds(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        player.getInventory().clearContent();
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.COMBAT,
+                com.qianxiang.cap.ProficiencyHelper.xpForLevel(1));
+        com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade1");
+
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.respec(player),
+                "无 10 绿宝石时洗点应被拒");
+
+        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.respec(player),
+                "有 10 绿宝石时洗点应成功");
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(data.allocated().isEmpty(), "洗点后 allocated 应清空");
+        helper.assertTrue(data.combatPoints() == data.combatLevel(),
+                "洗点应返还点数=等级（" + data.combatLevel() + "），实际 " + data.combatPoints());
+        helper.assertTrue(countInInventory(player, Items.EMERALD) == 0,
+                "洗点应扣 10 绿宝石，实际剩余 " + countInInventory(player, Items.EMERALD));
+        helper.succeed();
+    }
+
+    /** 开启修行：unlock 幂等置位 + 成就数据存在；二次调用无副作用。 */
+    @GameTest(template = "item_concept")
+    public static void unlockGrantsCultivation(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        helper.assertTrue(!player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
+                .unlocked(), "初始应未开启");
+
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        helper.assertTrue(player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
+                .unlocked(), "unlock 后应已开启");
+
+        // 成就注册（cultivation.json 应加载）
+        helper.assertTrue(player.server.getAdvancements().get(
+                        net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(
+                                "qianxiang", "story/cultivation")) != null,
+                "cultivation 成就应已注册");
+
+        // 幂等：二次 unlock 不变且仍开启
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+        helper.assertTrue(player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
+                .unlocked(), "二次 unlock 后仍应开启（幂等无副作用）");
+        helper.succeed();
+    }
+
+    /** 主动技能校验：未解锁节点发包路径被拒（activate* 返回 false）；surge 解锁后回蓝。 */
+    @GameTest(template = "item_concept")
+    public static void activateSkillRejected(GameTestHelper helper) {
+        var player = mockServerPlayer(helper);
+        com.qianxiang.cap.ProficiencyHelper.unlock(player);
+
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.activateWarCry(player),
+                "未点 warcry 时释放应被拒");
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.activateSurge(player),
+                "未点 surge 时释放应被拒");
+
+        // 点 surge（T3：需任一 T2 + 轨 8 级）：一次给足 xp，铺 mana1(T1)→mana2(T2)→surge(T3)
+        com.qianxiang.cap.ProficiencyHelper.addXp(
+                player, com.qianxiang.cap.ProficiencyTrack.ARCANE, 9000);
+        var leveled = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        helper.assertTrue(leveled.arcaneLevel() >= 8,
+                "应达 8 级（T3 前置），实际 " + leveled.arcaneLevel());
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "mana1"),
+                "T1 mana1 应可分配");
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "mana2"),
+                "T2 mana2 应可分配（已有 T1）");
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.allocate(player, "surge"),
+                "T3 surge 应可分配（已有 T2 + 8 级）");
+        player.setData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA,
+                player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA)
+                        .withMana(50));
+        helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.activateSurge(player),
+                "已点 surge 后释放应成功");
+        int mana = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA)
+                .currentMana();
+        helper.assertTrue(mana == 90, "surge 应瞬回 40 蓝（50+40=90），实际 " + mana);
+
+        // 冷却：立即再放应被拒（90s 冷却）
+        helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.activateSurge(player),
+                "冷却中再放 surge 应被拒");
+        helper.succeed();
+    }
+
     // ============================ 工具 ============================
 
     /**

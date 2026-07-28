@@ -56,6 +56,15 @@ public final class BlueprintServerHandler {
             }
             BlueprintData data = BlueprintData.fromComposition(composition, materials, spellJson, movesetJson);
             BlueprintLibrary library = player.getData(QianxiangAttachments.BLUEPRINT_LIBRARY);
+            // 蓝图保存位：基础 8 + lore 节点 +4（满则拒存）
+            int maxSlots = com.qianxiang.cap.ProficiencyHelper.BASE_BLUEPRINT_SLOTS
+                    + com.qianxiang.cap.ProficiencyHelper.blueprintBonusSlots(
+                            (net.minecraft.server.level.ServerPlayer) player);
+            if (library.blueprints().size() >= maxSlots) {
+                player.sendSystemMessage(Component.translatable("qianxiang.blueprint.save.full"));
+                context.reply(syncPayload(player));
+                return;
+            }
             player.setData(QianxiangAttachments.BLUEPRINT_LIBRARY, library.withAdded(data));
 
             SagaData saga = player.getData(QianxiangAttachments.SAGA_DATA);

@@ -22,10 +22,28 @@ public final class SpellKeybinds {
             "key.categories.qianxiang"
     );
 
+    /** 技能树界面（K）。 */
+    public static final KeyMapping SKILL_TREE = new KeyMapping(
+            "key.qianxiang.skill_tree",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_K,
+            "key.categories.qianxiang"
+    );
+
+    /** 主动技能：J=战吼，潜行+J=法力涌动。 */
+    public static final KeyMapping ACTIVATE_SKILL = new KeyMapping(
+            "key.qianxiang.activate_skill",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_J,
+            "key.categories.qianxiang"
+    );
+
     private SpellKeybinds() {}
 
     @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(CAST_SPELL);
+        event.register(SKILL_TREE);
+        event.register(ACTIVATE_SKILL);
     }
 }
