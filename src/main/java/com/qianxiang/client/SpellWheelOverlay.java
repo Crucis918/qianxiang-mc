@@ -190,6 +190,24 @@ public final class SpellWheelOverlay {
         }
     }
 
+    /**
+     * 轮盘开着时屏蔽攻击/使用键映射（左键不挥砍、右键不使用物品）。
+     * <p>
+     * {@link InputEvent.InteractionKeyMappingTriggered} 在 startAttack/startUseItem/continueAttack
+     * 入口触发（按压沿与按住持续都覆盖），取消后该次点击完全不进攻击/使用管线；
+     * {@code setSwingHand(false)} 连挥手动画也压掉，避免「看着在挥但没打到」的假动作。
+     * 轮盘自身的松开选择走施法键（自定义 KeyMapping 边沿，见 {@link ClientSpellInput}），
+     * 不在攻击/使用/选取三键之列，不会被本拦截吃掉。关轮盘（active=false）即自动恢复。
+     */
+    @SubscribeEvent
+    public static void onInteractionKey(InputEvent.InteractionKeyMappingTriggered event) {
+        if (!active) return;
+        if (event.isAttack() || event.isUseItem()) {
+            event.setCanceled(true);
+            event.setSwingHand(false);
+        }
+    }
+
     /** 滚轮翻页（仅轮盘开着时；吞掉事件防止快捷栏跟着滚）。 */
     @SubscribeEvent
     public static void onMouseScroll(InputEvent.MouseScrollingEvent event) {

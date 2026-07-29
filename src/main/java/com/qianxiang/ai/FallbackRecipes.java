@@ -1104,23 +1104,47 @@ public final class FallbackRecipes {
      * 否则 normalize 剥掉语义后，「不要火的剑」的标准方案里仍有烬铁（WQ-72④）。
      */
     private static Set<String> negatedMaterials(String rawWant) {
-        if (rawWant == null) return Set.of();
-        String lower = rawWant.toLowerCase(Locale.ROOT);
         Set<String> blocked = new LinkedHashSet<>();
+        for (String kw : negatedEffectKeywords(rawWant)) {
+            blocked.addAll(keywordPicks(kw, false));
+        }
+        return blocked;
+    }
+
+    // ===================== 否定剥除：对外帮助方法（WQ-67④ 召回侧复用） =====================
+
+    /**
+     * 否定剥除帮助方法：返回小写化并剥掉「否定词 + 效果词」配对后的文本——
+     * 「不要火的剑」→「 的剑」，被否定的效果词不再参与任何裸 contains 关键词匹配。
+     * 与内部归一化是同一入口（{@link #normalize}），剥除规则只有一份。
+     */
+    public static String stripNegatedSegments(String rawWant) {
+        return normalize(rawWant);
+    }
+
+    /**
+     * 被否定词明确点名的效果词（小写，按出现顺序去重）：「不要火的剑」→ ["火"]。
+     * 供调用方把「被否定的功能」从自己的候选里剔除——剥除后的文本虽然不再含这些词，
+     * 但调用方<b>空命中时的默认候选组</b>仍可能把对应功能带回来，必须显式排除。
+     */
+    public static List<String> negatedEffectKeywords(String rawWant) {
+        if (rawWant == null) return List.of();
+        String lower = rawWant.toLowerCase(Locale.ROOT);
+        LinkedHashSet<String> out = new LinkedHashSet<>();
         for (String negation : NEGATION_PREFIXES) {
             int idx;
             int from = 0;
             while ((idx = lower.indexOf(negation, from)) >= 0) {
                 String kw = matchEffectKeywordAt(lower, idx + negation.length());
                 if (kw != null) {
-                    blocked.addAll(keywordPicks(kw, false));
+                    out.add(kw);
                     from = idx + 1;
                 } else {
                     from = idx + negation.length();
                 }
             }
         }
-        return blocked;
+        return List.copyOf(out);
     }
 
     /** 从 pos 起（跳过空白）能匹配到的最长已知效果词；匹配不到返回 null。 */

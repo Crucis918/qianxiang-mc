@@ -163,11 +163,8 @@ public final class AIGateway {
             // —— 熔断检查：打开期间不发起 HTTP，直接 empty 让调用方走关键词兜底 ——
             long openedAt = BREAKER_OPENED_AT.get();
             if (openedAt != 0L) {
-                if (openedAt + BREAKER_OPEN_MS > now
-                        || !PROBE_IN_FLIGHT.compareAndSet(false, true)) {
-                    // 窗口未到，或已有别的线程在探测：本请求直接拦截
-                    BREAKER_SKIPS.incrementAndGet();
-                    return Optional.empty();
+                if (!admitProbe(openedAt, now)) {
+                    return Optional.empty(); // 窗口未到或已有别的线程在探测：本请求被拦截
                 }
                 probe = true; // 窗口已过，本请求作为唯一探测放行
             }
@@ -203,16 +200,49 @@ public final class AIGateway {
         } catch (Throwable t) {
             // 网关自身任何意外都不许影响调用方
             Qianxiang.LOGGER.warn("[Qianxiang] AIGateway 异常，降级直连：{}", t.toString());
+            Optional<String> direct;
             try {
-                return AIClient.chat(userMessage, systemPrompt);
+                direct = AIClient.chat(userMessage, systemPrompt);
             } catch (Throwable t2) {
                 return Optional.empty();
             }
+            return accountFallbackOutcome(direct, probe);
         } finally {
             if (probe) {
                 PROBE_IN_FLIGHT.set(false);
             }
         }
+    }
+
+    /**
+     * 兜底直连的结果落同一套熔断账（WQ 尾账②）。此前 catch 兜底分支绕过熔断：
+     * 直连成败永不回账，网关自身异常期端点就算全挂，熔断也学不会打开，
+     * 每次请求都在这里白烧一遍完整 timeout。现在与正常路径共用 {@link #recordOutcome}。
+     */
+    static Optional<String> accountFallbackOutcome(Optional<String> direct, boolean probe) {
+        recordOutcome(direct.isPresent(), probe);
+        return direct;
+    }
+
+    /** 测试入口：与 catch 兜底分支同一个落账方法（本身不碰 HTTP）。 */
+    public static Optional<String> accountFallbackOutcomeForTest(Optional<String> direct) {
+        return accountFallbackOutcome(direct, false);
+    }
+
+    /**
+     * 熔断打开期间的准入判定。返回 false = 本请求被拦截（计数 +1）；
+     * 返回 true = 窗口已过且本线程赢得唯一探测权——此时把本轮拦截计数归零
+     * （WQ 尾账①：BREAKER_SKIPS 此前永不归零，status 里的「期间已拦截 N 次」
+     * 跨窗口单调膨胀）。探测失败重新计时后，计数从 0 重新累计。
+     */
+    private static boolean admitProbe(long openedAt, long now) {
+        if (openedAt + BREAKER_OPEN_MS > now
+                || !PROBE_IN_FLIGHT.compareAndSet(false, true)) {
+            BREAKER_SKIPS.incrementAndGet();
+            return false;
+        }
+        BREAKER_SKIPS.set(0);
+        return true;
     }
 
     /**
@@ -275,6 +305,7 @@ public final class AIGateway {
         int n = counter.incrementAndGet();
         if (n >= BREAKER_THRESHOLD
                 && BREAKER_OPENED_AT.compareAndSet(0L, System.currentTimeMillis())) {
+            BREAKER_SKIPS.set(0); // 新开的熔断窗口，拦截计数从零起算（WQ 尾账①）
             String reason = switch (kind) {
                 case CONNECT -> "连续 " + n + " 次连接失败";
                 case TIMEOUT -> "连续 " + n + " 次请求超时（模型太慢或 prompt 过长）"
@@ -305,6 +336,23 @@ public final class AIGateway {
         TIMEOUT_FAILS.set(0);
         ENDPOINT_FAILS.set(0);
         PROBE_IN_FLIGHT.set(false);
+        BREAKER_SKIPS.set(0);
+    }
+
+    /** 测试用：熔断打开期间被拦截（未发 HTTP）的请求数。 */
+    public static long breakerSkipsForTest() {
+        return BREAKER_SKIPS.get();
+    }
+
+    /** 测试用：把熔断打开时刻回拨到窗口之外（下一次准入判定应放行探测）。 */
+    public static void expireBreakerWindowForTest() {
+        BREAKER_OPENED_AT.updateAndGet(t -> t == 0L ? 0L : System.currentTimeMillis() - BREAKER_OPEN_MS - 1);
+    }
+
+    /** 测试用：走与 chat 同一个准入判定（只读熔断态，不发 HTTP）。 */
+    public static boolean admitProbeForTest() {
+        long openedAt = BREAKER_OPENED_AT.get();
+        return openedAt != 0L && admitProbe(openedAt, System.currentTimeMillis());
     }
 
     /** 关闭熔断并清零计数；只有真正从「开」转「关」时才打日志。 */
@@ -313,6 +361,7 @@ public final class AIGateway {
             CONNECT_FAILS.set(0);
             TIMEOUT_FAILS.set(0);
             ENDPOINT_FAILS.set(0);
+            BREAKER_SKIPS.set(0); // 成功请求关闭熔断：本轮拦截计数一并归零（WQ 尾账①）
             Qianxiang.LOGGER.info("[Qianxiang] AI 端点恢复可达，熔断关闭");
         }
     }

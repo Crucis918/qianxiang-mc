@@ -84,6 +84,14 @@ public final class QianxiangPayloads {
         registrar.playToServer(AiPlaceMaterialsPayload.TYPE, AiPlaceMaterialsPayload.STREAM_CODEC,
                 (payload, context) -> AiPlaceMaterialsHandler.handle(payload, context));
 
+        // 服务端→客户端：AI 放料缺料名单（物品 id 列表，客户端按本地语言渲染 hoverName）。
+        registrar.playToClient(MissingMaterialsPayload.TYPE, MissingMaterialsPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientMissingMaterialsNotice.receive(payload);
+                    }
+                }));
+
         // 客户端→服务端：回传最近一次 AI 响应的 spellJson + 自定义名（产物生成侧消费）。
         registrar.playToServer(SpellJsonReportPayload.TYPE, SpellJsonReportPayload.STREAM_CODEC,
                 (payload, context) -> SpellJsonReportHandler.handle(payload, context));

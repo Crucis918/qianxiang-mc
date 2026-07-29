@@ -299,6 +299,7 @@
   "qianxiang.table.missing_mark": "缺",
   "qianxiang.table.begin_craft": "开始创作",
   "qianxiang.table.ritual_busy": "创作仪式进行中，稍安勿躁…",
+  "qianxiang.table.ritual_progress": "创作进行中…%s",
   "qianxiang.weapon_form.sword": "剑",
   "qianxiang.weapon_form.greatsword": "巨剑",
   "qianxiang.weapon_form.dagger": "匕首",

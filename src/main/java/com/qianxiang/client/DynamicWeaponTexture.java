@@ -345,7 +345,7 @@ public final class DynamicWeaponTexture {
     /** 角色符号 → 颜色；返回 0 表示留空（全透明）。x/y 用于对角渐变与白热刃尖定位。
      *  <p>新词表（32×32 手绘模板，显式色阶）：o=深描边、D/B/L=刃体暗/中/亮档、
      *  e/E/X=刃缘暗档/中档/白热、H/h=柄暗/亮、W=缠绕、T/t=亮金/暗金、G=宝石、R=符文；
-     *  旧符号（b 等）映射进同档色阶保兼容（7 张 ×2 放大兜底模板用）。</p> */
+     *  旧符号（b 等）映射进同档色阶保兼容（历史 16×16 模板遗留，现 20 张已全部 32×32 手绘）。</p> */
     private static int roleColor(char c, VariantKey key, Palette palette, int x, int y) {
         ShapeBase base = BASES.getOrDefault(key.shape(), BASES.get("sword"));
         // 刃体着色=核心材料色：baseFamily 命中用族色，空串回退形状写死色（向后兼容）；
@@ -717,15 +717,14 @@ public final class DynamicWeaponTexture {
     );
 
     /**
-     * 形状模板：SIZE 行 × SIZE 字符（当前 32×32 手绘）。'.' 空；
+     * 形状模板：SIZE 行 × SIZE 字符（20 张全部 32×32 手绘，scripts/draft_templates.py
+     * 生成并逐张目检）。'.' 空；
      * 新词表见 {@link #roleColor}（o 描边 / D·B·L 刃体三档 / e·E·X 刃缘三档 /
      * G 宝石 / R 符文 / T·t 金 / H·h 柄 / W 缠绕），旧 16×16 符号（b 等）仍兼容。
      * 行长度在类加载时校验补齐，永不因模板笔误崩渲染。
-     * <p>尚未手绘重制的旧 16×16 模板（bone/pan/cleaver/bow/wand/pickaxe/shovel）
-     * 由 {@link #upscale16to32} 最近邻 ×2 放大兜底，视觉等同旧版，留待后续逐张重绘。</p>
      */
     private static String[] template(String shape) {
-        String[] t = switch (shape) {
+        return switch (shape) {
             case "greatsword" -> GREATSWORD;
             case "dagger" -> DAGGER;
             case "katana" -> KATANA;
@@ -747,20 +746,6 @@ public final class DynamicWeaponTexture {
             case "shovel" -> SHOVEL;
             default -> SWORD;
         };
-        return t.length == SIZE ? t : upscale16to32(t);
-    }
-
-    /** 旧 16×16 模板最近邻 ×2 放大兜底：每像素复制成 2×2，观感与旧版一致（待逐张手绘重制）。 */
-    private static String[] upscale16to32(String[] t) {
-        String[] out = new String[t.length * 2];
-        for (int y = 0; y < t.length; y++) {
-            StringBuilder row = new StringBuilder(t[y].length() * 2);
-            for (int x = 0; x < t[y].length(); x++) {
-                row.append(t[y].charAt(x)).append(t[y].charAt(x));
-            }
-            out[y * 2] = out[y * 2 + 1] = row.toString();
-        }
-        return out;
     }
 
     private static final String[] SWORD = {
@@ -1009,22 +994,38 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] BONE = {
-            ".............EE.",
-            "............EBB.",
-            "...........EBb..",
-            "..........EBBb..",
-            ".........EBb....",
-            "........EBBB....",
-            ".......EBb......",
-            "......EBBb......",
-            ".....EBb........",
-            "....EBBB........",
-            "...EBb..........",
-            "..BBBB..........",
-            "..HH............",
-            ".WH.............",
-            ".WW.............",
-            "................"
+            "................................",
+            "................................",
+            "................................",
+            "...........................oooo.",
+            "..........................ooXXo.",
+            "..........................oXEoo.",
+            ".........................ooEDo..",
+            "........................ooEDoo..",
+            ".......................ooEDoo...",
+            "......................ooEDDo....",
+            ".....................ooEBDoo....",
+            "...................oooEBBBoo....",
+            "..................ooEEBLLBBo....",
+            ".................ooEELBLLBBo....",
+            "................ooEEBBBBBBBo....",
+            "...............ooEEBLLBBBBoo....",
+            "..............ooEELBLLBBooo.....",
+            ".......ooooooooEBLLBLLBBo.......",
+            "......ooBBBooEEBLLDBBBBBo.......",
+            "......oBBBBBBEBLLDDoBBBoo.......",
+            "......oBBBBLBBLLDDoooooo........",
+            "......oBBBLLLBBDDoo.............",
+            "......ooBBBLBBBDoo..............",
+            ".......ooHBBBBooo...............",
+            "......ooHHHBBoo.................",
+            "...ooooWWHhhoo..................",
+            "..ooBBHHWWhoo...................",
+            ".ooBBBBHhWoo....................",
+            ".oBBBBBBhoo.....................",
+            ".oBBBBBBoo......................",
+            ".ooBBBBoo.......................",
+            "..ooBBoo........................"
     };
 
     private static final String[] STAFF = {
@@ -1168,41 +1169,73 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] PAN = {
-            ".....EEEE.......",
-            "...BBBBBBBBBB...",
-            "..BBBBBBBBBBBB..",
-            "..BbbbbbbbbbbB..",
-            "...bbbbbbbbbb...",
-            ".....bbbbbb.....",
-            ".....BB.........",
-            "....HH..........",
-            "...HH...........",
-            "..HH............",
-            "..WH............",
-            ".WH.............",
-            ".WW.............",
-            "................",
-            "................",
-            "................"
+            "................oooooooo........",
+            "..............oooEEEEEEooo......",
+            ".............ooEELLLLLLEEoo.....",
+            "............ooELLLLLLLBBLLoo....",
+            "...........ooELLLLLLLLBBBBLoo...",
+            "...........oELLLLLLLLLLLBBBLoo..",
+            "...........oLLLLLLLBBBLLLBBLLo..",
+            "...........oLLLLLLBBBBBLLBBBLo..",
+            "..........ooLLLLLBBBBBBBBBBBLoo.",
+            "..........oLLLLLBBBBBBBBBBBBLLo.",
+            "..........oLLLLBBBBBBBBBBBBBBLo.",
+            "..........oLLLBBBBBBBBBBBBBBLLo.",
+            "..........ooLBBDDTTBBBBDDBBBLoo.",
+            "...........oLBBDTTTTBBDDDBBBLo..",
+            "...........oLLBTDTTDDDDDBBBLLo..",
+            "...........ooLTTTBDDDDBBBBBLoo..",
+            "............ooLTBBBBBBBBBBLoo...",
+            "...........ooWWLLBBBBBBBLLoo....",
+            "..........ooHHWWLLLLBLLLLoo.....",
+            ".........ooHHHhWoooLLLoooo......",
+            "........ooWWHhhoo.ooooo.........",
+            ".......ooHHWWhoo................",
+            "......ooHHHhWoo.................",
+            ".....ooWWHhhoo..................",
+            "....ooHHWWhoo...................",
+            "..oooWHHhWoo....................",
+            ".ooHHWWhhoo.....................",
+            ".oHHHHWWoo......................",
+            ".oHHHHhoo.......................",
+            ".oHHHHoo........................",
+            ".ooHHoo.........................",
+            "..oooo.........................."
     };
 
     private static final String[] CLEAVER = {
-            "..........BBBBBB",
-            ".........EBBBBBb",
-            "........EBBBBBb.",
-            ".......EBBBBBb..",
-            "......EBBBBBb...",
-            ".....EBBBBBb....",
-            "....EBBBBBb.....",
-            "...EBBBBBb......",
-            "..EBBBBBb.......",
-            "..HH............",
-            ".WH.............",
-            ".WW.............",
-            "................",
-            "................",
-            "................",
-            "................"
+            "...................ooBooo.......",
+            "..................ooBBBDoo......",
+            ".................ooBBBDDDoo.....",
+            "................ooBBBBBDDDoo....",
+            "...............ooBBBBBBBDDDo....",
+            "..............ooBBBBBBBBB.Doo...",
+            ".............ooBBBBBBBBB...Doo..",
+            "............ooBBBBBBBLLLL.DDDoo.",
+            "...........ooBBBBBBLLLBBBBBDDDoo",
+            "..........ooBBBBLLLBBBBBBBBBDDDo",
+            ".........ooBBLLLLBBBBBBBBBBBBDoo",
+            "........ooBBBLBBBBBBBBBBBBBBBoo.",
+            ".......ooBBBBBBBBBBBBBBBBBBBoo..",
+            ".......oBBBBBBBBBBBBBBBBBBBoo...",
+            ".......ooBEBBBBBBBBBBBBBBBoo....",
+            "........oEEEBBBBBBBBBBBBBoo.....",
+            "........ooEETBBBBBBBBBBBoo......",
+            ".........ooTTTBBBBBBBBBoo.......",
+            ".........ooTTTTBBBBBBBoo........",
+            "........ooTTTTEXBBBBBoo.........",
+            ".......ooHHTTTEEXBBBoo..........",
+            "......ooWHHhTooEEEBoo...........",
+            ".....ooHWWhhooooEEEo............",
+            "..ooooHHHWWoo..ooEoo............",
+            ".ooHHHHHhhoo....ooo.............",
+            ".oHHHHHhhoo.....................",
+            ".oHHHHHWoo......................",
+            ".oHHHHHoo.......................",
+            ".ooHHHoo........................",
+            "..ooooo.........................",
+            "................................",
+            "................................"
     };
 
     private static final String[] SCYTHE = {
@@ -1241,22 +1274,38 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] BOW = {
-            "............E...",
-            "...........EB.W.",
-            "..........BB..W.",
-            ".........BB...W.",
-            "........BB....W.",
-            ".......BB.....W.",
-            "......BB......W.",
-            ".....BB.......W.",
-            ".....HH.......W.",
-            "......BB......W.",
-            ".......BB.....W.",
-            "........BB....W.",
-            ".........BB...W.",
-            "..........BB..W.",
-            "...........BE.W.",
-            "............E..."
+            "................................",
+            ".................ooooo..........",
+            "................ooTTToo.........",
+            "...............ooTTTTTo.........",
+            "..............ooLTTTTTo.........",
+            ".............ooLoTTWTTo.........",
+            "............ooLooBTWToo.........",
+            "...........ooLooBDBWoo..........",
+            "...........oLooBDBBWo...........",
+            "..........ooLoBDBBoWo...........",
+            "..........oLoBDBBooWo...........",
+            ".........ooLoBDBoooWo...........",
+            ".........oLooBDBo.oWo...........",
+            ".........oLWWWBoo.oWo...........",
+            ".........oLWWWBo..oWo...........",
+            ".........oLHHHBo..oWo...........",
+            ".........oLHHHBo..oWo...........",
+            ".........oLWWWBo..oWo...........",
+            ".........oLWWWBo..oWo...........",
+            ".........oLoBBDoo.oWo...........",
+            ".........ooLoBDBo.oWo...........",
+            "..........oLoBDBoooWo...........",
+            "..........ooLBBDBooWo...........",
+            "...........oLoBBDBoWo...........",
+            "...........ooLoBBDBWo...........",
+            "............ooLoBBDWoo..........",
+            ".............ooLoBTWToo.........",
+            "..............ooLTTTTTo.........",
+            "...............ooTTTTTo.........",
+            "................ooTTToo.........",
+            ".................ooooo..........",
+            "................................"
     };
 
     private static final String[] MACE = {
@@ -1295,60 +1344,108 @@ public final class DynamicWeaponTexture {
     };
 
     private static final String[] WAND = {
-            "............GG..",
-            "...........GEEG.",
-            "...........GEEG.",
-            "............GG..",
-            "...........TT...",
-            "..........BB....",
-            ".........BB.....",
-            "........RB......",
-            ".......BB.......",
-            "......BB........",
-            ".....RB.........",
-            "....BB..........",
-            "...BB...........",
-            "..BB............",
-            ".WB.............",
-            "WW.............."
+            "................................",
+            "................................",
+            ".....................ooo........",
+            ".....................oXo........",
+            "..................ooooGo.ooo....",
+            "..................oEooGoooEo....",
+            "..................oooGGGoooo....",
+            "................ooooGGGGGoooo...",
+            "................oXGGGGRGGGGXo...",
+            "................oooooGGGooooo...",
+            "................ooTTToGooooo....",
+            "................oTTTTTGo.oEo....",
+            "................oTTTTTGooooo....",
+            "................oTTTTTGXo.......",
+            "...............oohTTToooo.......",
+            "..............oohHHooo..........",
+            ".............oohHHoo............",
+            "............ooWHHoo.............",
+            "...........oohWWoo..............",
+            "..........oohHHoo...............",
+            ".........oohHHoo................",
+            "........oohHHoo.................",
+            ".......ooWWHoo..................",
+            "......oohHWoo...................",
+            ".....oohHHoo....................",
+            "....oohHHoo.....................",
+            "...oohHHoo......................",
+            "...oWWHoo.......................",
+            "...ooWoo........................",
+            "....ooo.........................",
+            "................................",
+            "................................"
     };
 
     private static final String[] PICKAXE = {
-            "......BBBB......",
-            "....EBBBBBBBE...",
-            "..EB...BB...BE..",
-            ".EB....BB....BE.",
-            ".EE....BB....EE.",
-            ".......HB.......",
-            "......HB........",
-            "......HB........",
-            ".....HB.........",
-            ".....HB.........",
-            "....HB..........",
-            "....HB..........",
-            "...WH...........",
-            "...WH...........",
-            "..WW............",
-            "................"
+            "................................",
+            "................................",
+            ".......ooo......................",
+            ".......oXoo.....................",
+            ".......oEXoo....................",
+            ".......ooEEoo...................",
+            "........oDEEooo.................",
+            "........ooDBEEoo................",
+            ".........oDDLEEooooo............",
+            ".........ooDLLEEBBBoo...........",
+            "..........ooDLLBBBBBoo..........",
+            "...........ooDBBBTTBBo..........",
+            "............ooBBTTTTBoo.........",
+            ".............oBBTTTTBEoo........",
+            ".............ooBBTTBLLEoo.......",
+            ".............oohBBBDLLLEoo......",
+            ".............ohhHWWDDDLLEoo.....",
+            "............oohHHHoooDDLEEo.....",
+            "...........ooWWHHoo.ooDDBEoo....",
+            "..........oohHWWoo...oooDEEo....",
+            ".........ooWHHHoo......ooDEoo...",
+            "........oohWWHoo........ooEXo...",
+            ".......oohHHWoo..........ooXo...",
+            "......ooWHHHoo............ooo...",
+            ".....oohWWHoo...................",
+            "...ooohhHWoo....................",
+            "..ooHHhHHHo.....................",
+            "..oHHHHWHoo.....................",
+            "..oHHHHWoo......................",
+            "..ooHHooo.......................",
+            "...oooo.........................",
+            "................................"
     };
 
     private static final String[] SHOVEL = {
-            ".........BBBBB..",
-            "........EBBBBBb.",
-            "........BBBBBBB.",
-            "........BBBBBBB.",
-            ".........BBBBB..",
-            ".........BBB....",
-            "........BB......",
-            ".......HB.......",
-            "......HB........",
-            ".....HB.........",
-            "....HB..........",
-            "...HB...........",
-            "..HB............",
-            ".WB.............",
-            "WW..............",
-            "................"
+            "................................",
+            "................................",
+            "...................ooooooooo....",
+            "...................oBoBBBBXooo..",
+            "...................oBBEEEEEXBo..",
+            "..................ooBBLEEEEEBo..",
+            "..................oBBLLLBBEEEoo.",
+            "..................oLLLBBBBBBEEo.",
+            "..................oBLBBBBBBBEEo.",
+            ".................ooBBBBBBBBBEEo.",
+            "...............oooBBBBBBBBBBEEo.",
+            "..............ooTTBBBBBBBBEEEoo.",
+            ".............ooTTTBBBBBBBBEEBo..",
+            ".............oTTTTTBDBBBBBBBoo..",
+            ".............oTTTTTDDDBBBBBoo...",
+            ".............ohTTTToDDDBoooo....",
+            "............oohHTToooDBoo.......",
+            "...........oohHHHoo.oooo........",
+            "..........ooWWHHoo..............",
+            ".........oohHWWoo...............",
+            "........ooWHHHoo................",
+            ".......oohWWHoo.................",
+            "......oohhHWoo..................",
+            ".....ooWhHHoo...................",
+            "....oohWWHoo....................",
+            "..ooohhHWoo.....................",
+            ".ooHHhHHoo......................",
+            ".oHHHHWHo.......................",
+            ".oHHHHWoo.......................",
+            ".ooHHooo........................",
+            "..oooo..........................",
+            "................................"
     };
 
     static {

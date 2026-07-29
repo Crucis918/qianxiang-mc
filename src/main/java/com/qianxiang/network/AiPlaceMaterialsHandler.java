@@ -19,7 +19,8 @@ import java.util.List;
  * <p>
  * 放料核心抽成 {@link #placeMaterials}（GameTest 可直接断言）：
  * 返回放入数与「请求了但没放进」的缺料名单（背包没有 / 材料槽满），
- * 缺料不再静默——handler 拼 hoverName 名单发 actionbar 提示。
+ * 缺料不再静默——handler 把缺料物品 id 列表打包（{@link MissingMaterialsPayload}）
+ * 发给客户端，由客户端按本地语言环境渲染「还缺：X、Y」actionbar。
  * </p>
  */
 public final class AiPlaceMaterialsHandler {
@@ -75,15 +76,16 @@ public final class AiPlaceMaterialsHandler {
                 container.setChanged();
                 player.getInventory().setChanged();
             }
-            // 缺料明示：请求了但没放进（背包没有/材料槽满）逐名列出，不再静默。
-            if (!result.missing().isEmpty()) {
-                var names = Component.literal("");
-                for (int i = 0; i < result.missing().size(); i++) {
-                    if (i > 0) names.append(", ");
-                    names.append(new ItemStack(result.missing().get(i)).getHoverName());
+            // 缺料明示：请求了但没放进（背包没有/材料槽满）不再静默。
+            // 只发物品 id 列表（S2C payload），物品名由客户端用本地语言环境的
+            // ItemStack#getHoverName() 渲染——服务端拼 hoverName 会让中文客户端看到英文名。
+            if (!result.missing().isEmpty() && player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                List<String> missingIds = new ArrayList<>();
+                for (Item item : result.missing()) {
+                    missingIds.add(BuiltInRegistries.ITEM.getKey(item).toString());
                 }
-                player.displayClientMessage(
-                        Component.translatable("qianxiang.table.missing", names), true);
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
+                        sp, new MissingMaterialsPayload(missingIds));
             }
         });
     }

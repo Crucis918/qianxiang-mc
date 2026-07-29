@@ -23,7 +23,8 @@ def abgr(r, g, b, a=255):
 
 
 SHAPES = ["sword", "greatsword", "dagger", "katana", "spear", "axe",
-          "hammer", "scythe", "mace", "staff", "book", "shield", "hoe"]
+          "hammer", "scythe", "mace", "staff", "book", "shield", "hoe",
+          "bone", "pan", "cleaver", "bow", "wand", "pickaxe", "shovel"]
 
 # 预览用效果色板（ignite：刃缘橙红 / 亮橙 / 暗橙）
 PALETTE_MAIN = abgr(0xE0, 0x5A, 0x1E)
@@ -80,9 +81,13 @@ def extract_templates():
     return out
 
 
+# 族色覆盖：骨刃预览用骨族象牙白（java FAMILY_BODY["bone"]），其余沿用金属族
+BODY_OVERRIDE = {"bone": abgr(0xE8, 0xE0, 0xCC)}
+
+
 def role_color(c, shape, x, y):
     """新词表：o 描边 / D·B·L 刃体三档 / e·E·X 刃缘三档 / T·t 金 / 其余同旧。"""
-    base = BOOK_COVER_DARK if shape == "book" else FAMILY_BODY
+    base = BODY_OVERRIDE.get(shape, BOOK_COVER_DARK if shape == "book" else FAMILY_BODY)
     if c == 'o':
         return OUTLINE
     if c == 'D':

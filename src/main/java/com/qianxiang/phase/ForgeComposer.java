@@ -387,8 +387,8 @@ public final class ForgeComposer {
      * 汇总所有材料栈的自由状态效果（effect tag → 等级），同效果取大。
      * 纯效果材料（无功能算子，如 minecraft:wither_rose）也参与——它们不当零件，
      * 只贡献 grantedEffects；单独放置不出产物（需至少一条带功能算子的材料，不要求 BASE_*）。
-     * 经 {@link ItemConceptResolver#resolve} 取效果：effect tag 之外，
-     * 推导概念自带的效果（如蜘蛛眼→中毒、恶魂之泪→再生）同样注入。
+     * 经 {@link ItemConceptResolver#resolve} 取效果：仅 effect tag 与数据包显式声明
+     * 进入本通道；推导概念的派生效果（如蜘蛛眼→中毒）走功能算子通道，不注入此处。
      */
     private static Map<ResourceLocation, Integer> collectGrantedEffects(List<ItemStack> materialStacks) {
         Map<ResourceLocation, Integer> granted = null;

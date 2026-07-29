@@ -1432,6 +1432,26 @@ AI 主动建议条/键位 B·O·J/shot 命令）+ 队列编号整顿。
 
 ---
 
+## WQ-92 [x] 完成(待提交) 【中·尾账清扫】AI 尾账 + 体验残留 + RS 组件匹配 + 7 模板手绘
+
+**范围**:① MaterialRecall 召回剥否定(「不要火的剑」不再把 IGNITE 塞进核心组,复用
+FallbackRecipes.stripNegatedSegments/negatedEffectKeywords);② AIGateway BREAKER_SKIPS 三处归零
++ 兜底直连计入熔断账;③ grantedEffects 自由效果通道补全矩阵(19 行);④ 轮盘开启期间屏蔽
+攻击/使用输入(InteractionKeyMappingTriggered 取消+压挥臂);⑤ 缺料名单改 S2C 走客户端语言
+环境渲染(中文名);⑥ 战吼 HUD 铁剑图标+冷却置灰;⑦ 仪式中右键拦 GUI,actionbar 报「创作
+进行中…N%」(RightClickBlock 双端取消);⑧ RS2 组件级匹配(遍历 getAll+组件覆盖谓词,
+extract 带出组件);⑨ bone/pan/cleaver/bow/wand/pickaxe/shovel 七张 32×32 手绘,20 模板全齐,
+upscale16to32 删除;⑩ ForgeComposer grantedEffects javadoc 失真更正。
+
+**遗留观察**:① 熔断兜底测试有 wiring 盲点(catch→落账无法端到端驱动,评审盯 AIGateway:209);
+② RS count/extract 实机验证需装 RS2 按 javadoc 三步走;③ 轮盘输入屏蔽/仪式进度条为纯客户端
+路径,实机验收点见修理备注;④ gameTestServer 与 dev 共用 run/,AI 测试禁止走真实端点(全部
+拦截/本地桩),后续 AI 测试须守同一规矩。
+
+**验收**:131/131 GameTest 全绿(新增 10 个);7 张模板逐张预览目检迭代;lang 850/850 零差集。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）

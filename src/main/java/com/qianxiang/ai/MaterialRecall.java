@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -179,9 +178,40 @@ public final class MaterialRecall {
         return groups;
     }
 
-    /** 需求文本 → 想要的功能算子集合。命中不到时退回「该产物类型的常用算子」。 */
+    /**
+     * 需求文本 → 想要的功能算子集合。命中不到时退回「该产物类型的常用算子」。
+     * <p>
+     * WQ-67④：先做否定剥除（与 {@link FallbackRecipes} 同一份规则）——裸 contains
+     * 会让「不要火的剑」命中「火」，把玩家明确拒绝的 IGNITE 材料顶进
+     * 「核心效果材料（优先从这里挑）」第一组。
+     */
     private static Set<PhaseFunction> wantedFunctions(String request, String targetType) {
-        String text = request == null ? "" : request.toLowerCase(Locale.ROOT);
+        String text = FallbackRecipes.stripNegatedSegments(request);
+        Set<PhaseFunction> out = functionsMentioned(text);
+
+        if (out.isEmpty()) {
+            // 需求没提具体效果：按产物类型给一组常用算子，保证召回不为空
+            switch (PhaseAIRecipeService.safeType(targetType)) {
+                case "armor" -> java.util.Collections.addAll(out,
+                        PhaseFunction.DEFENSE, PhaseFunction.RESISTANCE, PhaseFunction.REFLECT);
+                case "magic" -> java.util.Collections.addAll(out,
+                        PhaseFunction.MANA, PhaseFunction.IGNITE, PhaseFunction.FROST);
+                case "tool" -> java.util.Collections.addAll(out,
+                        PhaseFunction.AREA_HARVEST, PhaseFunction.GROWTH, PhaseFunction.SPEED_BOOST);
+                default -> java.util.Collections.addAll(out,
+                        PhaseFunction.EDGE, PhaseFunction.IGNITE, PhaseFunction.STRENGTH);
+            }
+        }
+        // 被否定的功能算子从召回排除：剥完否定后空命中会落类型默认组（「不要火的剑」只剩「剑」，
+        // 默认组仍含 IGNITE），同句其他语境也可能把它带回来——按被否定的效果词显式剔除。
+        for (String kw : FallbackRecipes.negatedEffectKeywords(request)) {
+            out.removeAll(functionsMentioned(kw));
+        }
+        return out;
+    }
+
+    /** 文本里被提到的功能算子（裸 contains 关键词表；调用方负责先做否定剥除）。 */
+    private static Set<PhaseFunction> functionsMentioned(String text) {
         Set<PhaseFunction> out = java.util.EnumSet.noneOf(PhaseFunction.class);
 
         addIfMentioned(out, text, PhaseFunction.IGNITE, "火", "燃", "烧", "炎", "fire", "burn", "flame");
@@ -205,20 +235,6 @@ public final class MaterialRecall {
         addIfMentioned(out, text, PhaseFunction.LEVITATION, "漂浮", "浮空", "飞", "levit", "float");
         addIfMentioned(out, text, PhaseFunction.GROWTH, "催熟", "生长", "种", "grow", "farm");
         addIfMentioned(out, text, PhaseFunction.AREA_HARVEST, "范围", "广域", "群", "area", "harvest");
-
-        if (out.isEmpty()) {
-            // 需求没提具体效果：按产物类型给一组常用算子，保证召回不为空
-            switch (PhaseAIRecipeService.safeType(targetType)) {
-                case "armor" -> java.util.Collections.addAll(out,
-                        PhaseFunction.DEFENSE, PhaseFunction.RESISTANCE, PhaseFunction.REFLECT);
-                case "magic" -> java.util.Collections.addAll(out,
-                        PhaseFunction.MANA, PhaseFunction.IGNITE, PhaseFunction.FROST);
-                case "tool" -> java.util.Collections.addAll(out,
-                        PhaseFunction.AREA_HARVEST, PhaseFunction.GROWTH, PhaseFunction.SPEED_BOOST);
-                default -> java.util.Collections.addAll(out,
-                        PhaseFunction.EDGE, PhaseFunction.IGNITE, PhaseFunction.STRENGTH);
-            }
-        }
         return out;
     }
 

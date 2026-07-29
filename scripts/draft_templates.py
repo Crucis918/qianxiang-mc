@@ -2,7 +2,7 @@
 """
 32×32 武器模板手绘生成器（草稿迭代用）。
 
-用几何原语（贝塞尔刃体 / 多边形 / 圆 / 粗线）设计 13 张模板，
+用几何原语（贝塞尔刃体 / 多边形 / 圆 / 粗线 / 圆弧带）设计 20 张模板，
 统一走「深色描边 + 清晰剪影 + 分段色阶」三要素：
   o=深描边（自动 8 邻域描边）、D/B/L=刃体暗/中/亮档、
   e/E/X=刃缘暗/中/白热、T/t=亮金/暗金、G=宝石、R=符文、H/h=柄暗/亮、W=缠绕。
@@ -94,6 +94,14 @@ def mask_or(*ms):
     for m in ms[1:]:
         out = ImageChops.lighter(out, m)
     return out
+
+
+def mask_arc(cx, cy, r, a0, a1, w):
+    """圆弧形粗带（PIL 角度制：0°=三点钟方向，顺时针增）。"""
+    img = mask_new()
+    ImageDraw.Draw(img).arc([cx - r, cy - r, cx + r, cy + r],
+                            start=a0, end=a1, fill=255, width=max(1, round(w)))
+    return img
 
 
 # ---------------- 刃体绘制（贝塞尔中线 + 分段色阶） ----------------
@@ -429,6 +437,156 @@ def design_hoe():
     return g
 
 
+def design_bone():
+    """骨刃：象牙白族色的最佳舞台——略带弧度的骨片刃，背侧两枚骨节突起。"""
+    g = Grid()
+    axis = (math.sqrt(2) / 2, -math.sqrt(2) / 2)
+    paint_grip(g, (11.5, 22.5), (5.5, 28.5), 3.0)
+    # 柄尾骨节球 + 刃根骨节（兼作护手）
+    g.paint_mask(mask_disc(5.0, 29.0, 2.2), lambda x, y: 'B')
+    g.paint_mask(mask_disc(12.0, 22.0, 2.8), lambda x, y: 'B')
+    g.paint_mask(mask_disc(9.6, 20.2, 2.2), lambda x, y: 'B')
+    # 刃体：微弧骨片，刃口在上左（edge_side=-1 同刀剑）
+    paint_blade(g, (14.0, 20.0), (28.5, 4.0), 4.6, 1.0, curve=1.6, edge_side=-1)
+    # 背侧骨节突起（必须超出刃体剪影：沿背侧法线外移 half+1 以上才有「节」感）
+    g.paint_mask(mask_disc(21.6, 16.8, 2.2), lambda x, y: 'B')
+    g.paint_mask(mask_disc(24.6, 13.4, 1.8), lambda x, y: 'B')
+    # 骨节受光面 L 高光
+    g.paint_mask(mask_disc(20.9, 16.1, 0.9), lambda x, y: 'L')
+    g.paint_mask(mask_disc(24.0, 12.9, 0.8), lambda x, y: 'L')
+    g.paint_mask(mask_disc(11.3, 21.3, 1.0), lambda x, y: 'L')
+    g.outline()
+    return g
+
+
+def design_pan():
+    """平底锅：大圆盘锅体 + 木柄，锅沿高光、锅心光泽与双铆钉（整活名专用，画足细节）。"""
+    g = Grid()
+    # 木柄：从锅缘向左下伸出
+    paint_grip(g, (14.5, 17.5), (3.5, 28.5), 3.4)
+    g.paint_mask(mask_disc(4.0, 28.5, 1.7), lambda x, y: 'H')  # 柄端挂头
+    # 锅体圆盘：外圈亮沿，内体 B，左上受光
+    paint_disc(g, 20.0, 10.0, 9.2, 'L', 'B', light='L')
+    # 锅内凹深度：下右 D 弧 + 上左 L 光泽带
+    g.paint_mask(mask_arc(20.0, 10.0, 5.6, 20, 160, 1.8), lambda x, y: 'D')
+    g.paint_mask(mask_arc(20.0, 10.0, 5.6, 200, 340, 1.6), lambda x, y: 'L')
+    # 锅沿白热反光（上沿一小段，像热油边的亮线）
+    g.paint_mask(mask_arc(20.0, 10.0, 8.4, 210, 300, 1.2), lambda x, y: 'E')
+    # 柄与锅体的双 T 铆钉
+    g.paint_mask(mask_disc(15.6, 15.6, 1.3), lambda x, y: 'T')
+    g.paint_mask(mask_disc(17.8, 13.6, 1.3), lambda x, y: 'T')
+    g.outline()
+    return g
+
+
+def design_cleaver():
+    """菜刀：对角放置的矩形宽刃，刃口在下左长边，刀背角上一个挂孔。"""
+    g = Grid()
+    s = math.sqrt(2) / 2
+    # 木柄接在刃体下左角
+    paint_grip(g, (12.0, 19.0), (5.0, 26.0), 3.2)
+    g.paint_mask(mask_disc(4.5, 26.5, 1.8), lambda x, y: 'H')
+    # 矩形宽刃：轴沿对角，宽 12
+    blade = mask_poly(rot_rect(19.5, 11.5, s, -s, 18.0, 12.0))
+    g.paint_mask(blade, lambda x, y: 'B')
+    # 刃口 E（下左长边，白热角 X 在刀尖）+ 刀背 D（上右长边）
+    g.paint_mask(mask_line((9.5, 14.5), (17.0, 22.0), 2.0), lambda x, y: 'E')
+    g.set(16, 20, 'X')
+    g.set(15, 19, 'X')
+    g.paint_mask(mask_line((22.0, 1.5), (29.5, 9.0), 1.8), lambda x, y: 'D')
+    # 受光面 L 斜带
+    g.paint_mask(mask_line((13.0, 10.5), (24.5, 6.0), 1.8), lambda x, y: 'L')
+    # 刀背角挂孔（先挖空，outline 时自动圈 'o'；必须完全落在刃体矩形内）
+    g.paint_mask(mask_disc(25.5, 6.5, 1.3), lambda x, y: '.')
+    # 柄刃相接处的 T 箍
+    g.paint_mask(mask_line((11.0, 20.0), (13.5, 17.5), 3.2), lambda x, y: 'T')
+    g.outline()
+    # 挂孔中心在描边后再挖开——否则小孔会被 8 邻域描边整个吞掉
+    g.paint_mask(mask_disc(25.5, 6.5, 0.9), lambda x, y: '.')
+    return g
+
+
+def design_bow():
+    """弓：左凸弧形木臂 + 竖直弓弦，臂身外亮内暗三档，两端金色弓弭。"""
+    g = Grid()
+    cx, cy, r = 25.0, 16.0, 13.0
+    # 弓臂三层：外缘 L（受光）/ 中体 B / 内缘 D（弦侧背光）
+    g.paint_mask(mask_arc(cx, cy, r, 115, 245, 3), lambda x, y: 'B')
+    g.paint_mask(mask_arc(cx, cy, r - 1.2, 115, 245, 1), lambda x, y: 'D')
+    g.paint_mask(mask_arc(cx, cy, r + 1.2, 115, 245, 1), lambda x, y: 'L')
+    # 握把：中段 H + 上下 W 缠绕箍
+    g.paint_mask(mask_line((12.0, 13.6), (12.0, 18.4), 3.2), lambda x, y: 'H')
+    g.paint_mask(mask_line((12.0, 13.8), (12.0, 14.8), 3.2), lambda x, y: 'W')
+    g.paint_mask(mask_line((12.0, 17.2), (12.0, 18.2), 3.2), lambda x, y: 'W')
+    # 弓弭（两端金色套）
+    g.paint_mask(mask_disc(19.5, 4.4, 1.6), lambda x, y: 'T')
+    g.paint_mask(mask_disc(19.5, 27.6, 1.6), lambda x, y: 'T')
+    # 弓弦：W（浅色）竖直一线
+    g.paint_mask(mask_line((19.5, 5.5), (19.5, 26.5), 1), lambda x, y: 'W')
+    g.outline()
+    return g
+
+
+def design_wand():
+    """魔杖：细木杖 + 四向星芒杖头（与 staff 的粗杆宝珠爪笼明确区分）。"""
+    g = Grid()
+    # 细杖身（w=2.2，明显细于 staff 的 3.0）
+    paint_grip(g, (4.5, 27.5), (19.0, 13.0), 2.2, wrap_every=6.5)
+    # 杖头四向星芒：细臂 + 小宝石核，芒尖白热——粗臂+大核会糊成一坨（教训）
+    cx, cy = 22.5, 8.0
+    g.paint_mask(mask_line((cx, cy - 5.0), (cx, cy + 5.0), 1.2), lambda x, y: 'G')
+    g.paint_mask(mask_line((cx - 5.0, cy), (cx + 5.0, cy), 1.2), lambda x, y: 'G')
+    g.paint_mask(mask_disc(cx, cy, 1.8), lambda x, y: 'G')
+    g.set(22, 8, 'R')
+    # 对角小芒（单点，不连成臂）
+    for px, py in [(19, 5), (26, 5), (19, 11), (26, 11)]:
+        g.set(px, py, 'E')
+    # 四向芒尖白热 + 杖头下方金箍
+    for px, py in [(22, 3), (23, 13), (17, 8), (27, 8)]:
+        g.set(px, py, 'X')
+    g.paint_mask(mask_disc(19.3, 12.3, 1.7), lambda x, y: 'T')
+    g.outline()
+    return g
+
+
+def design_pickaxe():
+    """镐：对角木柄 + 垂直于柄的 T 形镐头，两翼渐细外弯成尖。"""
+    g = Grid()
+    paint_grip(g, (5.5, 27.5), (17.5, 14.5), 3.2)
+    g.paint_mask(mask_disc(5.0, 28.0, 1.8), lambda x, y: 'H')
+    # 镐头两翼：从中心銎向左上 / 右下展开的渐细臂，外侧开刃
+    paint_blade(g, (17.5, 12.5), (8.0, 3.0), 4.6, 0.8, curve=-1.8, edge_side=1)
+    paint_blade(g, (17.5, 12.5), (27.0, 22.0), 4.6, 0.8, curve=-1.8, edge_side=-1)
+    # 中心銎（T 金套 + B 座）
+    g.paint_mask(mask_disc(17.5, 12.5, 2.7), lambda x, y: 'B')
+    g.paint_mask(mask_disc(17.5, 12.5, 1.5), lambda x, y: 'T')
+    g.outline()
+    return g
+
+
+def design_shovel():
+    """锹：木柄 + 圆头铲板，铲刃弧在远侧，板面三档色阶。"""
+    g = Grid()
+    paint_grip(g, (4.5, 27.5), (16.5, 14.5), 3.0)
+    g.paint_mask(mask_disc(4.0, 28.0, 1.8), lambda x, y: 'H')
+    # 銎（T 金箍）
+    g.paint_mask(mask_disc(17.0, 14.0, 2.1), lambda x, y: 'T')
+    # 铲头：梯形板 + 远侧圆弧头
+    head = mask_or(
+        mask_poly([(18.0, 12.0), (20.5, 3.0), (28.5, 4.5), (28.0, 12.0), (22.0, 16.5)]),
+        mask_disc(24.5, 9.0, 5.2))
+    g.paint_mask(head, lambda x, y: 'B')
+    # 铲刃：远侧（上右）弧带 E + 白热角 X
+    g.paint_mask(mask_arc(24.5, 9.0, 4.6, 250, 60, 1.8), lambda x, y: 'E')
+    g.set(27, 4, 'X')
+    g.set(26, 3, 'X')
+    # 受光 L 斜带 + 銎侧 D 背光
+    g.paint_mask(mask_line((20.5, 7.5), (23.5, 5.0), 1.8), lambda x, y: 'L')
+    g.paint_mask(mask_line((19.5, 13.5), (21.5, 15.0), 1.8), lambda x, y: 'D')
+    g.outline()
+    return g
+
+
 DESIGNS = {
     "sword": design_sword,
     "greatsword": design_greatsword,
@@ -443,6 +601,13 @@ DESIGNS = {
     "book": design_book,
     "shield": design_shield,
     "hoe": design_hoe,
+    "bone": design_bone,
+    "pan": design_pan,
+    "cleaver": design_cleaver,
+    "bow": design_bow,
+    "wand": design_wand,
+    "pickaxe": design_pickaxe,
+    "shovel": design_shovel,
 }
 
 
@@ -466,6 +631,10 @@ HANDLE = {
     "mace": (0x6B, 0x4A, 0x2F, 255), "staff": (0x5A, 0x3A, 0x22, 255),
     "book": (0x6B, 0x4A, 0x2F, 255), "shield": (0x6B, 0x4A, 0x2F, 255),
     "hoe": (0x7A, 0x52, 0x30, 255),
+    "bone": (0xA8, 0x9F, 0x8A, 255), "pan": (0x6B, 0x4A, 0x2F, 255),
+    "cleaver": (0x5A, 0x3E, 0x28, 255), "bow": (0x4E, 0x36, 0x20, 255),
+    "wand": (0x3E, 0x2A, 0x1A, 255), "pickaxe": (0x7A, 0x52, 0x30, 255),
+    "shovel": (0x7A, 0x52, 0x30, 255),
 }
 WRAP = {
     "sword": (0x3E, 0x2A, 0x1A, 255), "greatsword": (0x32, 0x22, 0x14, 255),
@@ -475,7 +644,14 @@ WRAP = {
     "mace": (0x3E, 0x2A, 0x1A, 255), "staff": (0xD8, 0xB2, 0x4A, 255),
     "book": (0xE8, 0xE0, 0xC8, 255), "shield": (0xE8, 0xE0, 0xC8, 255),
     "hoe": (0x3E, 0x2A, 0x1A, 255),
+    "bone": (0x6B, 0x4A, 0x2F, 255), "pan": (0x3E, 0x2A, 0x1A, 255),
+    "cleaver": (0x32, 0x22, 0x14, 255), "bow": (0xE8, 0xE0, 0xC8, 255),
+    "wand": (0xD8, 0xB2, 0x4A, 255), "pickaxe": (0x3E, 0x2A, 0x1A, 255),
+    "shovel": (0x3E, 0x2A, 0x1A, 255),
 }
+
+# 族色覆盖：骨刃预览用骨族象牙白（java FAMILY_BODY["bone"]），其余沿用金属族
+BODY = {"bone": (0xE8, 0xE0, 0xCC, 255)}
 
 
 def shade(color, factor):
@@ -502,7 +678,7 @@ def edge_hot(main, x, y):
 
 
 def role_color(c, shape, x, y):
-    base = PALETTE_DARK if shape == "book" else FAMILY_METAL
+    base = BODY.get(shape, PALETTE_DARK if shape == "book" else FAMILY_METAL)
     if c == 'o':
         return OUTLINE
     if c == 'D':

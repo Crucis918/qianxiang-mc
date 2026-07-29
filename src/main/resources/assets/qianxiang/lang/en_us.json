@@ -299,6 +299,7 @@
   "qianxiang.table.missing_mark": "×0",
   "qianxiang.table.begin_craft": "Begin Crafting",
   "qianxiang.table.ritual_busy": "A crafting ritual is in progress...",
+  "qianxiang.table.ritual_progress": "Crafting in progress... %s",
   "qianxiang.weapon_form.sword": "Sword",
   "qianxiang.weapon_form.greatsword": "Greatsword",
   "qianxiang.weapon_form.dagger": "Dagger",

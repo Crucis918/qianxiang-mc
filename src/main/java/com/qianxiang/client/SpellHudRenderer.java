@@ -39,12 +39,33 @@ public final class SpellHudRenderer {
 
         renderCooldownBar(graphics, mc.player, x, y + 11);
         renderLastCast(graphics, mc, data, x, y + 20);
-        // 战吼生效剩余秒数（ProficiencySyncPayload 快照；0 = 未生效）
-        if (ClientProficiencyData.warcryActiveMs > 0) {
+        renderWarcry(graphics, mc, x, y + 29);
+    }
+
+    /** 战吼图标：零资产方案——直接渲染铁剑物品图标（16×16 物品渲染管线自带）。 */
+    private static final net.minecraft.world.item.ItemStack WARCRY_ICON =
+            new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_SWORD);
+
+    /**
+     * 战吼状态行：图标 + 「战吼 Xs」文字（ProficiencySyncPayload 快照）。
+     * <p>生效中：铁剑图标 + 金色剩余秒数；冷却中（未生效）：图标置灰单独显示，
+     * 提示技能进了 CD——此前玩家只能靠按 J 失败的提示感知冷却。</p>
+     */
+    private static void renderWarcry(GuiGraphics graphics, Minecraft mc, int x, int y) {
+        boolean active = ClientProficiencyData.warcryActiveMs > 0;
+        boolean cooling = ClientProficiencyData.warcryCooldownMs > 0;
+        if (!active && !cooling) return;
+
+        // 图标 16 高、文字 9 高：图标下移 3px 与文字中线对齐
+        graphics.renderItem(WARCRY_ICON, x, y - 3);
+        if (active) {
             graphics.drawString(mc.font,
                     Component.translatable("qianxiang.hud.warcry_active",
                             (ClientProficiencyData.warcryActiveMs + 999) / 1000),
-                    x, y + 29, 0xFFAA00, false);
+                    x + 19, y, 0xFFAA00, false);
+        } else {
+            // 冷却置灰：半透明灰罩（renderItem 无着色 API，覆盖一层 ARGB 灰即视觉置灰）
+            graphics.fill(x, y - 3, x + 16, y + 13, 0x9A2E2E2E);
         }
     }
 
