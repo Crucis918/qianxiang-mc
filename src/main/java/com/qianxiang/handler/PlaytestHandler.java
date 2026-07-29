@@ -71,8 +71,16 @@ import java.util.Map;
  * 且运行端为客户端（{@code value = Dist.CLIENT} + 代码内 {@code FMLEnvironment.dist} 双保险，
  * GameTestServer 是 DEDICATED_SERVER 天然不触发）且单人世界时启用；
  * build.gradle 的 client run 同款门控追加 {@code --quickPlaySingleplayer}
- * （存档名默认「新的世界」，{@code QX_PLAYTEST_WORLD} 可覆盖）。
+ * （存档名默认「游玩检测」专用存档，{@code QX_PLAYTEST_WORLD} 可覆盖）。
  * 与 AUTOSMOKE 相互独立：两个 handler 各自门控、可同开（quickPlay 参数在 gradle 侧互斥）。
+ * </p>
+ * <p>
+ * <b>铁律：本装置永远不得在用户游玩存档运行。</b>
+ * S 场景的复位操作（重置法术/熟练度 attachment、清空背包、清台清掉落物）是
+ * <b>毁灭性</b>的，仅限「游玩检测」专用存档——它曾在默认存档「新的世界」里清掉
+ * 用户自己学的全部法术与熟练度（实机事故）。改用专用存档外的任何存档名前，
+ * 先确认该存档没有在乎的玩家数据；被误清的数据用 {@code /qianxiang learn all}
+ * 与 {@code /qianxiang prof addxp} 恢复。
  * </p>
  * <p>
  * <b>场景框架</b>：场景 = 有序的 {@code (相对 tick, 名称, 动作)} 步骤表（{@link Step}/{@link Scenario}），

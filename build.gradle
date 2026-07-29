@@ -45,20 +45,21 @@ neoForge {
         client {
             client()
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
-            // dev 自动视觉冒烟：QX_AUTOSMOKE=1 时直接进存档（默认「新的世界」，可用
+            // dev 自动视觉冒烟：QX_AUTOSMOKE=1 时直接进存档（默认「游玩检测」专用存档，可用
             // QX_AUTOSMOKE_WORLD 覆盖），进世界后由 AutoSmokeHandler 驱动脚本化截图。
             // 环境变量未设时零行为变化。
             if (System.getenv('QX_AUTOSMOKE') == '1') {
                 programArguments.addAll '--quickPlaySingleplayer',
-                        (System.getenv('QX_AUTOSMOKE_WORLD') ?: '新的世界')
+                        (System.getenv('QX_AUTOSMOKE_WORLD') ?: '游玩检测')
             } else if (System.getenv('QX_PLAYTEST') == '1') {
-                // dev 自主游玩检测：QX_PLAYTEST=1 时直接进存档（默认「新的世界」，可用
-                // QX_PLAYTEST_WORLD 覆盖），进世界后由 PlaytestHandler 跑 A-G 玩法链断言，
+                // dev 自主游玩检测：QX_PLAYTEST=1 时直接进存档（默认「游玩检测」专用存档——
+                // 装置会重置玩家法术/熟练度/背包/台子，绝不允许落在真实游玩存档；
+                // 可用 QX_PLAYTEST_WORLD 覆盖），进世界后由 PlaytestHandler 跑 A-G 玩法链断言，
                 // 写 run/playtest/PLAYTEST_REPORT.txt 并自动退出游戏。
                 // quickPlay 参数只能给一份，故与 AUTOSMOKE 在启动参数上互斥；
                 // Java 侧两个 handler 各自独立门控、行为可同开。环境变量未设时零行为变化。
                 programArguments.addAll '--quickPlaySingleplayer',
-                        (System.getenv('QX_PLAYTEST_WORLD') ?: '新的世界')
+                        (System.getenv('QX_PLAYTEST_WORLD') ?: '游玩检测')
             }
         }
         server {

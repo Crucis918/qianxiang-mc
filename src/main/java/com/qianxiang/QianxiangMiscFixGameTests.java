@@ -317,4 +317,44 @@ public final class QianxiangMiscFixGameTests {
         }
         return player.getAdvancements().getOrStartProgress(holder).isDone();
     }
+
+    // ============================ 恢复命令：learn 核心路径 ============================
+
+    /**
+     * /qianxiang learn 核心（{@code QianxiangRestoreCommand.learnPreset}）：
+     * 预置 id 学入已学列表（幂等）、非法 id 拒绝且列表不变、all 学全部预置。
+     * 断言全部落在可观测最终状态（已学列表），命令层只是薄壳。
+     */
+    @GameTest(template = "item_concept")
+    public static void learnCommandCore(GameTestHelper helper) {
+        var player = QianxiangCoreGameTests.mockServerPlayer(helper);
+        var attachment = com.qianxiang.cap.QianxiangAttachments.PLAYER_SPELL_DATA;
+        var fireball = ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "fireball");
+
+        // ① 预置 id：学入已学列表
+        int ok = com.qianxiang.command.QianxiangRestoreCommand.learnPreset(player, "qianxiang:fireball");
+        helper.assertTrue(ok == 1, "预置 id 应学习成功（返回 1），实际 " + ok);
+        helper.assertTrue(player.getData(attachment).hasLearned(fireball),
+                "已学列表应含 qianxiang:fireball");
+        // ② 幂等：再学一次仍返回 1，列表不膨胀
+        int again = com.qianxiang.command.QianxiangRestoreCommand.learnPreset(player, "qianxiang:fireball");
+        helper.assertTrue(again == 1, "重复学习应幂等（返回 1），实际 " + again);
+        helper.assertTrue(player.getData(attachment).learnedSpells().size() == 1,
+                "重复学习后已学列表应仍只有 1 条，实际 "
+                        + player.getData(attachment).learnedSpells().size());
+        // ③ 非法 id：拒绝（返回 0），已学列表不变
+        int bad = com.qianxiang.command.QianxiangRestoreCommand.learnPreset(player, "qianxiang:no_such_spell");
+        helper.assertTrue(bad == 0, "非法 id 应拒绝（返回 0），实际 " + bad);
+        helper.assertTrue(player.getData(attachment).learnedSpells().size() == 1,
+                "非法 id 不得改变已学列表");
+        // ④ all：学全部预置（已会的 fireball 不计入新学数量）
+        int all = com.qianxiang.command.QianxiangRestoreCommand.learnPreset(player, "all");
+        int presetCount = com.qianxiang.spell.CustomSpell.registry().size();
+        helper.assertTrue(all == presetCount - 1,
+                "all 应新学 " + (presetCount - 1) + " 个（扣除已会的 fireball），实际 " + all);
+        helper.assertTrue(player.getData(attachment).learnedSpells().size() == presetCount,
+                "all 之后已学列表应等于预置总数 " + presetCount + "，实际 "
+                        + player.getData(attachment).learnedSpells().size());
+        helper.succeed();
+    }
 }
