@@ -68,9 +68,22 @@ public record ComposedAttributes(
         if (extraEffects == null) extraEffects = ExtraEffects.empty();
     }
 
-    /** 外观数据：主导相性、主导效果、外观键、武器形态（form，空串=无）、核心材料基底族（baseFamily，空串=无）。单独抽成记录避免 ComposedAttributes 字段超过 16 个。 */
+    /** 外观数据：主导相性、主导效果、外观键、武器形态（form，空串=无）、核心材料基底族（baseFamily，空串=无）
+     *  + 升级树状态（upgradeLevel/upgradeXp 与 L0 主属性基底，防复利——见 {@link com.qianxiang.phase.UpgradeRules}）。
+     *  单独抽成记录避免 ComposedAttributes 字段超过 16 个。 */
     public record AppearanceData(Set<Phase> dominantPhases, String dominantEffect, String appearanceKey,
-                                 String form, String baseFamily) {
+                                 String form, String baseFamily,
+                                 int upgradeLevel, int upgradeXp,
+                                 double baseAttackDamage, double baseArmor, double baseArmorToughness,
+                                 double baseSpellPowerPercent, double baseManaBonus) {
+
+        /** 兼容旧的五参构造（升级字段全零：未升级、未记录 L0 基底）。 */
+        public AppearanceData(Set<Phase> dominantPhases, String dominantEffect, String appearanceKey,
+                              String form, String baseFamily) {
+            this(dominantPhases, dominantEffect, appearanceKey, form, baseFamily,
+                    0, 0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        }
+
         public static final Codec<AppearanceData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Phase.SET_CODEC.optionalFieldOf("dominant_phases", Set.of()).forGetter(AppearanceData::dominantPhases),
                 Codec.STRING.optionalFieldOf("dominant_effect", "none").forGetter(AppearanceData::dominantEffect),
@@ -78,11 +91,28 @@ public record ComposedAttributes(
                 // 武器形态（WeaponForm.id()）与核心材料基底族（metal/bone/wood/hide）：
                 // optionalFieldOf 缺省 ""，旧存档无此两字段读回空串走回退路径
                 Codec.STRING.optionalFieldOf("form", "").forGetter(AppearanceData::form),
-                Codec.STRING.optionalFieldOf("base_family", "").forGetter(AppearanceData::baseFamily)
+                Codec.STRING.optionalFieldOf("base_family", "").forGetter(AppearanceData::baseFamily),
+                // 升级树：等级/累计经验/L0 基底（attack/armor/toughness/spellPower/mana）。
+                // 全部 optionalFieldOf 缺省 0，旧存档读回即「未升级」（照 form/baseFamily 先例）
+                Codec.INT.optionalFieldOf("upgrade_level", 0).forGetter(AppearanceData::upgradeLevel),
+                Codec.INT.optionalFieldOf("upgrade_xp", 0).forGetter(AppearanceData::upgradeXp),
+                Codec.DOUBLE.optionalFieldOf("base_attack_damage", 0.0).forGetter(AppearanceData::baseAttackDamage),
+                Codec.DOUBLE.optionalFieldOf("base_armor", 0.0).forGetter(AppearanceData::baseArmor),
+                Codec.DOUBLE.optionalFieldOf("base_armor_toughness", 0.0).forGetter(AppearanceData::baseArmorToughness),
+                Codec.DOUBLE.optionalFieldOf("base_spell_power_percent", 0.0).forGetter(AppearanceData::baseSpellPowerPercent),
+                Codec.DOUBLE.optionalFieldOf("base_mana_bonus", 0.0).forGetter(AppearanceData::baseManaBonus)
         ).apply(instance, AppearanceData::new));
 
         public static AppearanceData empty() {
             return new AppearanceData(Set.of(), "none", "plain", "", "");
+        }
+
+        /** 复制全部升级字段（各 wither 改外观字段时保持升级状态不丢）。 */
+        AppearanceData withLook(Set<Phase> phases, String effect, String key, String newForm, String newFamily) {
+            return new AppearanceData(phases, effect, key, newForm, newFamily,
+                    this.upgradeLevel, this.upgradeXp,
+                    this.baseAttackDamage, this.baseArmor, this.baseArmorToughness,
+                    this.baseSpellPowerPercent, this.baseManaBonus);
         }
     }
 
@@ -436,9 +466,10 @@ public record ComposedAttributes(
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
                 this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
-                new AppearanceData(copyPhases(phases), dominantEffect, appearanceKey,
-                        this.appearance == null ? "" : this.appearance.form(),
-                        this.appearance == null ? "" : this.appearance.baseFamily()),
+                (this.appearance == null ? AppearanceData.empty() : this.appearance)
+                        .withLook(copyPhases(phases), dominantEffect, appearanceKey,
+                                this.appearance == null ? "" : this.appearance.form(),
+                                this.appearance == null ? "" : this.appearance.baseFamily()),
                 this.extraEffects
         );
     }
@@ -455,7 +486,7 @@ public record ComposedAttributes(
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
                 this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
-                new AppearanceData(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
+                base.withLook(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
                         f, base.baseFamily()),
                 this.extraEffects
         );
@@ -473,7 +504,7 @@ public record ComposedAttributes(
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
                 this.spellPowerPercent, this.manaBonus,
                 this.powerScore,
-                new AppearanceData(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
+                base.withLook(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
                         base.form(), f),
                 this.extraEffects
         );
@@ -544,6 +575,80 @@ public record ComposedAttributes(
         return new ComposedAttributes(
                 this.attackDamage, this.attackSpeed, this.durability,
                 this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                spellPowerPercent, manaBonus,
+                this.powerScore,
+                this.appearance,
+                this.extraEffects
+        );
+    }
+
+    // ============================ 升级树（传奇装备，见 UpgradeRules） ============================
+
+    /** 升级等级（0 = 未升级）。 */
+    public int upgradeLevel() {
+        return appearance == null ? 0 : appearance.upgradeLevel();
+    }
+
+    /** 累计升级经验（喂料折算累加，阈值见 {@link com.qianxiang.phase.UpgradeRules}）。 */
+    public int upgradeXp() {
+        return appearance == null ? 0 : appearance.upgradeXp();
+    }
+
+    /** L0 主属性基底（0 = 未记录；升级时以现值补记，防复利）。 */
+    public double baseAttackDamage() {
+        return appearance == null ? 0.0 : appearance.baseAttackDamage();
+    }
+
+    public double baseArmor() {
+        return appearance == null ? 0.0 : appearance.baseArmor();
+    }
+
+    public double baseArmorToughness() {
+        return appearance == null ? 0.0 : appearance.baseArmorToughness();
+    }
+
+    public double baseSpellPowerPercent() {
+        return appearance == null ? 0.0 : appearance.baseSpellPowerPercent();
+    }
+
+    public double baseManaBonus() {
+        return appearance == null ? 0.0 : appearance.baseManaBonus();
+    }
+
+    /**
+     * 写入升级进度与 L0 主属性基底（只动外观数据，不动数值属性）。
+     * 两条调用路径：①ForgeComposer 正常锻造完成时记录 L0 基底（level/xp=0）；
+     * ②{@link com.qianxiang.phase.UpgradeRules} 升级完成时写新等级/累计经验/基底。
+     */
+    public ComposedAttributes withUpgradeProgress(int level, int xp,
+                                                  double baseAtk, double baseArmor, double baseTough,
+                                                  double baseSpell, double baseMana) {
+        AppearanceData base = this.appearance == null ? AppearanceData.empty() : this.appearance;
+        return new ComposedAttributes(
+                this.attackDamage, this.attackSpeed, this.durability,
+                this.armor, this.armorToughness, this.knockbackResistance,
+                this.moveSpeed, this.maxHealth,
+                this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
+                this.spellPowerPercent, this.manaBonus,
+                this.powerScore,
+                new AppearanceData(base.dominantPhases(), base.dominantEffect(), base.appearanceKey(),
+                        base.form(), base.baseFamily(), level, xp,
+                        baseAtk, baseArmor, baseTough, baseSpell, baseMana),
+                this.extraEffects
+        );
+    }
+
+    /**
+     * 覆盖主属性数值（升级结果重写：attackDamage/armor/armorToughness/spellPowerPercent/manaBonus，
+     * 其余字段——攻击速度、耐久、效果等级、外观、代价——全部不变）。
+     */
+    public ComposedAttributes withPrimaryStats(double attackDamage, double armor, double armorToughness,
+                                               double spellPowerPercent, int manaBonus) {
+        return new ComposedAttributes(
+                attackDamage, this.attackSpeed, this.durability,
+                armor, armorToughness, this.knockbackResistance,
                 this.moveSpeed, this.maxHealth,
                 this.igniteLevel, this.lifestealLevel, this.thornsLevel, this.slowLevel, this.healLevel,
                 spellPowerPercent, manaBonus,

@@ -278,11 +278,16 @@ public final class PlaytestHandler {
      * subject 变 null（序列结束/玩家移除）或 finishing 即自行退出。
      */
     private static void startWatchdog() {
-        stopWatchdog();
+        stopWatchdog(); // 安全：新线程尚未注册，interrupt 只会落在上一会话的旧线程上
         Thread thread = new Thread(PlaytestHandler::watchdogLoop, "qianxiang-playtest-watchdog");
         thread.setDaemon(true); // daemon：装置异常残留也不拖住 JVM 退出
+        // 不静默死：run() 逃逸的任何异常都打 ERROR（配合循环体内的 try-catch 双保险）
+        thread.setUncaughtExceptionHandler((t, e) ->
+                Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 看门狗线程 {} 异常退出", t.getName(), e));
         watchdogThread = thread;
         thread.start();
+        // 启动日志：日志可证线程活着（缺这行 = 登录门控没进/跑了旧构建，一眼可辨）
+        Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST 看门狗线程已启动：{}", thread.getName());
     }
 
     private static void stopWatchdog() {
@@ -299,44 +304,58 @@ public final class PlaytestHandler {
             try {
                 Thread.sleep(WATCHDOG_INTERVAL_MS);
             } catch (InterruptedException e) {
-                return; // finish/stopWatchdog 唤醒退出
+                // interrupt 此前是静默死亡通道（jstack 无线程、零 WARN 的唯一解释）——必须留痕
+                Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST 看门狗线程被 interrupt 退出"
+                        + "（finishing={} subject={}）", finishing, subject != null);
+                return;
             }
-            ServerPlayer player = subject;
-            if (player == null || finishing) return;
-            long now = System.currentTimeMillis();
-            long stalled = now - lastServerTickMs;
-            boolean globalBlow = now - runStartMs > GLOBAL_TIMEOUT_MS;
-            if (stalled >= STALL_WARN_MS) {
-                boolean paused = isServerPaused(player);
-                if (now - lastStallWarnMs >= STALL_WARN_MS) {
-                    boolean firstWarn = lastStallWarnMs == 0L;
-                    lastStallWarnMs = now;
-                    Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST tick stalled {}s, serverPaused={}",
-                            stalled / 1000, paused);
-                    if (firstWarn) {
-                        observe("tick 失速 " + stalled / 1000 + "s，serverPaused=" + paused
-                                + "（单人游戏 ESC/窗口失焦会暂停集成服务器）");
-                    }
-                }
-                if (paused && stalled >= STALL_HEAL_MS) {
-                    unpauseAttempt(player); // 自愈成功则 1~2s 内 tick 恢复、stalled 回落
-                }
+            try {
+                watchdogCycle();
+            } catch (Throwable t) { // 单轮异常不杀线程：打 ERROR 继续下一轮
+                Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 看门狗本轮异常（继续值守）", t);
             }
-            if (stalled < STALL_ABORT_MS && !globalBlow) continue;
-            boolean paused = isServerPaused(player);
-            String reason = globalBlow
-                    ? "全局超时 " + (now - runStartMs) / 1000 + "s"
-                    : "tick 停摆 " + stalled / 1000 + "s";
-            check("服务端 tick 停摆", false, "超时：上一步=" + lastStepName + " " + reason
-                    + "，serverPaused=" + paused
-                    + (paused ? "（游戏处于暂停且无法自动解除，本次检测不完整）"
-                              : "（未暂停，服务端疑似卡死，检测不完整）"));
-            if (paused) {
-                REPORT.add("说明: 游戏处于暂停状态（非暂停界面来源，无法自动解除），本次检测不完整。");
-            }
-            finish(player);
+        }
+    }
+
+    /** 看门狗单轮评估。 */
+    private static void watchdogCycle() {
+        ServerPlayer player = subject;
+        if (player == null || finishing) {
+            Thread.currentThread().interrupt(); // 序列结束/玩家移除：借 interrupt 通道留痕退出
             return;
         }
+        long now = System.currentTimeMillis();
+        long stalled = now - lastServerTickMs;
+        boolean globalBlow = now - runStartMs > GLOBAL_TIMEOUT_MS;
+        if (stalled >= STALL_WARN_MS) {
+            boolean paused = isServerPaused(player);
+            if (now - lastStallWarnMs >= STALL_WARN_MS) {
+                boolean firstWarn = lastStallWarnMs == 0L;
+                lastStallWarnMs = now;
+                Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST tick stalled {}s, serverPaused={}",
+                        stalled / 1000, paused);
+                if (firstWarn) {
+                    observe("tick 失速 " + stalled / 1000 + "s，serverPaused=" + paused
+                            + "（单人游戏 ESC/窗口失焦会暂停集成服务器）");
+                }
+            }
+            if (paused && stalled >= STALL_HEAL_MS) {
+                unpauseAttempt(player); // 自愈成功则 1~2s 内 tick 恢复、stalled 回落
+            }
+        }
+        if (stalled < STALL_ABORT_MS && !globalBlow) return;
+        boolean paused = isServerPaused(player);
+        String reason = globalBlow
+                ? "全局超时 " + (now - runStartMs) / 1000 + "s"
+                : "tick 停摆 " + stalled / 1000 + "s";
+        check("服务端 tick 停摆", false, "超时：上一步=" + lastStepName + " " + reason
+                + "，serverPaused=" + paused
+                + (paused ? "（游戏处于暂停且无法自动解除，本次检测不完整）"
+                          : "（未暂停，服务端疑似卡死，检测不完整）"));
+        if (paused) {
+            REPORT.add("说明: 游戏处于暂停状态（非暂停界面来源，无法自动解除），本次检测不完整。");
+        }
+        finish(player);
     }
 
     private static boolean isServerPaused(ServerPlayer player) {
@@ -436,7 +455,9 @@ public final class PlaytestHandler {
             Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 报告写入失败", t);
         }
         subject = null; // 序列结束（在 quit 之前，防 stop 过程再进 tick）
-        stopWatchdog();
+        // 注意：不再 stopWatchdog()——看门狗循环看到 subject==null/finishing 会自行退出
+        // （≤5s，daemon 无害）；主动 interrupt 有跨会话竞态：旧会话的 finish 可能打断
+        // 新会话刚注册的看门狗，而 InterruptedException 曾是静默死亡通道（本轮根因之一）。
         // 安全退出整个游戏（minecraft.stop() 会先正常关停集成服务器再退进程）；仅客户端。
         if (FMLEnvironment.dist == Dist.CLIENT) {
             try {

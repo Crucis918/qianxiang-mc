@@ -180,7 +180,16 @@ public class ForgeTableMenu extends AbstractContainerMenu {
         lastMaterialsFingerprint = fingerprint;
 
         ForgeComposer.Composition composition;
-        if (this.container instanceof ForgeTableBlockEntity be) {
+        // 升级模式：核心槽（12）是可升级传奇装备时，组合走升级分支——核心料是被升级
+        // 装备本身，周围槽喂料折算升级经验（UpgradeRules）；不涨级/零经验则结果槽空，
+        // 仪式不可触发，料不会被白吞。普通材料组合不受影响。
+        if (com.qianxiang.phase.UpgradeRules.isUpgradeable(materials.get(12))) {
+            List<ItemStack> feeds = new ArrayList<>();
+            for (int i = 0; i < MATERIAL_SLOTS; i++) {
+                if (i != 12 && !materials.get(i).isEmpty()) feeds.add(materials.get(i));
+            }
+            composition = com.qianxiang.phase.UpgradeRules.composeUpgrade(materials.get(12), feeds);
+        } else if (this.container instanceof ForgeTableBlockEntity be) {
             // 按「打开这个菜单的玩家」取 AI 选择，而不是方块级单份暂存——
             // 后者会让多人同用一台锻造台时互相串味（A 的 AI 法术出现在 B 的产物上）。
             var sel = be.selectionOf(ownerUuid());

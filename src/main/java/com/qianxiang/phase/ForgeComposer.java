@@ -192,6 +192,10 @@ public final class ForgeComposer {
         attr = attr.withForm(com.qianxiang.combat.WeaponFormProfile.deriveForm(
                 materialStacks, union, attr, out.getItem()))
                 .withBaseFamily(com.qianxiang.combat.WeaponFormProfile.deriveBaseFamily(materialStacks));
+        // 升级树 L0 基底：锻造完成即记录主属性原值——之后每次升级都从这份基底
+        // 重算（×(1+0.06×level)），乘法永不叠在上一级结果上（防复利，见 UpgradeRules）。
+        attr = attr.withUpgradeProgress(0, 0, attr.attackDamage(), attr.armor(),
+                attr.armorToughness(), attr.spellPowerPercent(), attr.manaBonus());
         out.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(), attr);
         // 防具产物（QianxiangArmorItem）不写 MAINHAND 槽的 ATTRIBUTE_MODIFIERS——
         // 栈上组件会覆盖物品默认修饰符，而穿戴属性由

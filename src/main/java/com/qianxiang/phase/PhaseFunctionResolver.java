@@ -2,6 +2,7 @@ package com.qianxiang.phase;
 
 import com.qianxiang.Qianxiang;
 import com.qianxiang.QianxiangDataComponents;
+import com.qianxiang.handler.RiftAffix;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.TagKey;
@@ -18,6 +19,10 @@ import java.util.Set;
  * 来源：①优先 PhaseData component（自定义相材料，如火蜥蜴腺体）；
  *      ②否则查功能 tag {@code qianxiang:materials/<function>}（覆盖原版物品 + 任何物品）；
  *      ③末尾兜底——{@link ItemConceptResolver#derive} 全物品概念推导（草方块也有概念）。
+ *      ④词缀钩子——裂隙试炼掉落的词缀材料带 {@code AFFIX} 组件（词缀 id，见
+ *      {@link com.qianxiang.handler.RiftAffix}），在 ①/②/③ 的结果上<b>额外注入</b>
+ *      词缀对应的功能算子（燃焰→IGNITE、坚岩→DEFENSE、疾风→SPEED_BOOST、
+ *      噬血→LIFESTEAL、雷霆→STRENGTH）——任何垃圾物品带上词缀都能当零件。
  * <p>
  * tag 是数据驱动的，整合包作者可用 KubeJS / datapack 往这些 tag 加物品，
  * 无需改代码就能让新物品获得功能算子、参与自定义合成。
@@ -41,9 +46,19 @@ public final class PhaseFunctionResolver {
      */
     public static Set<PhaseFunction> get(ItemStack stack) {
         Set<PhaseFunction> set = getExplicit(stack);
-        if (!set.isEmpty()) return set;
-        // ③ 推导兜底：全物品概念引擎
-        return ItemConceptResolver.derive(stack).functions();
+        if (set.isEmpty()) {
+            // ③ 推导兜底：全物品概念引擎
+            set = ItemConceptResolver.derive(stack).functions();
+        }
+        // ④ 词缀钩子：栈带 AFFIX 组件时额外注入词缀算子（与显式/推导结果合并而非覆盖）
+        RiftAffix affix = RiftAffix.of(stack);
+        if (affix != null && !set.contains(affix.function())) {
+            Set<PhaseFunction> merged = set.isEmpty()
+                    ? EnumSet.noneOf(PhaseFunction.class) : EnumSet.copyOf(set);
+            merged.add(affix.function());
+            return Collections.unmodifiableSet(merged);
+        }
+        return set;
     }
 
     /**

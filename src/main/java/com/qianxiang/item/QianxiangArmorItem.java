@@ -122,6 +122,7 @@ public class QianxiangArmorItem extends ArmorItem {
         if (attr == null) {
             return;
         }
+        com.qianxiang.phase.UpgradeRules.appendLegendaryLine(stack, tooltip);
         // 强度总分
         tooltip.add(Component.translatable("qianxiang.tooltip.power_score",
                 String.format("%.1f", attr.powerScore())).withStyle(ChatFormatting.GOLD));

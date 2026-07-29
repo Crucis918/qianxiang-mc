@@ -226,6 +226,7 @@ public class QianxiangToolItem extends Item {
             if (attr == null) {
                 return;
             }
+            com.qianxiang.phase.UpgradeRules.appendLegendaryLine(stack, tooltip);
             if (kind == Kind.HOE) {
                 tooltip.add(Component.translatable("qianxiang.tooltip.area_harvest")
                         .append(" ×" + level).withStyle(ChatFormatting.GOLD));

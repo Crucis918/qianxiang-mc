@@ -848,5 +848,20 @@
   "item.qianxiang.warden_core.lore": "守望之躯陨落时凝出的核，万象生机尽收其中——传奇之器唯赖此物。",
   "advancement.qianxiang.forge_legendary.title": "以核铸相",
   "advancement.qianxiang.forge_legendary.desc": "用森罗之核锻造出一件传奇相器",
-  "qianxiang.phasefn.holy": "圣辉"
+  "qianxiang.phasefn.holy": "圣辉",
+  "qianxiang.affix.ember": "燃焰",
+  "qianxiang.affix.bastion": "坚岩",
+  "qianxiang.affix.gale": "疾风",
+  "qianxiang.affix.leech": "噬血",
+  "qianxiang.affix.storm": "雷霆",
+  "qianxiang.trial.mob.zombie": "·%s· 裂隙僵尸",
+  "qianxiang.trial.mob.skeleton": "·%s· 裂隙骷髅",
+  "qianxiang.trial.start": "§5裂隙试炼开启——词缀怪自裂隙中涌出！§r",
+  "qianxiang.trial.cooldown": "§7裂隙的余波尚未平息（%s 秒后可再次试炼）。§r",
+  "qianxiang.trial.success": "§d试炼通过！裂隙认可了你的实力（第 %s 次）。§r",
+  "qianxiang.trial.fail": "§7试炼失败——裂隙怪潮退去了。§r",
+  "qianxiang.upgrade.tooltip.level": "传奇 +%d",
+  "qianxiang.upgrade.tooltip.max": "传奇 MAX",
+  "qianxiang.table.suggestion.upgrade": "可升级：Lv.%d → 喂料升级",
+  "qianxiang.table.suggestion.upgrade_max": "传奇 MAX — 已满级"
 }

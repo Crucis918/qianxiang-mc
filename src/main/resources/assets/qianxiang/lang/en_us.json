@@ -848,5 +848,20 @@
   "item.qianxiang.warden_core.lore": "The core left when the watching body falls, holding all myriad life — the sole key to legendary gear.",
   "advancement.qianxiang.forge_legendary.title": "Forged of the Core",
   "advancement.qianxiang.forge_legendary.desc": "Forge legendary gear using a Warden Core",
-  "qianxiang.phasefn.holy": "Holy"
+  "qianxiang.phasefn.holy": "Holy",
+  "qianxiang.affix.ember": "Ember",
+  "qianxiang.affix.bastion": "Bastion",
+  "qianxiang.affix.gale": "Gale",
+  "qianxiang.affix.leech": "Leech",
+  "qianxiang.affix.storm": "Storm",
+  "qianxiang.trial.mob.zombie": "·%s· Rift Zombie",
+  "qianxiang.trial.mob.skeleton": "·%s· Rift Skeleton",
+  "qianxiang.trial.start": "§5The Rift Trial begins — affixed foes pour from the rift!§r",
+  "qianxiang.trial.cooldown": "§7The rift's aftershocks still linger (retry in %ss).§r",
+  "qianxiang.trial.success": "§dTrial cleared! The rift acknowledges your strength (clear #%s).§r",
+  "qianxiang.trial.fail": "§7Trial failed — the rift swarm recedes.§r",
+  "qianxiang.upgrade.tooltip.level": "Legendary +%d",
+  "qianxiang.upgrade.tooltip.max": "Legendary MAX",
+  "qianxiang.table.suggestion.upgrade": "Upgradeable: Lv.%d — feed materials to upgrade",
+  "qianxiang.table.suggestion.upgrade_max": "Legendary MAX — fully upgraded"
 }

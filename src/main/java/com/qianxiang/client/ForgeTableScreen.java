@@ -940,12 +940,29 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         }
     }
 
-    /** 「能做啥」主动建议行（状态条与方案卡之间；纯展示，不占 AI 结果区）。 */
+    /** 「能做啥」主动建议行（状态条与方案卡之间；纯展示，不占 AI 结果区）。
+     *  核心槽是可升级传奇装备时改显示「可升级：Lv.N → 喂料升级」（升级模式提示）。 */
     private void renderSuggestionLine(GuiGraphics g) {
-        Component line = ClientTableSuggestion.line();
+        Component line = upgradeSuggestionLine();
+        if (line == null) line = ClientTableSuggestion.line();
         if (line == null) return;
         g.drawString(this.font, this.font.plainSubstrByWidth(line.getString(), 240),
                 leftPos + STATUS_X, topPos + 121, 0x7FE3C0, false);
+    }
+
+    /** 核心槽（12）放传奇装备时的升级提示（客户端读同步组件，无新包）；否则 null。 */
+    private Component upgradeSuggestionLine() {
+        ItemStack core = this.menu.getSlot(12).getItem();
+        if (core.isEmpty()) return null;
+        var attr = core.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        if (attr == null || !com.qianxiang.phase.UpgradeRules.isUpgradeable(core)) return null;
+        int level = attr.upgradeLevel();
+        if (level >= com.qianxiang.phase.UpgradeRules.MAX_LEVEL) {
+            return Component.translatableWithFallback("qianxiang.table.suggestion.upgrade_max",
+                    "传奇 MAX — 已满级");
+        }
+        return Component.translatableWithFallback("qianxiang.table.suggestion.upgrade",
+                "可升级：Lv.%d → 喂料升级", level);
     }
 
     // ========================== 状态条 ==========================

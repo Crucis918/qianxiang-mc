@@ -127,6 +127,7 @@ public class QianxiangWeaponItem extends Item {
         if (attr == null) {
             return;
         }
+        com.qianxiang.phase.UpgradeRules.appendLegendaryLine(stack, tooltip);
         // 增幅器数值（相杖/魔法书等法系产物）：法术伤害加成 / 法力上限加成，非 0 才显示
         if (attr.spellPowerPercent() > 0) {
             tooltip.add(Component.translatable("qianxiang.tooltip.spell_power",

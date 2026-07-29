@@ -31,11 +31,26 @@ public final class PhaseMaterialEvents {
     public static void onDatapackSync(OnDatapackSyncEvent event) {
         PhaseMaterialSyncPayload payload = new PhaseMaterialSyncPayload(PhaseMaterialRegistry.all());
         if (event.getPlayer() != null) {
-            PacketDistributor.sendToPlayer(event.getPlayer(), payload);
+            sendSafely(event.getPlayer(), payload);
         } else {
             for (var player : event.getPlayerList().getPlayers()) {
-                PacketDistributor.sendToPlayer(player, payload);
+                sendSafely(player, payload);
             }
+        }
+    }
+
+    /**
+     * 发送容错：GameTest 的假连接（EmbeddedChannel）没有协商 mod payload 通道，
+     * NeoForge 会直接抛错（纯测试环境假象，与 SpellCastHandler.sync 的防御同例）；
+     * 真实玩家的连接必已协商，catch 永不触发。
+     */
+    private static void sendSafely(net.minecraft.server.level.ServerPlayer player,
+                                   PhaseMaterialSyncPayload payload) {
+        try {
+            PacketDistributor.sendToPlayer(player, payload);
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 相材料同步包发送被跳过（未协商通道，测试假象）：{}",
+                    t.toString());
         }
     }
 }
