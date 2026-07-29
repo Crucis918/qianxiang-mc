@@ -1452,7 +1452,7 @@ upscale16to32 删除;⑩ ForgeComposer grantedEffects javadoc 失真更正。
 
 ---
 
-## WQ-93 [x] 完成(待提交) 【大·基建】自主游玩检测装置 + 整合包对比调研
+## WQ-93 [x] 完成(6cf560f) 【大·基建】自主游玩检测装置 + 整合包对比调研
 
 **范围**:① `handler/PlaytestHandler`(QX_PLAYTEST=1 门控+quickPlay 直进+8 场景 27 检查:
 锻造/炼金/轮盘施法/熟练度/维度往返/Boss/存储取料,关键节点截图,PLAYTEST_REPORT.txt,
