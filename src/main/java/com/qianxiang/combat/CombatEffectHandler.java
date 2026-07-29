@@ -2,15 +2,20 @@ package com.qianxiang.combat;
 
 import com.qianxiang.Qianxiang;
 import com.qianxiang.QianxiangDataComponents;
+import com.qianxiang.entity.SpellProjectileEntity;
 import com.qianxiang.item.QianxiangWeaponItem;
 import com.qianxiang.network.DamageNumberPayload;
+import com.qianxiang.particle.ShockwaveParticleOptions;
+import com.qianxiang.particle.SparkParticleOptions;
 import com.qianxiang.phase.ComposedAttributes;
+import com.qianxiang.util.PlayerRateLimiter;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.particles.SimpleParticleType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -20,9 +25,13 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.joml.Vector3f;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 战斗效果部：让材料的五种特殊效果在攻击时真正触发，并把伤害数字发给客户端。
@@ -81,6 +90,20 @@ public final class CombatEffectHandler {
     /** 通用自由效果药水等级封顶：IV 级（amplifier 3）。 */
     private static final int GRANTED_MAX_AMPLIFIER = 3;
 
+    /** 击杀演出窗口：最后一次被玩家伤害到死亡的间隔上限（tick，40 = 2s）。 */
+    static final long KILL_CREDIT_WINDOW_TICKS = 40L;
+    /** 击杀演出限流：同一玩家 200ms 内最多一场（AoE 刷屏防护）。 */
+    private static final long KILL_VFX_COOLDOWN_MS = 200L;
+    /** 击杀喷泉金色（荣耀击杀播报同款金）。 */
+    private static final Vector3f KILL_GOLD = new Vector3f(1.0f, 0.84f, 0.30f);
+
+    /**
+     * 击杀侦测台账：victim UUID → 最后一次被任何玩家伤害的游戏 tick。
+     * 服务端主线程访问；死亡即移除，极端积压（实体未死先卸载）超 512 条直接清空——
+     * 台账只是演出判据，清空的代价最多是少一场金色喷泉。
+     */
+    private static final Map<UUID, Long> LAST_PLAYER_DAMAGE_TICK = new HashMap<>();
+
     private CombatEffectHandler() {}
 
     /**
@@ -104,6 +127,13 @@ public final class CombatEffectHandler {
             if (attacker == null) {
                 return;
             }
+
+            // 击杀侦测台账：记下「这只怪最后被玩家伤害」的 tick（法术/近战都算），
+            // 供 onLivingDeath 判 2s 窗口。在千相武器检查之前记录——普通武器补刀也算数。
+            if (LAST_PLAYER_DAMAGE_TICK.size() > 512) {
+                LAST_PLAYER_DAMAGE_TICK.clear();
+            }
+            LAST_PLAYER_DAMAGE_TICK.put(target.getUUID(), target.level().getGameTime());
 
             // 发伤害浮字包：让所有看见这次伤害的玩家收到（追踪目标 + 目标自己若是玩家）。
             float finalDamage = event.getNewDamage();
@@ -132,6 +162,85 @@ public final class CombatEffectHandler {
         if (causingEntity instanceof Player p) return p;
         if (directEntity instanceof Player p) return p;
         return null;
+    }
+
+    // ============================ 击杀演出（金色喷泉） ============================
+
+    /**
+     * 怪物死亡：近 2s 内被玩家伤害过（法术/近战皆可）→ 尸体位置金色 spark 大喷泉 + shockwave。
+     * <p>判据拆成两个纯函数（{@link #isRecentPlayerKill} / {@link #diedToPlayerSpell}），
+     * GameTest 直接单测，不需构造完整战斗场景。</p>
+     */
+    @SubscribeEvent
+    public static void onLivingDeath(LivingDeathEvent event) {
+        try {
+            LivingEntity victim = event.getEntity();
+            if (victim == null || victim.level().isClientSide() || victim instanceof Player) {
+                return;
+            }
+            Long lastTick = LAST_PLAYER_DAMAGE_TICK.remove(victim.getUUID());
+            if (!isRecentPlayerKill(lastTick == null ? -1L : lastTick, victim.level().getGameTime())) {
+                return;
+            }
+            spawnKillFountain(victim, event.getSource());
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.error("[Qianxiang] 击杀演出处理异常", t);
+        }
+    }
+
+    /**
+     * 「近 2s 内被玩家伤害过」判定（纯逻辑，可单测）。
+     *
+     * @param lastPlayerDamageTick 最后一次被玩家伤害的 tick；-1 = 从未
+     * @param deathTick            死亡发生的 tick
+     * @return 间隔 ≤ {@link #KILL_CREDIT_WINDOW_TICKS}（含边界，40 tick = 2s）
+     */
+    public static boolean isRecentPlayerKill(long lastPlayerDamageTick, long deathTick) {
+        return lastPlayerDamageTick >= 0
+                && deathTick - lastPlayerDamageTick <= KILL_CREDIT_WINDOW_TICKS;
+    }
+
+    /**
+     * 「死于玩家法术」判定（纯逻辑，可单测）：击杀来源是玩家造成的魔法——
+     * 直接来源为 {@link SpellProjectileEntity}（弹体直击），或伤害类型为
+     * {@link DamageTypes#INDIRECT_MAGIC}/{@link DamageTypes#MAGIC}（beam/touch/aoe 结算）。
+     * 玩家近战普攻（{@code PLAYER_ATTACK}）与非玩家来源均返回 false。
+     */
+    public static boolean diedToPlayerSpell(DamageSource source) {
+        if (source == null || !(source.getEntity() instanceof Player)) {
+            return false;
+        }
+        if (source.getDirectEntity() instanceof SpellProjectileEntity) {
+            return true;
+        }
+        return source.is(DamageTypes.INDIRECT_MAGIC) || source.is(DamageTypes.MAGIC);
+    }
+
+    /**
+     * 金色击杀喷泉：20 颗金 spark 从尸体腰身高处向上喷 + 一圈金 shockwave。
+     * 法术击杀环更大（2.5 vs 2.0），远程点杀的演出更足。按击杀者限流 200ms。
+     */
+    private static void spawnKillFountain(LivingEntity victim, DamageSource source) {
+        if (!(victim.level() instanceof ServerLevel level)) {
+            return;
+        }
+        Player killer = source != null && source.getEntity() instanceof Player p ? p : null;
+        if (!PlayerRateLimiter.tryAcquire(killer, "vfx_kill", KILL_VFX_COOLDOWN_MS)) {
+            return;
+        }
+        double x = victim.getX();
+        double y = victim.getY() + victim.getBbHeight() * 0.3;
+        double z = victim.getZ();
+        var spark = new SparkParticleOptions(KILL_GOLD);
+        for (int i = 0; i < 20; i++) {
+            level.sendParticles(spark, x, y, z, 1,
+                    (level.random.nextDouble() - 0.5) * 0.6,
+                    0.3 + level.random.nextDouble() * 0.6,
+                    (level.random.nextDouble() - 0.5) * 0.6, 0.0);
+        }
+        float ringScale = diedToPlayerSpell(source) ? 2.5f : 2.0f;
+        level.sendParticles(new ShockwaveParticleOptions(KILL_GOLD, ringScale),
+                x, y, z, 1, 0.0, 0.0, 0.0, 0.0);
     }
 
     /**

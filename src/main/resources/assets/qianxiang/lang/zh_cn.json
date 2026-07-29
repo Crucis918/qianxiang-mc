@@ -863,5 +863,10 @@
   "qianxiang.upgrade.tooltip.level": "传奇 +%d",
   "qianxiang.upgrade.tooltip.max": "传奇 MAX",
   "qianxiang.table.suggestion.upgrade": "可升级：Lv.%d → 喂料升级",
-  "qianxiang.table.suggestion.upgrade_max": "传奇 MAX — 已满级"
+  "qianxiang.table.suggestion.upgrade_max": "传奇 MAX — 已满级",
+  "qianxiang.camera.pvp_enter": "PVP 交锋！已切换第一人称",
+  "qianxiang.camera.pvp_exit": "脱离 PVP，已回到第三人称",
+  "qianxiang.hud.combo": "%s 连击！",
+  "qianxiang.formswitch.switched": "千机形态转换：%s",
+  "qianxiang.formswitch.locked": "千机形态需传奇 +%d 解锁"
 }

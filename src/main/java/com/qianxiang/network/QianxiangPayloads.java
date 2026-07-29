@@ -174,6 +174,14 @@ public final class QianxiangPayloads {
                     }
                 }));
 
+        // 服务端→客户端：荣耀连招计数（「N 连击！」HUD，见 ComboHudRenderer）。
+        registrar.playToClient(ComboSyncPayload.TYPE, ComboSyncPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ComboHudRenderer.receive(payload);
+                    }
+                }));
+
         // 客户端→服务端：连击编辑器应用编排好的动作序列（写结果槽产物/主手武器的 CUSTOM_MOVESET）。
         registrar.playToServer(MovesetApplyPayload.TYPE, MovesetApplyPayload.STREAM_CODEC,
                 (payload, context) -> MovesetApplyHandler.handle(payload, context));

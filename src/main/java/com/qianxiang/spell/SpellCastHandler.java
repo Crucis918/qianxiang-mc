@@ -4,6 +4,7 @@ import com.qianxiang.Qianxiang;
 import com.qianxiang.cap.PlayerSpellData;
 import com.qianxiang.cap.QianxiangAttachments;
 import com.qianxiang.network.CastSpellPayload;
+import com.qianxiang.network.ComboSyncPayload;
 import com.qianxiang.network.SpellDataSyncPayload;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -109,9 +110,15 @@ public final class SpellCastHandler {
             return false;
         }
 
-        // 增幅器结算：主手+副手法杖/魔法书的法术伤害加成合并为一个倍率传入效果引擎。
+        // 荣耀连招：通过冷却/法力校验即记一次连击——5s 内换不同 id 法术 combo+1（封顶 10），
+        // 同 id 重按/超时归零重计；combo≥3 起每级 +4% 法术伤害，本次施放立即生效。
+        // 注意计在效果引擎之前：引擎抛异常时连击照记（罕见错误路径，下次施法自然纠正）。
+        int combo = ComboTracker.onCast(serverPlayer, spell.id());
+        // 增幅器结算：主手+副手法杖/魔法书的法术伤害加成合并为一个倍率传入效果引擎，
+        // 连招乘区与增幅器/熟练度乘区叠乘。
         float damageMult = (float) (AmplifierHelper.damageMultiplier(serverPlayer)
-                * com.qianxiang.cap.ProficiencyHelper.spellDamageMult(serverPlayer, spell.power()));
+                * com.qianxiang.cap.ProficiencyHelper.spellDamageMult(serverPlayer, spell.power())
+                * ComboTracker.damageMultiplier(combo));
         try {
             SpellEffectEngine.cast(spell, serverPlayer, damageMult);
         } catch (Throwable t) {
@@ -133,6 +140,7 @@ public final class SpellCastHandler {
             serverPlayer.setData(QianxiangAttachments.PLAYER_SPELL_DATA, next);
         }
         sync(serverPlayer);
+        syncCombo(serverPlayer, combo);
         // 熟练度 XP：施法成功按基础蓝耗 ×0.6（至少 1），未开启不攒
         com.qianxiang.cap.ProficiencyHelper.addXp(serverPlayer,
                 com.qianxiang.cap.ProficiencyTrack.ARCANE,
@@ -152,6 +160,15 @@ public final class SpellCastHandler {
         } catch (Throwable t) {
             // 同步发包失败（断线瞬间、或未协商 payload 通道的连接）不该拖垮施法/退款结算
             Qianxiang.LOGGER.debug("[Qianxiang] 法术数据同步发包失败（不影响结算）：{}", t.toString());
+        }
+    }
+
+    /** 连招计数同步给客户端 HUD（与 {@link #sync} 同款防御：发包失败不影响结算）。 */
+    private static void syncCombo(ServerPlayer player, int combo) {
+        try {
+            PacketDistributor.sendToPlayer(player, new ComboSyncPayload(combo));
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 连招同步发包失败（不影响结算）：{}", t.toString());
         }
     }
 

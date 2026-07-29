@@ -116,8 +116,9 @@ public final class QianxiangEFCompat {
         Qianxiang.LOGGER.info("[Qianxiang] EpicFight 动态武器动作适配已注册（特征→动作，静态 JSON 兜底）。");
     }
 
-    /** NeoForge capability provider：moveset 优先，其次形态事实源（form→EF 底座），再特征分类；不接管时返回 null 交给 EF 静态 JSON。 */
-    private static CapabilityItem provide(ItemStack stack, Void context) {
+    /** NeoForge capability provider：moveset 优先，其次形态事实源（form→EF 底座），再特征分类；不接管时返回 null 交给 EF 静态 JSON。
+     *  public 以便 GameTest 直接验证形态缓存键（QianxiangFormSwitchGameTests）。 */
+    public static CapabilityItem provide(ItemStack stack, Void context) {
         if (!ENABLED || failed) return null;
         try {
             // 玩家描述的自定义动作（CUSTOM_MOVESET 组件）优先于形态/特征
@@ -134,10 +135,15 @@ public final class QianxiangEFCompat {
                 if (profile != null) {
                     var presetFn = CATEGORY_PRESETS.get(profile.efCategory());
                     if (presetFn != null) {
-                        CapabilityItem cached = FORM_CACHE.get(profile.efCategory());
+                        // 缓存键必须含 form：同 efCategory 的不同形态（如巨剑/战锤同为 greatsword
+                        // 底座但判定盒不同）不能共享实例，否则千机伞形态切换后拿到旧形态的判定盒
+                        CapabilityItem cached = FORM_CACHE.get(attr.form());
                         if (cached == null) {
-                            cached = presetFn.apply(stack.getItem()).build();
-                            FORM_CACHE.put(profile.efCategory(), cached);
+                            var builder = presetFn.apply(stack.getItem());
+                            Collider collider = resolveCollider(profile.collider());
+                            if (collider != null) builder.collider(collider);
+                            cached = builder.build();
+                            FORM_CACHE.put(attr.form(), cached);
                         }
                         return cached;
                     }
@@ -159,7 +165,8 @@ public final class QianxiangEFCompat {
         }
     }
 
-    /** 形态→EF 底座的 capability 缓存（按 efCategory 键，同底座共享实例）。 */
+    /** 形态→EF capability 缓存（按 form id 键：同底座不同形态判定盒不同，各自缓存；
+     *  千机伞切换 form 后键变，自然失效重取，无需手动清缓存）。 */
     private static final Map<String, CapabilityItem> FORM_CACHE = new HashMap<>();
     /** 特征分类：返回 null 表示本类不接管（交给 EF 既有逻辑）。 */
     private static Archetype classify(ItemStack stack) {

@@ -29,7 +29,8 @@ import java.util.Map;
  * 收到 {@link DamageNumberPayload}（来自
  * {@link com.qianxiang.combat.CombatEffectHandler}）后，把伤害数字塞进
  * {@code Map<entityId, List<DamageNumber>>}，然后在 {@link RenderLevelStageEvent}
- * 的 {@code AFTER_PARTICLES} 阶段画字：在目标头顶向上漂、逐渐淡出，约 30 tick 后移除。
+ * 的 {@code AFTER_PARTICLES} 阶段画字：在目标头顶轻微上抛（sin 缓出曲线）、逐渐淡出，
+ * 约 30 tick 后移除。颜色按数值分档：&lt;5 淡黄、5~10 橙、≥10 金色暴击风并放大 1.5×。
  * </p>
  *
  * <h3>API 查证（neoforge-21.1.219 + mc 1.21.1）</h3>
@@ -60,6 +61,10 @@ public final class ClientDamageNumbers {
     private static final int LIFE_TICKS = 30;
     /** 向上漂移总距离（方块）：从头顶再上浮约 1 格。 */
     private static final float RISE_BLOCKS = 1.0f;
+    /** 大伤分档阈值：≥10 判为暴击风大伤（金色 + 放大）。 */
+    private static final float BIG_HIT_THRESHOLD = 10.0f;
+    /** 大伤字号放大倍率。 */
+    private static final float BIG_HIT_SCALE_MULT = 1.5f;
     /** 最大同时显示条数，防止极端情况刷屏。 */
     private static final int MAX_ENTRIES = 64;
 
@@ -174,8 +179,9 @@ public final class ClientDamageNumbers {
         // —— 定位：实体包围盒顶 + 少量基准上浮 ——
         double headY = entity.getBoundingBox().maxY;
         Vec3 entityPos = entity.getPosition(partialTick);
-        // 向上漂：随存活时间线性上浮 RISE_BLOCKS。
-        float rise = (dn.age / (float) LIFE_TICKS) * RISE_BLOCKS;
+        // 轻微上抛：sin 缓出曲线（起步快、收尾慢），比线性漂移更像「跳出」。
+        float riseT = dn.age / (float) LIFE_TICKS;
+        float rise = (float) Math.sin(riseT * Math.PI * 0.5) * RISE_BLOCKS;
         double wx = entityPos.x;
         double wy = headY + 0.4 + rise;
         double wz = entityPos.z;
@@ -208,7 +214,11 @@ public final class ClientDamageNumbers {
         pose.translate(-halfWidth, 0.0f, 0.0f);
 
         // 字号微缩：让数字比标准 GUI 字稍大、更显眼。
+        // 暴击风格：大伤（≥10）再放大 1.5×，与金色分档配套（见 colorFor）。
         float scale = 0.025f; // 世界坐标下的标准 GUI 字缩放（≈ 名字牌大小）
+        if (dn.amount >= BIG_HIT_THRESHOLD) {
+            scale *= BIG_HIT_SCALE_MULT;
+        }
         pose.scale(scale, -scale, scale); // y 取负：世界 y 朝上，而 Font y 朝下
 
         // —— 画字：SEE_THROUGH 让数字不被实体/方块遮挡，更易读 ——
@@ -229,21 +239,22 @@ public final class ClientDamageNumbers {
     }
 
     /**
-     * 伤害→颜色映射：低伤（&lt;5）淡黄、中伤（5~15）橙、重伤（&gt;15）红。
+     * 伤害→颜色映射：按数值分档——小伤（&lt;5）淡黄、中伤（5~10）橙、
+     * 大伤（≥{@link #BIG_HIT_THRESHOLD}）金色暴击风（配合 1.5× 放大，见 drawOne）。
      * alpha 编码进颜色高 8 位（ARGB）。
      */
     private static int colorFor(float amount, float alpha) {
         int a = Mth.clamp((int) (alpha * 255), 0, 255);
         int r, g, b;
-        if (amount < 5.0f) {
+        if (amount >= BIG_HIT_THRESHOLD) {
+            // 大伤：金色暴击风
+            r = 255; g = 215; b = 60;
+        } else if (amount < 5.0f) {
             // 浅黄 → 白
             r = 255; g = 240; b = 120;
-        } else if (amount < 15.0f) {
+        } else {
             // 橙
             r = 255; g = 160; b = 40;
-        } else {
-            // 大伤：红
-            r = 255; g = 60; b = 60;
         }
         return (a << 24) | (r << 16) | (g << 8) | b;
     }

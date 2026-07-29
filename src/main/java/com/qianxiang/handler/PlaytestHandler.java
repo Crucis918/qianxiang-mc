@@ -173,6 +173,10 @@ public final class PlaytestHandler {
     private static volatile boolean finishing;
     /** 看门狗 daemon 线程（不依赖任何客户端事件；渲染限流/最小化/暂停都活着）。 */
     private static volatile Thread watchdogThread;
+    /** DIAG：serverTick 进入计数（看门狗心跳里对照墙钟判断服务端是否在走）。 */
+    private static volatile long serverTickCount;
+    /** DIAG：看门狗心跳截止时刻（启动后 3 分钟内每 5s 一行，防刷屏）。 */
+    private static volatile long diagHeartbeatUntilMs;
 
     private PlaytestHandler() {}
 
@@ -199,6 +203,8 @@ public final class PlaytestHandler {
         lastStallWarnMs = 0L;
         lastStepName = "-";
         finishing = false;
+        serverTickCount = 0L;
+        diagHeartbeatUntilMs = now + 180_000L; // DIAG 心跳限前 3 分钟
         startWatchdog();
         REPORT.add("---- [" + scenarios.get(0).id() + "] " + scenarios.get(0).title() + " ----");
         Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST 启动：玩家 {} 进世界，{} 个场景开始",
@@ -209,12 +215,32 @@ public final class PlaytestHandler {
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerPlayer player = subject;
         if (player == null) return;
-        if (player.isRemoved()) { // 中途退出：静默终止，不崩不闹
+        if (player.isRemoved()) { // 玩家被移除=序列终止；此前静默——这是场景与看门狗双双蒸发的嫌疑路径
+            Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST-DIAG 玩家 isRemoved=true，序列终止"
+                    + "（alive={} dimension={}），看门狗将随 subject=null 退出",
+                    player.isAlive(), player.serverLevel().dimension().location());
             subject = null;
             return;
         }
+        serverTickCount++;
         long now = System.currentTimeMillis();
         lastServerTickMs = now;
+        Scenario sc = scenarios.get(scenarioIndex);
+        currentScenario = sc.id();
+        // —— DIAG：驱动存活证据（每 100 tick） ——
+        if (serverTickCount % 100 == 0) {
+            Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST-DIAG serverTick#{} 场景={} 场景内tick={} 上一步={}",
+                    serverTickCount, sc.id(), scenarioTick, lastStepName);
+        }
+        // —— DIAG：仪式等待条件的关键状态（A/B 场景每 40 tick） ——
+        if (scenarioTick % 40 == 0 && ("A".equals(sc.id()) || "B".equals(sc.id()))) {
+            com.qianxiang.block.RitualHost host = "A".equals(sc.id()) ? forgeBe(player) : alchemyBe(player);
+            BlockPos pos = "A".equals(sc.id()) ? (BlockPos) CTX.get("forgePos") : (BlockPos) CTX.get("alchPos");
+            Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST-DIAG 仪式等待: bePos={} be={} state={} progress={}",
+                    pos, host == null ? "null" : host.getClass().getSimpleName(),
+                    host == null ? "?" : host.ritualState(),
+                    host == null ? -1 : host.ritualProgress());
+        }
         // —— 墙钟硬超时（tick 在走的前提下的三道闸；tick 不走由看门狗兜底） ——
         if (now - runStartMs > GLOBAL_TIMEOUT_MS) {
             check("全局超时", false, "总耗时 " + (now - runStartMs) / 1000 + "s > 600s，强制收尾");
@@ -233,8 +259,6 @@ public final class PlaytestHandler {
             advance(player);
             return;
         }
-        Scenario sc = scenarios.get(scenarioIndex);
-        currentScenario = sc.id();
         if (scenarioTick > sc.timeout()) {
             check("场景超时", false, "超过 " + sc.timeout() + " tick 未走完，跳到下一场景");
             advance(player);
@@ -300,32 +324,45 @@ public final class PlaytestHandler {
 
     /** 看门狗主循环（见 {@link #startWatchdog} 文档）。 */
     private static void watchdogLoop() {
+        Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST-DIAG 看门狗 run() 进入（线程存活证据）");
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 Thread.sleep(WATCHDOG_INTERVAL_MS);
             } catch (InterruptedException e) {
                 // interrupt 此前是静默死亡通道（jstack 无线程、零 WARN 的唯一解释）——必须留痕
-                Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST 看门狗线程被 interrupt 退出"
-                        + "（finishing={} subject={}）", finishing, subject != null);
+                Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST-DIAG 看门狗被 interrupt 退出"
+                        + "（finishing={} subject={} serverTickCount={}）",
+                        finishing, subject != null, serverTickCount);
                 return;
             }
             try {
                 watchdogCycle();
             } catch (Throwable t) { // 单轮异常不杀线程：打 ERROR 继续下一轮
-                Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 看门狗本轮异常（继续值守）", t);
+                Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST-DIAG 看门狗本轮异常（继续值守）", t);
             }
         }
+        // interrupt 标志在 sleep 之外被置位时从这里出循环——此前无任何日志
+        Qianxiang.LOGGER.warn("[Qianxiang] PLAYTEST-DIAG 看门狗 run() 经 while 条件退出"
+                + "（interrupted=true finishing={} subject={} serverTickCount={}）",
+                finishing, subject != null, serverTickCount);
     }
 
     /** 看门狗单轮评估。 */
     private static void watchdogCycle() {
         ServerPlayer player = subject;
+        long now = System.currentTimeMillis();
+        long stalled = now - lastServerTickMs;
+        // —— DIAG 心跳（前 3 分钟，每 5s 一行）：线程活着 + 关键判据全量可见 ——
+        if (now < diagHeartbeatUntilMs) {
+            boolean paused = player != null && isServerPaused(player);
+            Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST-DIAG 心跳: stalled={}ms serverTickCount={}"
+                            + " serverPaused={} 步骤={} finishing={} subject={}",
+                    stalled, serverTickCount, paused, lastStepName, finishing, player != null);
+        }
         if (player == null || finishing) {
             Thread.currentThread().interrupt(); // 序列结束/玩家移除：借 interrupt 通道留痕退出
             return;
         }
-        long now = System.currentTimeMillis();
-        long stalled = now - lastServerTickMs;
         boolean globalBlow = now - runStartMs > GLOBAL_TIMEOUT_MS;
         if (stalled >= STALL_WARN_MS) {
             boolean paused = isServerPaused(player);

@@ -1,13 +1,22 @@
 package com.qianxiang.item;
 
 import com.qianxiang.QianxiangDataComponents;
+import com.qianxiang.combat.WeaponFormProfile;
+import com.qianxiang.particle.SparkParticleOptions;
 import com.qianxiang.phase.ComposedAttributes;
+import com.qianxiang.phase.UpgradeRules;
+import com.qianxiang.phase.WeaponForm;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
@@ -16,6 +25,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import org.joml.Vector3f;
 
 import java.util.List;
 
@@ -66,6 +76,57 @@ public class QianxiangWeaponItem extends Item {
             return DEFAULT_ENCHANTABILITY + (int) Math.min(10, attr.powerScore() / 3.0);
         }
         return DEFAULT_ENCHANTABILITY;
+    }
+
+    /**
+     * 千机伞·形态转换（全职高手·荣耀风）：传奇满级（L{@value UpgradeRules#MAX_LEVEL}）武器
+     * 右键在战斗中循环切换 9 种形态（{@link WeaponFormProfile#SWITCHABLE_FORMS}）。
+     * <ul>
+     *   <li>只重写 {@code AppearanceData.form}（{@link ComposedAttributes#withForm}），
+     *       攻击力/耐久/已损耐久/特殊效果/升级等级经验全部保留；</li>
+     *   <li>同步：组件变更落在玩家手持栈上，由原版背包同步下发客户端，无需自定义包；</li>
+     *   <li>反馈：spark 火花 + 风铃音效 + actionbar 新形态名；</li>
+     *   <li>未满级：actionbar 提示解锁条件（行为同旧版无操作）；无形态产物不接管。</li>
+     * </ul>
+     */
+    @Override
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        ItemStack stack = player.getItemInHand(hand);
+        ComposedAttributes attr = stack.get(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        if (attr == null || attr.form().isEmpty()) {
+            return InteractionResultHolder.pass(stack); // 无形态产物：不接管（旧行为）
+        }
+        if (level.isClientSide() || !(player instanceof ServerPlayer serverPlayer)) {
+            return InteractionResultHolder.success(stack);
+        }
+        if (attr.upgradeLevel() < UpgradeRules.MAX_LEVEL) {
+            serverPlayer.displayClientMessage(Component.translatable(
+                    "qianxiang.formswitch.locked", UpgradeRules.MAX_LEVEL), true);
+            return InteractionResultHolder.fail(stack);
+        }
+
+        WeaponForm next = WeaponFormProfile.nextSwitchableForm(attr.form());
+        stack.set(QianxiangDataComponents.COMPOSED_ATTRIBUTES.get(), attr.withForm(next.id()));
+
+        // 切换反馈：冰蓝色 spark 喷泉（每颗单独发包以获得各自初速，同 SpellEffectEngine 技法）
+        ServerLevel serverLevel = (ServerLevel) level;
+        var spark = new SparkParticleOptions(new Vector3f(0.55f, 0.85f, 1.00f));
+        double x = player.getX();
+        double y = player.getY() + player.getBbHeight() * 0.6;
+        double z = player.getZ();
+        for (int i = 0; i < 12; i++) {
+            double vx = (serverLevel.random.nextDouble() - 0.5) * 0.5;
+            double vy = 0.2 + serverLevel.random.nextDouble() * 0.4;
+            double vz = (serverLevel.random.nextDouble() - 0.5) * 0.5;
+            serverLevel.sendParticles(spark, x, y, z, 1, vx, vy, vz, 0.0);
+        }
+        serverLevel.playSound(null, player.blockPosition(),
+                SoundEvents.AMETHYST_BLOCK_CHIME, SoundSource.PLAYERS, 0.9f, 1.2f);
+        serverPlayer.displayClientMessage(Component.translatable(
+                "qianxiang.formswitch.switched",
+                Component.translatable("qianxiang.weapon_form." + next.id())
+                        .withStyle(ChatFormatting.AQUA)), true);
+        return InteractionResultHolder.consume(stack);
     }
 
     /**

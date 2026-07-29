@@ -863,5 +863,10 @@
   "qianxiang.upgrade.tooltip.level": "Legendary +%d",
   "qianxiang.upgrade.tooltip.max": "Legendary MAX",
   "qianxiang.table.suggestion.upgrade": "Upgradeable: Lv.%d — feed materials to upgrade",
-  "qianxiang.table.suggestion.upgrade_max": "Legendary MAX — fully upgraded"
+  "qianxiang.table.suggestion.upgrade_max": "Legendary MAX — fully upgraded",
+  "qianxiang.camera.pvp_enter": "PvP engaged — switched to first person",
+  "qianxiang.camera.pvp_exit": "PvP over — back to third person",
+  "qianxiang.hud.combo": "%s Combo!",
+  "qianxiang.formswitch.switched": "Myriad Form shifted: %s",
+  "qianxiang.formswitch.locked": "Myriad Form requires Legendary +%d"
 }

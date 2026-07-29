@@ -90,6 +90,27 @@ public final class WeaponFormProfile {
         return form == null ? null : PROFILES.get(form);
     }
 
+    // ===================== 千机伞：L5 传奇武器战斗中形态切换 =====================
+
+    /**
+     * 可循环切换的 9 种形态（全职高手·千机伞）：仅武器推导形态，
+     * 不含物品固有形态 STAFF/BOOK（法杖/书不参与切换）。
+     * 顺序即右键循环顺序。
+     */
+    public static final List<WeaponForm> SWITCHABLE_FORMS = List.of(
+            WeaponForm.SWORD, WeaponForm.GREATSWORD, WeaponForm.DAGGER, WeaponForm.KATANA,
+            WeaponForm.SPEAR, WeaponForm.AXE, WeaponForm.HAMMER, WeaponForm.SCYTHE, WeaponForm.MACE);
+
+    /**
+     * 循环序列中的下一形态：当前形态命中表则顺移一位（末尾回首位）；
+     * 空串/STAFF/BOOK 等表外形态从首位 SWORD 开始。
+     */
+    public static WeaponForm nextSwitchableForm(String currentFormId) {
+        int idx = SWITCHABLE_FORMS.indexOf(WeaponForm.byId(currentFormId));
+        // idx == -1（表外）时 (idx+1) == 0，自然落到首位
+        return SWITCHABLE_FORMS.get((idx + 1) % SWITCHABLE_FORMS.size());
+    }
+
     /** 按字符串 id 取映射（组件里存的是 id）。 */
     public static Profile of(String formId) {
         return of(WeaponForm.byId(formId));

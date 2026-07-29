@@ -91,6 +91,8 @@ public final class SpellEffectEngine {
             // 高光层：元素色 spark 喷泉（原版粒子底层保留，自定义粒子只做点缀）
             Vec3 eye = player.getEyePosition(1.0f);
             sparkBurst(level, element, eye.x, eye.y - 0.2, eye.z, 10);
+            // 施法法阵：脚下单圈符文环（shockwave scale 1.5~2.5 随 power）+ 8 颗元素色 spark 按环摆开
+            castCircle(level, player, element, power);
             // projectile 形式的命中发生在若干 tick 之后，本次同步结算里必然是 0/0，
             // settleCast 的「零受益且有无效目标」条件自然不成立，不会误退款。
             settleCast(player, spell);
@@ -330,9 +332,10 @@ public final class SpellEffectEngine {
             target.hurt(level.damageSources().magic(), dmg);
         }
         burstAt(level, element, target, 14);
-        // 高光层：命中点 spark 四溅 + 小冲击波环
+        // 高光层：命中点 spark 四溅（10~14 颗、初速 ×1.6 更炸）+ 大小双冲击波环
         sparkBurst(level, element, target.getX(), target.getY() + target.getBbHeight() * 0.5,
-                target.getZ(), 6 + level.random.nextInt(3));
+                target.getZ(), 10 + level.random.nextInt(5), 1.6);
+        shockwave(level, element, target.getX(), target.getY() + 0.1, target.getZ(), 0.8f);
         shockwave(level, element, target.getX(), target.getY() + 0.1, target.getZ(), 1.5f);
         level.playSound(null, target.blockPosition(), hitSoundFor(element),
                 SoundSource.PLAYERS, hitVolumeFor(element), 1.0f);
@@ -669,12 +672,37 @@ public final class SpellEffectEngine {
      * sendParticles 的批量模式是所有粒子共享同一速度，喷泉要的是散开）。
      */
     private static void sparkBurst(ServerLevel level, String element, double x, double y, double z, int count) {
+        sparkBurst(level, element, x, y, z, count, 1.0);
+    }
+
+    /** 同 {@link #sparkBurst(ServerLevel, String, double, double, double, int)}，带初速倍率（>1 更炸）。 */
+    private static void sparkBurst(ServerLevel level, String element, double x, double y, double z,
+                                   int count, double speed) {
         var options = new com.qianxiang.particle.SparkParticleOptions(colorFor(element));
         for (int i = 0; i < count; i++) {
-            double vx = (level.random.nextDouble() - 0.5) * 0.5;
-            double vy = 0.2 + level.random.nextDouble() * 0.4;
-            double vz = (level.random.nextDouble() - 0.5) * 0.5;
+            double vx = (level.random.nextDouble() - 0.5) * 0.5 * speed;
+            double vy = (0.2 + level.random.nextDouble() * 0.4) * speed;
+            double vz = (level.random.nextDouble() - 0.5) * 0.5 * speed;
             level.sendParticles(options, x, y, z, 1, vx, vy, vz, 0.0);
+        }
+    }
+
+    /**
+     * 施法法阵：脚下单圈符文环——shockwave 冲击波环（scale 1.5~2.5 随 power 线性涨满）
+     * + 8 颗元素色 spark 沿环均匀摆开（零初速静止亮点，画出「圈」的轮廓）。
+     */
+    private static void castCircle(ServerLevel level, ServerPlayer player, String element, float power) {
+        double x = player.getX();
+        double y = player.getY() + 0.1;
+        double z = player.getZ();
+        float scale = 1.5f + Math.min(1.0f, Math.max(0.0f, power / 10.0f));
+        shockwave(level, element, x, y, z, scale);
+        var spark = new com.qianxiang.particle.SparkParticleOptions(colorFor(element));
+        for (int i = 0; i < 8; i++) {
+            double angle = Math.PI * 2.0 * i / 8.0;
+            level.sendParticles(spark,
+                    x + Math.cos(angle) * scale * 0.6, y + 0.05, z + Math.sin(angle) * scale * 0.6,
+                    1, 0.0, 0.05, 0.0, 0.0);
         }
     }
 

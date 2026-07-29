@@ -168,8 +168,27 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
         } else if (hitResult.getType() == HitResult.Type.BLOCK) {
             onHitBlock((BlockHitResult) hitResult);
             if (!level().isClientSide) {
+                // 撞墙也有环形 spark 喷泉——弹体消散不该无声无息
+                if (level() instanceof ServerLevel serverLevel) {
+                    hitSparkRing(serverLevel);
+                }
                 discard();
             }
+        }
+    }
+
+    /** 命中爆炸附加：环形 spark 喷泉——8 颗元素色火花沿水平环向外上方喷出。 */
+    private void hitSparkRing(ServerLevel serverLevel) {
+        try {
+            var spark = new com.qianxiang.particle.SparkParticleOptions(
+                    SpellEffectEngine.colorFor(element));
+            for (int i = 0; i < 8; i++) {
+                double a = Math.PI * 2.0 * i / 8.0;
+                serverLevel.sendParticles(spark, getX(), getY(), getZ(), 1,
+                        Math.cos(a) * 0.35, 0.25, Math.sin(a) * 0.35, 0.0);
+            }
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.error("[Qianxiang] 法术弹体命中喷泉异常", t);
         }
     }
 
@@ -191,6 +210,8 @@ public class SpellProjectileEntity extends ThrowableItemProjectile {
             if (level() instanceof ServerLevel serverLevel) {
                 SpellEffectEngine.resolveHit(serverLevel, caster, this, target,
                         element, effect, power, mods, damageMult);
+                // 命中爆炸附加：环形 spark 喷泉（8 颗元素色向外上方喷出）
+                hitSparkRing(serverLevel);
             }
 
             // piercing：还能穿就不消失，否则消散
