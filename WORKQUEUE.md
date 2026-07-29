@@ -1432,7 +1432,7 @@ AI 主动建议条/键位 B·O·J/shot 命令）+ 队列编号整顿。
 
 ---
 
-## WQ-92 [x] 完成(待提交) 【中·尾账清扫】AI 尾账 + 体验残留 + RS 组件匹配 + 7 模板手绘
+## WQ-92 [x] 完成(0a027cf) 【中·尾账清扫】AI 尾账 + 体验残留 + RS 组件匹配 + 7 模板手绘
 
 **范围**:① MaterialRecall 召回剥否定(「不要火的剑」不再把 IGNITE 塞进核心组,复用
 FallbackRecipes.stripNegatedSegments/negatedEffectKeywords);② AIGateway BREAKER_SKIPS 三处归零
