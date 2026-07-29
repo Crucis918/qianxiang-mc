@@ -24,7 +24,8 @@ public record ProficiencySyncPayload(
         int combatLevel, int arcaneLevel, int craftLevel,
         int combatPoints, int arcanePoints, int craftPoints,
         Set<String> allocated,
-        int surgeCooldownMs, int warcryCooldownMs, int warcryActiveMs
+        int surgeCooldownMs, int warcryCooldownMs, int warcryActiveMs,
+        String classElementA, String classElementB, String classForm
 ) implements CustomPacketPayload {
 
     /** 已分配节点列表上限（27 节点，64 防异常包撑爆）。 */
@@ -35,7 +36,8 @@ public record ProficiencySyncPayload(
                 d.combatXp(), d.arcaneXp(), d.craftXp(),
                 d.combatLevel(), d.arcaneLevel(), d.craftLevel(),
                 d.combatPoints(), d.arcanePoints(), d.craftPoints(),
-                d.allocated(), 0, 0, 0);
+                d.allocated(), 0, 0, 0,
+                d.classCore().elementA(), d.classCore().elementB(), d.classCore().form());
     }
 
     /** 带主动技能冷却状态的完整同步（ProficiencyHelper.sync 用）。 */
@@ -49,7 +51,8 @@ public record ProficiencySyncPayload(
                 d.allocated(),
                 (int) com.qianxiang.cap.ProficiencyHelper.surgeCooldownRemainingMs(player),
                 (int) com.qianxiang.cap.ProficiencyHelper.warcryCooldownRemainingMs(player),
-                (int) com.qianxiang.cap.ProficiencyHelper.warcryActiveRemainingMs(player));
+                (int) com.qianxiang.cap.ProficiencyHelper.warcryActiveRemainingMs(player),
+                d.classCore().elementA(), d.classCore().elementB(), d.classCore().form());
     }
 
     public static final Type<ProficiencySyncPayload> TYPE =
@@ -74,10 +77,14 @@ public record ProficiencySyncPayload(
                     int surgeCd = ByteBufCodecs.VAR_INT.decode(buf);
                     int warcryCd = ByteBufCodecs.VAR_INT.decode(buf);
                     int warcryActive = ByteBufCodecs.VAR_INT.decode(buf);
+                    String classElementA = ByteBufCodecs.stringUtf8(16).decode(buf);
+                    String classElementB = ByteBufCodecs.stringUtf8(16).decode(buf);
+                    String classForm = ByteBufCodecs.stringUtf8(16).decode(buf);
                     return new ProficiencySyncPayload(unlocked, combatXp, arcaneXp, craftXp,
                             combatLevel, arcaneLevel, craftLevel,
                             combatPoints, arcanePoints, craftPoints,
-                            new LinkedHashSet<>(allocated), surgeCd, warcryCd, warcryActive);
+                            new LinkedHashSet<>(allocated), surgeCd, warcryCd, warcryActive,
+                            classElementA, classElementB, classForm);
                 }
 
                 @Override
@@ -98,6 +105,9 @@ public record ProficiencySyncPayload(
                     ByteBufCodecs.VAR_INT.encode(buf, value.surgeCooldownMs());
                     ByteBufCodecs.VAR_INT.encode(buf, value.warcryCooldownMs());
                     ByteBufCodecs.VAR_INT.encode(buf, value.warcryActiveMs());
+                    ByteBufCodecs.stringUtf8(16).encode(buf, value.classElementA());
+                    ByteBufCodecs.stringUtf8(16).encode(buf, value.classElementB());
+                    ByteBufCodecs.stringUtf8(16).encode(buf, value.classForm());
                 }
             };
 

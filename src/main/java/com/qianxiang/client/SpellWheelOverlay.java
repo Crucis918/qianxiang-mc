@@ -172,7 +172,10 @@ public final class SpellWheelOverlay {
             }
 
             String name = mc.font.plainSubstrByWidth(spellName(spell).getString(), BOX_W - 4);
-            int textColor = onCooldown ? 0xFF888888 : 0xFFFFFFFF;
+            // 主职业边界可视：非内核元素法术标签压暗 50%（未设内核不压暗）
+            boolean offCore = ClientProficiencyData.classCoreSet()
+                    && !ClientProficiencyData.isCoreElement(spell.element());
+            int textColor = onCooldown ? 0xFF888888 : offCore ? 0xFF7F7F7F : 0xFFFFFFFF;
             g.drawString(mc.font, name, bx - mc.font.width(name) / 2, by - 4, textColor, true);
         }
 

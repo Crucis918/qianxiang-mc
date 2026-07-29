@@ -30,7 +30,13 @@ public final class ProficiencyCombatHooks {
             if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) return;
             LivingEntity target = event.getEntity();
             float damage = event.getOriginalDamage();
+            // 主职业形态倍率只作用于近战攻击（PLAYER_ATTACK）：AoE/弹体等法术伤害
+            // 同样以玩家为伤害源，不拦会把「非内核形态 ×0.6」误乘到法术上（实测 1.15×0.6）。
+            double formMult = event.getSource().is(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK)
+                    ? com.qianxiang.cap.ClassCoreHelper.meleeFormMult(attacker, mainhandForm(attacker))
+                    : 1.0;
             double mult = ProficiencyHelper.meleeDamageMult(attacker)
+                    * formMult
                     * (1.0 + ProficiencyHelper.executeThresholdBonus(attacker, target))
                     * ProficiencyHelper.comboBonus(attacker);
             if (mult != 1.0) {
@@ -41,6 +47,14 @@ public final class ProficiencyCombatHooks {
         } catch (Throwable t) {
             Qianxiang.LOGGER.debug("[Qianxiang] 熟练度伤害加成结算失败（不影响原伤害）：{}", t.toString());
         }
+    }
+
+    /** 主手产物的武器形态（AppearanceData.form；无组件/空串 = 非内核形态 ×0.6 档）。 */
+    private static String mainhandForm(ServerPlayer attacker) {
+        var stack = attacker.getMainHandItem();
+        if (stack.isEmpty()) return "";
+        var attr = stack.get(com.qianxiang.QianxiangDataComponents.COMPOSED_ATTRIBUTES.get());
+        return attr == null ? "" : attr.form();
     }
 
     @SubscribeEvent

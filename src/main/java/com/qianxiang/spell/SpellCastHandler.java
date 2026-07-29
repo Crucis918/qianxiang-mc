@@ -96,7 +96,9 @@ public final class SpellCastHandler {
         PlayerSpellData data = serverPlayer.getData(QianxiangAttachments.PLAYER_SPELL_DATA);
 
         // 熟练度修正：蓝耗 ×mana 节点、冷却 ×quickcool、强度 ×focus/overload（未分配均中性）
-        double manaCostMult = com.qianxiang.cap.ProficiencyHelper.manaCostMult(serverPlayer);
+        // 主职业内核：非内核元素蓝耗再 ×1.25（内核 ×0.9，未设内核 ×1.0）
+        double manaCostMult = com.qianxiang.cap.ProficiencyHelper.manaCostMult(serverPlayer)
+                * com.qianxiang.cap.ClassCoreHelper.spellManaCostMult(serverPlayer, spell);
         int effectiveCost = (int) Math.ceil(spell.manaCost() * manaCostMult);
         int effectiveCooldown = (int) Math.round(spell.cooldownTicks()
                 * com.qianxiang.cap.ProficiencyHelper.cooldownMult(serverPlayer));
@@ -115,9 +117,10 @@ public final class SpellCastHandler {
         // 注意计在效果引擎之前：引擎抛异常时连击照记（罕见错误路径，下次施法自然纠正）。
         int combo = ComboTracker.onCast(serverPlayer, spell.id());
         // 增幅器结算：主手+副手法杖/魔法书的法术伤害加成合并为一个倍率传入效果引擎，
-        // 连招乘区与增幅器/熟练度乘区叠乘。
+        // 连招乘区与增幅器/熟练度/主职业内核乘区叠乘。
         float damageMult = (float) (AmplifierHelper.damageMultiplier(serverPlayer)
                 * com.qianxiang.cap.ProficiencyHelper.spellDamageMult(serverPlayer, spell.power())
+                * com.qianxiang.cap.ClassCoreHelper.spellDamageMult(serverPlayer, spell)
                 * ComboTracker.damageMultiplier(combo));
         try {
             SpellEffectEngine.cast(spell, serverPlayer, damageMult);

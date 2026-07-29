@@ -43,10 +43,15 @@ public class SkillTreeScreen extends Screen {
     private static final int TAB_W = 60;
     private static final int TAB_H = 12;
 
-    /** 当前选中轨（0/1/2 = combat/arcane/craft）。 */
+    /** 当前选中页签（0/1/2 = combat/arcane/craft，3 = 主职业）。 */
     private int tabIndex = 0;
     /** 洗点二次确认武装的截止时刻（System.currentTimeMillis；0 = 未武装）。 */
     private long respecArmUntilMs = 0L;
+
+    /** 主职业页签下标。 */
+    private static final int CLASS_TAB = 3;
+    /** 自定义选择器的暂存选择（打开页签时从当前内核初始化）。 */
+    private String pickElementA = "", pickElementB = "", pickForm = "";
 
     private static final ProficiencyTrack[] TRACKS = {
             ProficiencyTrack.COMBAT, ProficiencyTrack.ARCANE, ProficiencyTrack.CRAFT};
@@ -84,23 +89,28 @@ public class SkillTreeScreen extends Screen {
         }
 
         renderTabs(g, x0, y0, mouseX, mouseY);
-        renderTrackHeader(g, x0, y0);
-        renderNodes(g, x0, y0, mouseX, mouseY);
+        if (tabIndex == CLASS_TAB) {
+            renderClassCore(g, x0, y0, mouseX, mouseY);
+        } else {
+            renderTrackHeader(g, x0, y0);
+            renderNodes(g, x0, y0, mouseX, mouseY);
+        }
         renderFooter(g, x0, y0, mouseX, mouseY);
     }
 
     // ============================ 页签 ============================
 
     private void renderTabs(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
-        for (int i = 0; i < TRACKS.length; i++) {
-            int tx = x0 + 8 + i * (TAB_W + 4);
+        for (int i = 0; i < TRACKS.length + 1; i++) {
+            int tx = x0 + 8 + i * (TAB_W + 1);
             int ty = y0 + 6;
             boolean selected = i == tabIndex;
             boolean hover = mouseX >= tx && mouseX < tx + TAB_W && mouseY >= ty && mouseY < ty + TAB_H;
             g.fill(tx, ty, tx + TAB_W, ty + TAB_H, selected ? WOOD_LIGHT : SLOT_DARK);
             border(g, tx, ty, TAB_W, TAB_H, selected ? COPPER : 0xFF565656);
             g.drawCenteredString(this.font,
-                    Component.translatable("qianxiang.proficiency.track." + TRACKS[i].id()),
+                    Component.translatable(i == CLASS_TAB
+                            ? "qianxiang.classcore.tab" : "qianxiang.proficiency.track." + TRACKS[i].id()),
                     tx + TAB_W / 2, ty + 2, selected || hover ? CREAM : GRAY);
         }
     }
@@ -277,6 +287,167 @@ public class SkillTreeScreen extends Screen {
         };
     }
 
+    // ============================ 主职业页签 ============================
+
+    /** 元素图标（9 元素，原版物品代形）。 */
+    private static ItemStack elementIcon(String element) {
+        return new ItemStack(switch (element) {
+            case "fire" -> Items.BLAZE_POWDER;
+            case "frost" -> Items.SNOWBALL;
+            case "lightning" -> Items.LIGHTNING_ROD;
+            case "nature" -> Items.OAK_SAPLING;
+            case "shadow" -> Items.BLACK_DYE;
+            case "holy" -> Items.GLOWSTONE_DUST;
+            case "blood" -> Items.SPIDER_EYE;
+            case "ender" -> Items.CHORUS_FRUIT;
+            default -> Items.AMETHYST_SHARD; // arcane
+        });
+    }
+
+    /** 形态图标（9 形态 + staff，原版物品代形）。 */
+    private static ItemStack formIcon(String form) {
+        return new ItemStack(switch (form) {
+            case "greatsword" -> Items.DIAMOND_SWORD;
+            case "dagger" -> Items.STONE_SWORD;
+            case "katana" -> Items.WOODEN_SWORD;
+            case "spear" -> Items.TRIDENT;
+            case "axe" -> Items.IRON_AXE;
+            case "hammer" -> Items.ANVIL;
+            case "scythe" -> Items.IRON_HOE;
+            case "mace" -> Items.MACE;
+            case "staff" -> Items.STICK;
+            default -> Items.IRON_SWORD; // sword
+        });
+    }
+
+    private static Component elementName(String element) {
+        return Component.translatable("qianxiang.spell.element." + element);
+    }
+
+    private static Component formName(String form) {
+        return Component.translatable("qianxiang.weapon_form." + form);
+    }
+
+    /** 主职业页签内容：当前内核 / 8 预设模板 / 自定义两行选择器 + 确认。 */
+    private void renderClassCore(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
+        // 当前内核行
+        boolean set = ClientProficiencyData.classCoreSet();
+        Component current = set
+                ? Component.translatable("qianxiang.classcore.current",
+                        elementName(ClientProficiencyData.classElementA),
+                        elementName(ClientProficiencyData.classElementB),
+                        formName(ClientProficiencyData.classForm))
+                : Component.translatable("qianxiang.classcore.unset");
+        g.drawString(this.font, current, x0 + 8, y0 + 24, set ? CREAM : GRAY, false);
+
+        // 预设模板（4 列 × 2 行）
+        g.drawString(this.font, Component.translatable("qianxiang.classcore.templates"),
+                x0 + 8, y0 + 36, GRAY, false);
+        int i = 0;
+        for (var entry : com.qianxiang.cap.ClassCore.TEMPLATES.entrySet()) {
+            int col = i % 4, row = i / 4;
+            int bx = x0 + 8 + col * 61, by = y0 + 46 + row * 16;
+            boolean hover = mouseX >= bx && mouseX < bx + 58 && mouseY >= by && mouseY < by + 14;
+            g.fill(bx, by, bx + 58, by + 14, hover ? WOOD_LIGHT : SLOT_DARK);
+            border(g, bx, by, 58, 14, hover ? COPPER : COPPER_DARK);
+            g.drawCenteredString(this.font,
+                    Component.translatable("qianxiang.classcore.template." + entry.getKey()),
+                    bx + 29, by + 3, hover ? CREAM : CREAM);
+            i++;
+        }
+
+        // 自定义：元素 9 选 2 + 形态 9 选 1 + 确认
+        g.drawString(this.font, Component.translatable("qianxiang.classcore.element_pick"),
+                x0 + 8, y0 + 82, GRAY, false);
+        for (int e = 0; e < com.qianxiang.cap.ClassCore.ELEMENTS.size(); e++) {
+            String element = com.qianxiang.cap.ClassCore.ELEMENTS.get(e);
+            int cx = x0 + 8 + e * 18, cy = y0 + 92;
+            boolean picked = element.equals(pickElementA) || element.equals(pickElementB);
+            g.fill(cx, cy, cx + 16, cy + 16, SLOT_DARK);
+            border(g, cx, cy, 16, 16, picked ? GREEN : 0xFF565656);
+            g.renderItem(elementIcon(element), cx, cy);
+            if (mouseX >= cx && mouseX < cx + 16 && mouseY >= cy && mouseY < cy + 16) {
+                g.renderTooltip(this.font, elementName(element), mouseX, mouseY);
+            }
+        }
+        g.drawString(this.font, Component.translatable("qianxiang.classcore.form_pick"),
+                x0 + 8, y0 + 114, GRAY, false);
+        for (int f = 0; f < com.qianxiang.cap.ClassCore.FORMS.size(); f++) {
+            String form = com.qianxiang.cap.ClassCore.FORMS.get(f);
+            int cx = x0 + 8 + f * 18, cy = y0 + 124;
+            boolean picked = form.equals(pickForm);
+            g.fill(cx, cy, cx + 16, cy + 16, SLOT_DARK);
+            border(g, cx, cy, 16, 16, picked ? GREEN : 0xFF565656);
+            g.renderItem(formIcon(form), cx, cy);
+            if (mouseX >= cx && mouseX < cx + 16 && mouseY >= cy && mouseY < cy + 16) {
+                g.renderTooltip(this.font, formName(form), mouseX, mouseY);
+            }
+        }
+
+        // 确认按钮（凑齐 2 元素 + 1 形态才亮；费用提示）
+        boolean ready = !pickElementA.isEmpty() && !pickElementB.isEmpty() && !pickForm.isEmpty();
+        int bx = x0 + PANEL_W - 76, by = y0 + 128, bw = 68, bh = 12;
+        boolean hover = ready && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+        g.fill(bx, by, bx + bw, by + bh, ready ? (hover ? WOOD_LIGHT : SLOT_DARK) : 0x80101010);
+        border(g, bx, by, bw, bh, ready ? COPPER : 0xFF3C3C3C);
+        g.drawCenteredString(this.font, Component.translatable("qianxiang.classcore.confirm"),
+                bx + bw / 2, by + 2, ready ? CREAM : GRAY);
+        g.drawString(this.font, Component.translatable(set
+                        ? "qianxiang.classcore.respec_cost" : "qianxiang.classcore.first_free"),
+                x0 + 8, y0 + 144, GRAY, false);
+    }
+
+    /** 主职业页签点击：模板一键选 / 元素双选切换 / 形态单选 / 确认。 */
+    private boolean classCoreClicked(double mouseX, double mouseY, int x0, int y0) {
+        // 模板
+        int i = 0;
+        for (var entry : com.qianxiang.cap.ClassCore.TEMPLATES.entrySet()) {
+            int col = i % 4, row = i / 4;
+            int bx = x0 + 8 + col * 61, by = y0 + 46 + row * 16;
+            if (mouseX >= bx && mouseX < bx + 58 && mouseY >= by && mouseY < by + 14) {
+                PacketDistributor.sendToServer(
+                        com.qianxiang.network.SetClassCorePayload.template(entry.getKey()));
+                return true;
+            }
+            i++;
+        }
+        // 元素格（双选：点已选的取消，点未选的填进较旧槽位）
+        for (int e = 0; e < com.qianxiang.cap.ClassCore.ELEMENTS.size(); e++) {
+            String element = com.qianxiang.cap.ClassCore.ELEMENTS.get(e);
+            int cx = x0 + 8 + e * 18, cy = y0 + 92;
+            if (mouseX >= cx && mouseX < cx + 16 && mouseY >= cy && mouseY < cy + 16) {
+                if (element.equals(pickElementA)) {
+                    pickElementA = pickElementB;
+                    pickElementB = "";
+                } else if (element.equals(pickElementB)) {
+                    pickElementB = "";
+                } else {
+                    pickElementA = pickElementB;
+                    pickElementB = element;
+                }
+                return true;
+            }
+        }
+        // 形态格（单选）
+        for (int f = 0; f < com.qianxiang.cap.ClassCore.FORMS.size(); f++) {
+            String form = com.qianxiang.cap.ClassCore.FORMS.get(f);
+            int cx = x0 + 8 + f * 18, cy = y0 + 124;
+            if (mouseX >= cx && mouseX < cx + 16 && mouseY >= cy && mouseY < cy + 16) {
+                pickForm = form;
+                return true;
+            }
+        }
+        // 确认
+        boolean ready = !pickElementA.isEmpty() && !pickElementB.isEmpty() && !pickForm.isEmpty();
+        int bx = x0 + PANEL_W - 76, by = y0 + 128, bw = 68, bh = 12;
+        if (ready && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh) {
+            PacketDistributor.sendToServer(com.qianxiang.network.SetClassCorePayload.custom(
+                    pickElementA, pickElementB, pickForm));
+            return true;
+        }
+        return false;
+    }
+
     // ============================ 底部：主动技能冷却 + 洗点 ============================
 
     private void renderFooter(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
@@ -316,14 +487,23 @@ public class SkillTreeScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int x0 = x0(), y0 = y0();
         if (ClientProficiencyData.unlocked && button == 0) {
-            // 页签
-            for (int i = 0; i < TRACKS.length; i++) {
-                int tx = x0 + 8 + i * (TAB_W + 4);
+            // 页签（三轨 + 主职业）
+            for (int i = 0; i < TRACKS.length + 1; i++) {
+                int tx = x0 + 8 + i * (TAB_W + 1);
                 int ty = y0 + 6;
                 if (mouseX >= tx && mouseX < tx + TAB_W && mouseY >= ty && mouseY < ty + TAB_H) {
                     tabIndex = i;
+                    if (i == CLASS_TAB) {
+                        // 打开时从当前内核初始化选择器（已设的项预填，便于微调）
+                        pickElementA = ClientProficiencyData.classElementA;
+                        pickElementB = ClientProficiencyData.classElementB;
+                        pickForm = ClientProficiencyData.classForm;
+                    }
                     return true;
                 }
+            }
+            if (tabIndex == CLASS_TAB) {
+                return classCoreClicked(mouseX, mouseY, x0, y0) || true;
             }
             // 节点
             List<ProficiencyNodes.Node> nodes = trackNodes();

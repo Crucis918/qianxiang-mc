@@ -51,4 +51,24 @@ public final class ProficiencyHandlers {
             }
         });
     }
+
+    /** 主职业设定/转职：模板 id 优先（服务端查表），否则自定义三元组；校验在 setClassCore 内。 */
+    public static void handleSetClassCore(SetClassCorePayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            if (!(context.player() instanceof ServerPlayer player)) return;
+            if (!com.qianxiang.util.PlayerRateLimiter.tryAcquire(
+                    player, "class_core", RESPEC_COOLDOWN_MS)) {
+                return;
+            }
+            com.qianxiang.cap.ClassCore core = payload.templateId().isEmpty()
+                    ? new com.qianxiang.cap.ClassCore(payload.elementA(), payload.elementB(), payload.form())
+                    : com.qianxiang.cap.ClassCore.template(payload.templateId());
+            if (core == null || !core.valid()) {
+                player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                        "qianxiang.classcore.invalid"), true);
+                return;
+            }
+            com.qianxiang.cap.ClassCoreHelper.setClassCore(player, core);
+        });
+    }
 }

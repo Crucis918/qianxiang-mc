@@ -29,6 +29,19 @@ public final class ClientProficiencyData {
     /** 战吼生效剩余（毫秒快照，0 = 未生效；HUD 显示用）。 */
     public static int warcryActiveMs;
 
+    /** 主职业内核（未设定 = 全空串，职业效果全 ×1.0）。 */
+    public static String classElementA = "", classElementB = "", classForm = "";
+
+    /** 内核是否已设定（轮盘压暗非内核法术用）。 */
+    public static boolean classCoreSet() {
+        return !classElementA.isEmpty() && !classElementB.isEmpty() && !classForm.isEmpty();
+    }
+
+    /** 元素是否在内核内（未设定恒 false——未设定时轮盘不压暗任何东西）。 */
+    public static boolean isCoreElement(String element) {
+        return classCoreSet() && (classElementA.equals(element) || classElementB.equals(element));
+    }
+
     public static void receive(ProficiencySyncPayload payload) {
         unlocked = payload.unlocked();
         combatXp = payload.combatXp();
@@ -44,6 +57,9 @@ public final class ClientProficiencyData {
         surgeCooldownMs = payload.surgeCooldownMs();
         warcryCooldownMs = payload.warcryCooldownMs();
         warcryActiveMs = payload.warcryActiveMs();
+        classElementA = payload.classElementA();
+        classElementB = payload.classElementB();
+        classForm = payload.classForm();
     }
 
     /** OpenSkillTreePayload 到达（GUI 步在此打开技能树界面）。 */
@@ -62,5 +78,6 @@ public final class ClientProficiencyData {
         surgeCooldownMs = 0;
         warcryCooldownMs = 0;
         warcryActiveMs = 0;
+        classElementA = classElementB = classForm = "";
     }
 }
