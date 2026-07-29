@@ -1452,6 +1452,28 @@ upscale16to32 删除;⑩ ForgeComposer grantedEffects javadoc 失真更正。
 
 ---
 
+## WQ-93 [x] 完成(待提交) 【大·基建】自主游玩检测装置 + 整合包对比调研
+
+**范围**:① `handler/PlaytestHandler`(QX_PLAYTEST=1 门控+quickPlay 直进+8 场景 27 检查:
+锻造/炼金/轮盘施法/熟练度/维度往返/Boss/存储取料,关键节点截图,PLAYTEST_REPORT.txt,
+结束自动退出);② 看门狗三次迭代终定稿:独立 daemon 线程(>10s WARN/>15s 关暂停界面
+自愈/>60s 熔断出报告)——ClientTickEvent 与 RenderFrameEvent 在暂停/限流下都会失声,
+唯有后台线程可靠;③ S 场景世界残留全复位(旧 BE 材料会被 setBlock 保留,是跨运行
+flake 根因);④ 假人 NoAI 钉位+C1 空放避原版伤害冷却(invulnerableTime 撞冷却掉血 0
+的根因);⑤ `docs/modpack-comparison.md`:RLCraft/DawnCraft/Prominence/ATM9 等六包+
+方法论对比,行动清单 8 条(传奇升级树/可重复挑战/引导加密/Boss 规则包/声望玩法化/
+蓝图 gating/相谱委托链/避坑)。
+
+**实跑记录**:八轮迭代抓到——选中槽未设(掉血 1.0 假信号)、跨运行残留、伤害冷却、
+服务器暂停致 tick 停摆(两种看门狗均失声)、session.lock 残留三例;终轮 27/27 全 PASS。
+
+**遗留观察**:① 吸收器无白名单(OBSERVE 已记录);② 游玩检测只覆盖单人+无真实 AI
+外呼;③ 对比调研行动清单待排期(建议先做传奇升级树+可重复挑战,均为终局断点)。
+
+**验收**:compileJava 绿;runGameTestServer 131/131;QX_PLAYTEST=1 终轮 27/27 全 PASS。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）
