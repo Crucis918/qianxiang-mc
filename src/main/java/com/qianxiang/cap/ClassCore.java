@@ -38,10 +38,13 @@ public record ClassCore(String elementA, String elementB, String form) {
     /** 职业模板：id + 系列 + 内核（招牌被动按 id 在 {@link ClassCoreHelper} 分派）。 */
     public record Template(String id, String series, ClassCore core) {}
 
-    /** 24 职业（注册顺序即 UI 展示顺序，按系列分组）：
-     * 剑士系：剑客/魔剑士/狂战士/阵鬼；枪手系：神枪手/弹药专家/机械师/枪炮师；
-     * 格斗系：拳法家/柔道家/气功师/流氓；法师系：元素法师/战斗法师/召唤师/魔道学者；
-     * 暗夜系：刺客/盗贼/死灵术士/忍者；圣职系：牧师/圣骑士/驱魔师/复仇者。 */
+    /** 24 职业（注册顺序即 UI 展示顺序，按系列分组；牵响原创名，与荣耀脱钩）：
+     * 刃系：相剑士/霜刃/裂刃狂/影镰；弹系：贯星者/焰雨/械师/破城炮；
+     * 拳系：疾拳/山崩/御气/毒手；术系：元素相师/斗术师/兽契者/玄机；
+     * 影系：影袭/夜行/亡语/瞬身；辉系：辉医/磐辉/破邪/血誓。
+     * <p><b>id 策略</b>：英文 id 全部保持不变（swordsman/priest/...），只换显示名——
+     * 已存档玩家的 {@code classTemplateId} 因此零迁移兼容；若未来要改 id，
+     * 必须同步加旧 id 映射（本注释留档防误伤）。</p> */
     public static final Map<String, Template> TEMPLATES = new LinkedHashMap<>() {{
             // —— 剑士系 ——
             put("swordsman", new Template("swordsman", "swordsman", new ClassCore("fire", "arcane", "sword")));

@@ -97,11 +97,11 @@ public final class CompanionHandler {
             Wolf wolf = new Wolf(EntityType.WOLF, level);
             wolf.setTame(true, true);
             wolf.setOwnerUUID(player.getUUID());
-            wolf.setCustomName(Component.literal("§6召唤师之狼"));
+            wolf.setCustomName(Component.literal("§6兽契者之狼"));
             companion = wolf;
         } else {
             IronGolem golem = new IronGolem(EntityType.IRON_GOLEM, level);
-            golem.setCustomName(Component.literal("§b机械师的造物"));
+            golem.setCustomName(Component.literal("§b械师的造物"));
             companion = golem;
         }
         companion.setPos(player.getX() + 1.5, player.getY(), player.getZ() + 1.5);

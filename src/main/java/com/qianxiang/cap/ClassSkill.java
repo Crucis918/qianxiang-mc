@@ -22,7 +22,9 @@ public record ClassSkill(String id, String displayKey, String element, String fo
     /** 技能机制（NONE = 纯引擎标准结算）。 */
     public enum Special { NONE, DASH, BLINK, FLURRY, SHIELD, SUMMON_WOLF, SUMMON_GOLEM, PULL, SMOKE, FAN3, EMPOWER }
 
-    /** 24 职业 × 2 技能（注册顺序 = 技能1/技能2）。 */
+    /** 24 职业 × 2 技能（注册顺序 = 技能1/技能2）。
+     *  id 策略同 {@link ClassCore#TEMPLATES}：技能 id（如 swordsman_flurry）不变，
+     *  显示名走 lang（qianxiang.classskill.*），换皮不改 id，存档/冷却表零迁移。 */
     public static final Map<String, ClassSkill[]> BY_CLASS = new LinkedHashMap<>() {{
             put("swordsman", skills(
                     skill("swordsman_flurry", "fire", "touch", "damage", 5, 25, 240, Special.FLURRY),

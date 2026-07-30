@@ -251,7 +251,7 @@ public final class ClassSkillMechanics {
             Wolf wolf = new Wolf(EntityType.WOLF, level);
             wolf.setTame(true, true);
             wolf.setOwnerUUID(player.getUUID());
-            wolf.setCustomName(net.minecraft.network.chat.Component.literal("§6召唤援军"));
+            wolf.setCustomName(net.minecraft.network.chat.Component.literal("§6狼契援军"));
             companion = wolf;
         } else {
             IronGolem golem = new IronGolem(EntityType.IRON_GOLEM, level);
