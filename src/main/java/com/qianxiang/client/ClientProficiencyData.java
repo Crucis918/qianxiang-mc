@@ -31,6 +31,8 @@ public final class ClientProficiencyData {
 
     /** 主职业内核（未设定 = 全空串，职业效果全 ×1.0）。 */
     public static String classElementA = "", classElementB = "", classForm = "";
+    /** 职业模板 id（"" = 自定义内核/未设定）。 */
+    public static String classTemplateId = "";
 
     /** 内核是否已设定（轮盘压暗非内核法术用）。 */
     public static boolean classCoreSet() {
@@ -60,6 +62,7 @@ public final class ClientProficiencyData {
         classElementA = payload.classElementA();
         classElementB = payload.classElementB();
         classForm = payload.classForm();
+        classTemplateId = payload.classTemplateId();
     }
 
     /** OpenSkillTreePayload 到达（GUI 步在此打开技能树界面）。 */
@@ -79,5 +82,6 @@ public final class ClientProficiencyData {
         warcryCooldownMs = 0;
         warcryActiveMs = 0;
         classElementA = classElementB = classForm = "";
+        classTemplateId = "";
     }
 }

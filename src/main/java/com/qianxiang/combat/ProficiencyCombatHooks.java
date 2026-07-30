@@ -35,8 +35,13 @@ public final class ProficiencyCombatHooks {
             double formMult = event.getSource().is(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK)
                     ? com.qianxiang.cap.ClassCoreHelper.meleeFormMult(attacker, mainhandForm(attacker))
                     : 1.0;
+            // 招牌被动（背刺/低血/潜行/对减速·中毒·亡灵等）同样只作用于近战攻击
+            double signatureMult = event.getSource().is(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK)
+                    ? com.qianxiang.cap.ClassCoreHelper.meleeSignatureMult(attacker, target)
+                    : 1.0;
             double mult = ProficiencyHelper.meleeDamageMult(attacker)
                     * formMult
+                    * signatureMult
                     * (1.0 + ProficiencyHelper.executeThresholdBonus(attacker, target))
                     * ProficiencyHelper.comboBonus(attacker);
             if (mult != 1.0) {
@@ -46,6 +51,29 @@ public final class ProficiencyCombatHooks {
             ProficiencyHelper.noteMeleeHit(attacker);
         } catch (Throwable t) {
             Qianxiang.LOGGER.debug("[Qianxiang] 熟练度伤害加成结算失败（不影响原伤害）：{}", t.toString());
+        }
+    }
+
+    /** 近战命中附加（流氓上毒 / 柔道家缓慢+补击退；只认 PLAYER_ATTACK）。 */
+    @SubscribeEvent
+    public static void onLivingDamagePost(LivingDamageEvent.Post event) {
+        try {
+            if (!event.getSource().is(net.minecraft.world.damagesource.DamageTypes.PLAYER_ATTACK)) return;
+            if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) return;
+            com.qianxiang.cap.ClassCoreHelper.onMeleeHitPost(attacker, event.getEntity());
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 近战命中附加失败（不影响原伤害）：{}", t.toString());
+        }
+    }
+
+    /** 击杀附加（盗贼隐身 / 死灵回血 / 复仇者回血；杀手是玩家即触发，近战法术同享）。 */
+    @SubscribeEvent
+    public static void onLivingDeath(net.neoforged.neoforge.event.entity.living.LivingDeathEvent event) {
+        try {
+            if (!(event.getSource().getEntity() instanceof ServerPlayer attacker)) return;
+            com.qianxiang.cap.ClassCoreHelper.onKill(attacker);
+        } catch (Throwable t) {
+            Qianxiang.LOGGER.debug("[Qianxiang] 击杀附加失败（不影响原流程）：{}", t.toString());
         }
     }
 
@@ -61,7 +89,8 @@ public final class ProficiencyCombatHooks {
     public static void onIncomingDamage(LivingIncomingDamageEvent event) {
         try {
             if (!(event.getEntity() instanceof Player victim)) return;
-            double mult = ProficiencyHelper.incomingDamageMult(victim);
+            double mult = ProficiencyHelper.incomingDamageMult(victim)
+                    * com.qianxiang.cap.ClassCoreHelper.incomingSignatureMult(victim); // 圣骑士 -10%
             if (mult == 1.0) return;
             event.getContainer().setNewDamage(
                     (float) (event.getContainer().getOriginalDamage() * mult));

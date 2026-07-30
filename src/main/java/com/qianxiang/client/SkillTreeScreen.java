@@ -52,6 +52,8 @@ public class SkillTreeScreen extends Screen {
     private static final int CLASS_TAB = 3;
     /** 自定义选择器的暂存选择（打开页签时从当前内核初始化）。 */
     private String pickElementA = "", pickElementB = "", pickForm = "";
+    /** 职业分组浏览：当前选中的系列（默认剑士系；打开页签时跳到当前职业所在系）。 */
+    private String selectedSeries = "swordsman";
 
     private static final ProficiencyTrack[] TRACKS = {
             ProficiencyTrack.COMBAT, ProficiencyTrack.ARCANE, ProficiencyTrack.CRAFT};
@@ -328,6 +330,12 @@ public class SkillTreeScreen extends Screen {
         return Component.translatable("qianxiang.weapon_form." + form);
     }
 
+    /** 客户端缓存的当前内核三元组（职业按钮「当前」标记用）。 */
+    private static com.qianxiang.cap.ClassCore currentCore() {
+        return new com.qianxiang.cap.ClassCore(ClientProficiencyData.classElementA,
+                ClientProficiencyData.classElementB, ClientProficiencyData.classForm);
+    }
+
     /** 主职业页签内容：当前内核 / 8 预设模板 / 自定义两行选择器 + 确认。 */
     private void renderClassCore(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
         // 当前内核行
@@ -340,19 +348,41 @@ public class SkillTreeScreen extends Screen {
                 : Component.translatable("qianxiang.classcore.unset");
         g.drawString(this.font, current, x0 + 8, y0 + 24, set ? CREAM : GRAY, false);
 
-        // 预设模板（4 列 × 2 行）
+        // 系列页签行（6 系小片）+ 选中系的 4 职业
         g.drawString(this.font, Component.translatable("qianxiang.classcore.templates"),
                 x0 + 8, y0 + 36, GRAY, false);
+        for (int s = 0; s < com.qianxiang.cap.ClassCore.SERIES.size(); s++) {
+            String series = com.qianxiang.cap.ClassCore.SERIES.get(s);
+            int cx = x0 + 8 + s * 40, cy = y0 + 46;
+            boolean sel = series.equals(selectedSeries);
+            boolean hover = mouseX >= cx && mouseX < cx + 38 && mouseY >= cy && mouseY < cy + 10;
+            g.fill(cx, cy, cx + 38, cy + 10, sel ? WOOD_LIGHT : SLOT_DARK);
+            border(g, cx, cy, 38, 10, sel ? COPPER : 0xFF565656);
+            g.drawCenteredString(this.font,
+                    Component.translatable("qianxiang.classcore.series." + series),
+                    cx + 19, cy + 1, sel || hover ? CREAM : GRAY);
+        }
         int i = 0;
         for (var entry : com.qianxiang.cap.ClassCore.TEMPLATES.entrySet()) {
-            int col = i % 4, row = i / 4;
-            int bx = x0 + 8 + col * 61, by = y0 + 46 + row * 16;
+            if (!entry.getValue().series().equals(selectedSeries)) continue;
+            int bx = x0 + 8 + i * 61, by = y0 + 60;
+            boolean isCurrent = entry.getKey().equals(ClientProficiencyData.classTemplateId)
+                            || (ClientProficiencyData.classTemplateId.isEmpty()
+                            && entry.getValue().core().equals(currentCore()));
             boolean hover = mouseX >= bx && mouseX < bx + 58 && mouseY >= by && mouseY < by + 14;
             g.fill(bx, by, bx + 58, by + 14, hover ? WOOD_LIGHT : SLOT_DARK);
-            border(g, bx, by, 58, 14, hover ? COPPER : COPPER_DARK);
+            border(g, bx, by, 58, 14, isCurrent ? GREEN : hover ? COPPER : COPPER_DARK);
             g.drawCenteredString(this.font,
                     Component.translatable("qianxiang.classcore.template." + entry.getKey()),
-                    bx + 29, by + 3, hover ? CREAM : CREAM);
+                    bx + 29, by + 3, CREAM);
+            if (hover) {
+                // 职业一句被动描述（hover 即见，点选前知道买什么）
+                List<Component> tip = List.of(
+                        Component.translatable("qianxiang.classcore.template." + entry.getKey()),
+                        Component.translatable("qianxiang.classcore.template." + entry.getKey() + ".desc")
+                                .copy().withStyle(net.minecraft.ChatFormatting.GRAY));
+                g.renderTooltip(this.font, tip, java.util.Optional.empty(), mouseX, mouseY);
+            }
             i++;
         }
 
@@ -397,13 +427,22 @@ public class SkillTreeScreen extends Screen {
                 x0 + 8, y0 + 144, GRAY, false);
     }
 
-    /** 主职业页签点击：模板一键选 / 元素双选切换 / 形态单选 / 确认。 */
+    /** 主职业页签点击：系列切换 / 职业一键选 / 元素双选切换 / 形态单选 / 确认。 */
     private boolean classCoreClicked(double mouseX, double mouseY, int x0, int y0) {
-        // 模板
+        // 系列页签行
+        for (int s = 0; s < com.qianxiang.cap.ClassCore.SERIES.size(); s++) {
+            String series = com.qianxiang.cap.ClassCore.SERIES.get(s);
+            int cx = x0 + 8 + s * 40, cy = y0 + 46;
+            if (mouseX >= cx && mouseX < cx + 38 && mouseY >= cy && mouseY < cy + 10) {
+                selectedSeries = series;
+                return true;
+            }
+        }
+        // 职业按钮（选中系的 4 个）
         int i = 0;
         for (var entry : com.qianxiang.cap.ClassCore.TEMPLATES.entrySet()) {
-            int col = i % 4, row = i / 4;
-            int bx = x0 + 8 + col * 61, by = y0 + 46 + row * 16;
+            if (!entry.getValue().series().equals(selectedSeries)) continue;
+            int bx = x0 + 8 + i * 61, by = y0 + 60;
             if (mouseX >= bx && mouseX < bx + 58 && mouseY >= by && mouseY < by + 14) {
                 PacketDistributor.sendToServer(
                         com.qianxiang.network.SetClassCorePayload.template(entry.getKey()));
@@ -494,10 +533,13 @@ public class SkillTreeScreen extends Screen {
                 if (mouseX >= tx && mouseX < tx + TAB_W && mouseY >= ty && mouseY < ty + TAB_H) {
                     tabIndex = i;
                     if (i == CLASS_TAB) {
-                        // 打开时从当前内核初始化选择器（已设的项预填，便于微调）
+                        // 打开时从当前内核初始化选择器（已设的项预填，便于微调）；
+                        // 系列分组跳到当前职业所在系（无职业/自定义停留当前系）
                         pickElementA = ClientProficiencyData.classElementA;
                         pickElementB = ClientProficiencyData.classElementB;
                         pickForm = ClientProficiencyData.classForm;
+                        var t = com.qianxiang.cap.ClassCore.templateOf(currentCore());
+                        if (t != null) selectedSeries = t.series();
                     }
                     return true;
                 }

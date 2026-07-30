@@ -25,23 +25,54 @@ public record ClassCore(String elementA, String elementB, String form) {
     /** 元素白名单（与自由法术九元素同词表）。 */
     public static final List<String> ELEMENTS = List.of(
             "fire", "frost", "lightning", "nature", "shadow", "holy", "blood", "ender", "arcane");
-    /** 武器形态白名单（九个推导形态 id，与 WeaponFormProfile 一致；
-     *  另含 staff——预设「元素使」的内核形态是法杖（phase_staff form=staff），
-     *  法杖手持近战按内核形态结算，与九个推导形态同口径）。 */
+    /** 形态白名单（推导形态 9 + 书本/法杖两物品固有形态——24 职业里 book/staff 形态职业
+     *  （机械师/召唤师/魔道学者/死灵术士/气功师/元素法师/牧师）的内核形态是它们）。 */
     public static final List<String> FORMS = List.of(
             "sword", "greatsword", "dagger", "katana", "spear", "axe", "hammer", "scythe", "mace",
-            "staff");
+            "staff", "book");
 
-    /** 预设模板：id → 内核（注册顺序即 UI 展示顺序）。 */
-    public static final Map<String, ClassCore> TEMPLATES = new LinkedHashMap<>() {{
-            put("battle_mage", new ClassCore("fire", "arcane", "sword"));
-            put("elementalist", new ClassCore("fire", "frost", "staff"));
-            put("blood_witch", new ClassCore("blood", "shadow", "dagger"));
-            put("cleric", new ClassCore("holy", "nature", "mace"));
-            put("shadow_dancer", new ClassCore("shadow", "ender", "katana"));
-            put("berserker", new ClassCore("fire", "lightning", "greatsword"));
-            put("ranger", new ClassCore("frost", "lightning", "spear"));
-            put("artificer", new ClassCore("nature", "arcane", "hammer"));
+    /** 职业系列（6 系，UI 分组与 lang 键用）。 */
+    public static final List<String> SERIES = List.of(
+            "swordsman", "gunner", "fighter", "mage", "dark", "priest");
+
+    /** 职业模板：id + 系列 + 内核（招牌被动按 id 在 {@link ClassCoreHelper} 分派）。 */
+    public record Template(String id, String series, ClassCore core) {}
+
+    /** 24 职业（注册顺序即 UI 展示顺序，按系列分组）：
+     * 剑士系：剑客/魔剑士/狂战士/阵鬼；枪手系：神枪手/弹药专家/机械师/枪炮师；
+     * 格斗系：拳法家/柔道家/气功师/流氓；法师系：元素法师/战斗法师/召唤师/魔道学者；
+     * 暗夜系：刺客/盗贼/死灵术士/忍者；圣职系：牧师/圣骑士/驱魔师/复仇者。 */
+    public static final Map<String, Template> TEMPLATES = new LinkedHashMap<>() {{
+            // —— 剑士系 ——
+            put("swordsman", new Template("swordsman", "swordsman", new ClassCore("fire", "arcane", "sword")));
+            put("spellsword", new Template("spellsword", "swordsman", new ClassCore("arcane", "lightning", "katana")));
+            put("berserker", new Template("berserker", "swordsman", new ClassCore("fire", "blood", "greatsword")));
+            put("reaper", new Template("reaper", "swordsman", new ClassCore("shadow", "frost", "scythe")));
+            // —— 枪手系 ——
+            put("sharpshooter", new Template("sharpshooter", "gunner", new ClassCore("lightning", "arcane", "spear")));
+            put("sapper", new Template("sapper", "gunner", new ClassCore("fire", "lightning", "mace")));
+            put("mechanic", new Template("mechanic", "gunner", new ClassCore("arcane", "nature", "book")));
+            put("artillery", new Template("artillery", "gunner", new ClassCore("fire", "lightning", "hammer")));
+            // —— 格斗系 ——
+            put("pugilist", new Template("pugilist", "fighter", new ClassCore("fire", "lightning", "dagger")));
+            put("judoka", new Template("judoka", "fighter", new ClassCore("nature", "lightning", "hammer")));
+            put("qigong", new Template("qigong", "fighter", new ClassCore("nature", "holy", "staff")));
+            put("rogue", new Template("rogue", "fighter", new ClassCore("shadow", "nature", "dagger")));
+            // —— 法师系 ——
+            put("elementalist", new Template("elementalist", "mage", new ClassCore("fire", "frost", "staff")));
+            put("battle_mage", new Template("battle_mage", "mage", new ClassCore("fire", "arcane", "sword")));
+            put("summoner", new Template("summoner", "mage", new ClassCore("nature", "arcane", "book")));
+            put("scholar", new Template("scholar", "mage", new ClassCore("arcane", "shadow", "book")));
+            // —— 暗夜系 ——
+            put("assassin", new Template("assassin", "dark", new ClassCore("shadow", "ender", "dagger")));
+            put("thief", new Template("thief", "dark", new ClassCore("shadow", "nature", "dagger")));
+            put("necro", new Template("necro", "dark", new ClassCore("shadow", "blood", "book")));
+            put("ninja", new Template("ninja", "dark", new ClassCore("shadow", "lightning", "katana")));
+            // —— 圣职系 ——
+            put("priest", new Template("priest", "priest", new ClassCore("holy", "nature", "staff")));
+            put("paladin", new Template("paladin", "priest", new ClassCore("holy", "fire", "mace")));
+            put("exorcist", new Template("exorcist", "priest", new ClassCore("holy", "lightning", "hammer")));
+            put("avenger", new Template("avenger", "priest", new ClassCore("blood", "fire", "scythe")));
         }};
 
     public static final Codec<ClassCore> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -75,6 +106,16 @@ public record ClassCore(String elementA, String elementB, String form) {
 
     /** 预设模板 id → 内核；未知 id 返回 null。 */
     public static ClassCore template(String templateId) {
-        return templateId == null ? null : TEMPLATES.get(templateId);
+        Template t = templateId == null ? null : TEMPLATES.get(templateId);
+        return t == null ? null : t.core();
+    }
+
+    /** 内核三元组 → 匹配的职业模板（招牌被动按此分派；自定义内核不匹配 = 无被动）。 */
+    public static Template templateOf(ClassCore core) {
+        if (core == null || !core.isSet()) return null;
+        for (Template t : TEMPLATES.values()) {
+            if (t.core().equals(core)) return t;
+        }
+        return null;
     }
 }

@@ -113,7 +113,9 @@ public final class SpellEffectEngine {
         bolt.setOwner(player);
         bolt.setPos(eye.x + look.x * 0.5, eye.y - 0.1, eye.z + look.z * 0.5);
         bolt.configure(element, effect, power, mods, damageMult);
-        bolt.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.6F, 0.0F);
+        // 神枪手被动：弹速 ×1.5（其余职业 ×1.0 不变）
+        bolt.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F,
+                1.6F * com.qianxiang.cap.ClassCoreHelper.projectileSpeedMult(player), 0.0F);
         level.addFreshEntity(bolt);
         burst(level, element, eye.x, eye.y, eye.z, 6, 0.15);
     }
@@ -123,12 +125,15 @@ public final class SpellEffectEngine {
                                  String effect, float power, Set<String> mods, float damageMult) {
         switch (effect) {
             case "heal" -> {
-                player.heal(power * 2.5f * damageMult);
+                player.heal((float) (power * 2.5f * damageMult
+                        * com.qianxiang.cap.ClassCoreHelper.healMult(player)));
                 burst(level, element, player.getX(), player.getY() + 1.0, player.getZ(), 14, 0.4);
             }
             case "buff" -> {
                 int durMul = mods.contains("extended") ? 2 : 1;
-                player.addEffect(new MobEffectInstance(buffFor(element), 220 * durMul, amplifierOf(power)));
+                player.addEffect(new MobEffectInstance(buffFor(element),
+                        com.qianxiang.cap.ClassCoreHelper.effectDuration(player, 220 * durMul),
+                        amplifierOf(power)));
                 burst(level, element, player.getX(), player.getY() + 1.0, player.getZ(), 16, 0.4);
             }
             case "utility" -> resolveUtility(level, player, player.blockPosition(), player, element);
@@ -154,7 +159,8 @@ public final class SpellEffectEngine {
             flat = new Vec3(0.0, 0.0, 1.0);
         }
         Vec3 center = player.position().add(flat.normalize().scale(4.0));
-        double radius = 2.0 + power;
+        // 弹药专家被动：AoE 半径 ×1.15（其余职业 ×1.0 不变）
+        double radius = (2.0 + power) * com.qianxiang.cap.ClassCoreHelper.aoeRadiusMult(player);
         double y = player.getY();
 
         List<LivingEntity> targets = level.getEntitiesOfClass(LivingEntity.class,
@@ -253,7 +259,8 @@ public final class SpellEffectEngine {
             switch (effect) {
                 case "heal" -> {
                     if (isAlly(caster, target)) {
-                        target.heal(power * 2.5f * damageMult);
+                        target.heal((float) (power * 2.5f * damageMult
+                                * com.qianxiang.cap.ClassCoreHelper.healMult(caster)));
                         burstAt(level, element, target, 12);
                         markEffective();
                     } else {
@@ -262,7 +269,9 @@ public final class SpellEffectEngine {
                 }
                 case "buff" -> {
                     if (isAlly(caster, target)) {
-                        target.addEffect(new MobEffectInstance(buffFor(element), 220 * durMul, amplifierOf(power)));
+                        target.addEffect(new MobEffectInstance(buffFor(element),
+                                com.qianxiang.cap.ClassCoreHelper.effectDuration(caster, 220 * durMul),
+                                amplifierOf(power)));
                         burstAt(level, element, target, 12);
                         markEffective();
                     } else {
@@ -325,7 +334,9 @@ public final class SpellEffectEngine {
     private static void resolveDamage(ServerLevel level, @Nullable ServerPlayer caster, @Nullable Entity direct,
                                       LivingEntity target, String element, float power,
                                       Set<String> mods, int durMul, float damageMult) {
-        float dmg = power * 3.0f * damageMult;
+        // 死灵术士被动：对非亡灵目标 ×1.1（其余职业 ×1.0）
+        float dmg = (float) (power * 3.0f * damageMult
+                * (caster == null ? 1.0 : com.qianxiang.cap.ClassCoreHelper.spellTargetSignatureMult(caster, target)));
         if (caster != null) {
             target.hurt(caster.damageSources().indirectMagic(direct != null ? direct : caster, caster), dmg);
         } else {
@@ -453,19 +464,22 @@ public final class SpellEffectEngine {
             case "blood" -> resolveBloodMana(level, caster);
             case "fire" -> {
                 if (caster != null) {
-                    caster.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE, 1200, 0));
+                    caster.addEffect(new MobEffectInstance(MobEffects.FIRE_RESISTANCE,
+                            com.qianxiang.cap.ClassCoreHelper.effectDuration(caster, 1200), 0));
                     burstAt(level, element, caster, 16);
                 }
             }
             case "frost" -> {
                 if (caster != null) {
-                    caster.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 1200, 0));
+                    caster.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING,
+                            com.qianxiang.cap.ClassCoreHelper.effectDuration(caster, 1200), 0));
                     burstAt(level, element, caster, 16);
                 }
             }
             case "lightning" -> {
                 if (caster != null) {
-                    caster.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 1200, 0));
+                    caster.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED,
+                            com.qianxiang.cap.ClassCoreHelper.effectDuration(caster, 1200), 0));
                     burstAt(level, element, caster, 16);
                 }
             }
@@ -477,7 +491,8 @@ public final class SpellEffectEngine {
             }
             default -> { // arcane
                 if (caster != null) {
-                    caster.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, 1200, 0));
+                    caster.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION,
+                            com.qianxiang.cap.ClassCoreHelper.effectDuration(caster, 1200), 0));
                     burstAt(level, element, caster, 16);
                 }
             }

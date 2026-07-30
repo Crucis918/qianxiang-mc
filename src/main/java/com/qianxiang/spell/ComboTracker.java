@@ -60,7 +60,8 @@ public final class ComboTracker {
             // 首次 / 同 id 重按 / 超窗：一律回到 1（超窗即「清零后本次重计」）
             combo = 1;
         } else {
-            combo = Math.min(MAX_COMBO, prev.combo() + 1);
+            // 上限按职业：战斗法师 12，其余默认 10（ClassCoreHelper 查询，未设内核默认）
+            combo = Math.min(com.qianxiang.cap.ClassCoreHelper.comboCap(player), prev.combo() + 1);
         }
         STATES.put(player.getUUID(), new State(spellId, now, combo));
         return combo;
@@ -81,11 +82,24 @@ public final class ComboTracker {
      * 连击伤害乘区：combo≥{@value #MIN_BONUS_COMBO} 起为
      * {@code 1 + 0.04 × (combo - 2)}，combo={@value #MAX_COMBO} 时 ×1.32；
      * 低于阈值一律 ×1.0（无加成）。与增幅器/熟练度乘区叠乘。
+     * <p>旧签名（客户端估算/默认参数）：上限 10、每段 +4%。</p>
      */
     public static double damageMultiplier(int combo) {
         int clamped = Math.min(combo, MAX_COMBO);
         if (clamped < MIN_BONUS_COMBO) return 1.0;
         return 1.0 + BONUS_PER_LEVEL * (clamped - (MIN_BONUS_COMBO - 1));
+    }
+
+    /**
+     * 服务端权威乘区（按玩家职业参数化）：上限与每段加成走
+     * {@code ClassCoreHelper.comboCap/comboPerStack}——
+     * 剑客每段 +6%、战斗法师上限 12 且每段 +5%，其余职业默认。
+     */
+    public static double damageMultiplier(net.minecraft.world.entity.player.Player player, int combo) {
+        int clamped = Math.min(combo, com.qianxiang.cap.ClassCoreHelper.comboCap(player));
+        if (clamped < MIN_BONUS_COMBO) return 1.0;
+        return 1.0 + com.qianxiang.cap.ClassCoreHelper.comboPerStack(player)
+                * (clamped - (MIN_BONUS_COMBO - 1));
     }
 
     /** 登出清理：内存表不随连接泄漏。 */

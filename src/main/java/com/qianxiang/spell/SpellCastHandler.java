@@ -101,7 +101,8 @@ public final class SpellCastHandler {
                 * com.qianxiang.cap.ClassCoreHelper.spellManaCostMult(serverPlayer, spell);
         int effectiveCost = (int) Math.ceil(spell.manaCost() * manaCostMult);
         int effectiveCooldown = (int) Math.round(spell.cooldownTicks()
-                * com.qianxiang.cap.ProficiencyHelper.cooldownMult(serverPlayer));
+                * com.qianxiang.cap.ProficiencyHelper.cooldownMult(serverPlayer)
+                * com.qianxiang.cap.ClassCoreHelper.utilityCooldownMult(serverPlayer, spell));
 
         if (data.isOnCooldown(spell.id())) {
             notifyThrottled(serverPlayer, "qianxiang.spell.cooldown");
@@ -117,11 +118,12 @@ public final class SpellCastHandler {
         // 注意计在效果引擎之前：引擎抛异常时连击照记（罕见错误路径，下次施法自然纠正）。
         int combo = ComboTracker.onCast(serverPlayer, spell.id());
         // 增幅器结算：主手+副手法杖/魔法书的法术伤害加成合并为一个倍率传入效果引擎，
-        // 连招乘区与增幅器/熟练度/主职业内核乘区叠乘。
+        // 连招乘区与增幅器/熟练度/主职业内核/招牌被动乘区叠乘。
         float damageMult = (float) (AmplifierHelper.damageMultiplier(serverPlayer)
                 * com.qianxiang.cap.ProficiencyHelper.spellDamageMult(serverPlayer, spell.power())
                 * com.qianxiang.cap.ClassCoreHelper.spellDamageMult(serverPlayer, spell)
-                * ComboTracker.damageMultiplier(combo));
+                * com.qianxiang.cap.ClassCoreHelper.spellFormSignatureMult(serverPlayer, spell)
+                * ComboTracker.damageMultiplier(serverPlayer, combo));
         try {
             SpellEffectEngine.cast(spell, serverPlayer, damageMult);
         } catch (Throwable t) {
@@ -144,6 +146,8 @@ public final class SpellCastHandler {
         }
         sync(serverPlayer);
         syncCombo(serverPlayer, combo);
+        // 魔剑士被动：施法成功开 3s 近战增益窗（非该职业内部判空操作）
+        com.qianxiang.cap.ClassCoreHelper.noteCast(serverPlayer);
         // 熟练度 XP：施法成功按基础蓝耗 ×0.6（至少 1），未开启不攒
         com.qianxiang.cap.ProficiencyHelper.addXp(serverPlayer,
                 com.qianxiang.cap.ProficiencyTrack.ARCANE,

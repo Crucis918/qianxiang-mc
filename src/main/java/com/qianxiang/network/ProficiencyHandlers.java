@@ -68,7 +68,8 @@ public final class ProficiencyHandlers {
                         "qianxiang.classcore.invalid"), true);
                 return;
             }
-            com.qianxiang.cap.ClassCoreHelper.setClassCore(player, core);
+            com.qianxiang.cap.ClassCoreHelper.setClassCore(player, core,
+                    payload.templateId() == null ? "" : payload.templateId());
         });
     }
 }

@@ -20,12 +20,24 @@ public record PlayerProficiencyData(
         int combatLevel, int arcaneLevel, int craftLevel,
         int combatPoints, int arcanePoints, int craftPoints,
         Set<String> allocated,
-        ClassCore classCore
+        ClassCore classCore,
+        String classTemplateId
 ) {
 
     public PlayerProficiencyData {
         allocated = allocated == null ? Set.of() : Set.copyOf(allocated);
         classCore = classCore == null ? ClassCore.EMPTY : classCore;
+        classTemplateId = classTemplateId == null ? "" : classTemplateId;
+    }
+
+    /** 兼容旧十一参构造（无模板 id）：模板 id 空串（按内核三元组匹配被动）。 */
+    public PlayerProficiencyData(boolean unlocked,
+                                 int combatXp, int arcaneXp, int craftXp,
+                                 int combatLevel, int arcaneLevel, int craftLevel,
+                                 int combatPoints, int arcanePoints, int craftPoints,
+                                 Set<String> allocated, ClassCore classCore) {
+        this(unlocked, combatXp, arcaneXp, craftXp, combatLevel, arcaneLevel, craftLevel,
+                combatPoints, arcanePoints, craftPoints, allocated, classCore, "");
     }
 
     /** 兼容旧十参构造（无职业内核）：classCore = 未设定。 */
@@ -35,7 +47,7 @@ public record PlayerProficiencyData(
                                  int combatPoints, int arcanePoints, int craftPoints,
                                  Set<String> allocated) {
         this(unlocked, combatXp, arcaneXp, craftXp, combatLevel, arcaneLevel, craftLevel,
-                combatPoints, arcanePoints, craftPoints, allocated, ClassCore.EMPTY);
+                combatPoints, arcanePoints, craftPoints, allocated, ClassCore.EMPTY, "");
     }
 
     public static PlayerProficiencyData empty() {
@@ -57,7 +69,11 @@ public record PlayerProficiencyData(
                     .xmap(Set::copyOf, java.util.List::copyOf).forGetter(PlayerProficiencyData::allocated),
             // 主职业内核：optionalFieldOf 缺省 EMPTY（未设定），旧存档兼容
             ClassCore.CODEC.optionalFieldOf("class_core", ClassCore.EMPTY)
-                    .forGetter(PlayerProficiencyData::classCore)
+                    .forGetter(PlayerProficiencyData::classCore),
+            // 职业模板 id（24 职业里 swordsman/battle_mage 同内核三元组，靠它区分被动；
+            // 空串 = 自定义内核/旧存档，回退按三元组匹配）
+            Codec.STRING.optionalFieldOf("class_template_id", "")
+                    .forGetter(PlayerProficiencyData::classTemplateId)
     ).apply(instance, PlayerProficiencyData::new));
 
     // ============================ 按轨读写（不可变范式） ============================
@@ -89,7 +105,7 @@ public record PlayerProficiencyData(
     public PlayerProficiencyData withUnlocked() {
         return unlocked ? this : new PlayerProficiencyData(true, combatXp, arcaneXp, craftXp,
                 combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                allocated, classCore);
+                allocated, classCore, classTemplateId);
     }
 
     public PlayerProficiencyData withXp(ProficiencyTrack track, int xp) {
@@ -97,13 +113,13 @@ public record PlayerProficiencyData(
         return switch (track) {
             case COMBAT -> new PlayerProficiencyData(unlocked, xp, arcaneXp, craftXp,
                     combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case ARCANE -> new PlayerProficiencyData(unlocked, combatXp, xp, craftXp,
                     combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case CRAFT -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, xp,
                     combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
         };
     }
 
@@ -112,13 +128,13 @@ public record PlayerProficiencyData(
         return switch (track) {
             case COMBAT -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     level, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case ARCANE -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     combatLevel, level, craftLevel, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case CRAFT -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     combatLevel, arcaneLevel, level, combatPoints, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
         };
     }
 
@@ -127,13 +143,13 @@ public record PlayerProficiencyData(
         return switch (track) {
             case COMBAT -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     combatLevel, arcaneLevel, craftLevel, points, arcanePoints, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case ARCANE -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     combatLevel, arcaneLevel, craftLevel, combatPoints, points, craftPoints,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
             case CRAFT -> new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                     combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, points,
-                    allocated, classCore);
+                    allocated, classCore, classTemplateId);
         };
     }
 
@@ -148,12 +164,18 @@ public record PlayerProficiencyData(
         return allocated.contains(nodeId);
     }
 
-    /** 写入主职业内核（ClassCoreHelper.setClassCore 校验后调用）。 */
+    /** 写入主职业内核（自定义/回退路径：模板 id 清空，被动按三元组匹配）。 */
     public PlayerProficiencyData withClassCore(ClassCore next) {
+        return withClassCore(next, "");
+    }
+
+    /** 写入主职业内核与模板 id（模板路径：同内核职业靠 id 区分被动）。 */
+    public PlayerProficiencyData withClassCore(ClassCore next, String templateId) {
         ClassCore c = next == null ? ClassCore.EMPTY : next;
-        if (classCore.equals(c)) return this;
+        String t = templateId == null ? "" : templateId;
+        if (classCore.equals(c) && classTemplateId.equals(t)) return this;
         return new PlayerProficiencyData(unlocked, combatXp, arcaneXp, craftXp,
                 combatLevel, arcaneLevel, craftLevel, combatPoints, arcanePoints, craftPoints,
-                allocated, c);
+                allocated, c, t);
     }
 }
