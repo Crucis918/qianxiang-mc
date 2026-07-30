@@ -78,7 +78,8 @@ public final class AlchemyTableAIHandler {
         AI_EXECUTOR.submit(() -> {
             PhaseAIRecipeService.RecipeResult result;
             try {
-                result = PhaseAIRecipeService.ask(payload);
+                result = PhaseAIRecipeService.ask(payload,
+                        context.player() instanceof net.minecraft.server.level.ServerPlayer sp ? sp : null);
             } catch (Throwable t) {
                 // ask 自身已兜底，理论不会到这里；防御性给空结果
                 result = new PhaseAIRecipeService.RecipeResult(java.util.List.of(), "", true);

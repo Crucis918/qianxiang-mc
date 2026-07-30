@@ -338,7 +338,7 @@ public class SkillTreeScreen extends Screen {
 
     /** 主职业页签内容：当前内核 / 8 预设模板 / 自定义两行选择器 + 确认。 */
     private void renderClassCore(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
-        // 当前内核行
+        // 当前内核行（追加职业技能名与冷却：J=技能1 / ⇧J=技能2，B③ 职业页签显示技能名）
         boolean set = ClientProficiencyData.classCoreSet();
         Component current = set
                 ? Component.translatable("qianxiang.classcore.current",
@@ -346,7 +346,21 @@ public class SkillTreeScreen extends Screen {
                         elementName(ClientProficiencyData.classElementB),
                         formName(ClientProficiencyData.classForm))
                 : Component.translatable("qianxiang.classcore.unset");
-        g.drawString(this.font, current, x0 + 8, y0 + 24, set ? CREAM : GRAY, false);
+        String currentText = current.getString();
+        if (set) {
+            var s1 = com.qianxiang.cap.ClassSkill.skillOf(ClientProficiencyData.classTemplateId, 0);
+            var s2 = com.qianxiang.cap.ClassSkill.skillOf(ClientProficiencyData.classTemplateId, 1);
+            if (s1 != null && s2 != null) {
+                int cd1 = ClientSpellInput.classSkillCooldownRemainingMs(0);
+                int cd2 = ClientSpellInput.classSkillCooldownRemainingMs(1);
+                currentText += " ｜ J " + Component.translatable(s1.displayKey()).getString()
+                        + (cd1 > 0 ? " " + (cd1 + 999) / 1000 + "s" : "")
+                        + " · ⇧J " + Component.translatable(s2.displayKey()).getString()
+                        + (cd2 > 0 ? " " + (cd2 + 999) / 1000 + "s" : "");
+            }
+        }
+        g.drawString(this.font, this.font.plainSubstrByWidth(currentText, 244),
+                x0 + 8, y0 + 24, set ? CREAM : GRAY, false);
 
         // 系列页签行（6 系小片）+ 选中系的 4 职业
         g.drawString(this.font, Component.translatable("qianxiang.classcore.templates"),
@@ -491,12 +505,21 @@ public class SkillTreeScreen extends Screen {
 
     private void renderFooter(GuiGraphics g, int x0, int y0, int mouseX, int mouseY) {
         int fy = y0 + PANEL_H - 20;
-        // 主动技能冷却读秒（快照毫秒 → 秒；就绪显示✓）
-        String warcry = skillLine("warcry",
-                ClientProficiencyData.warcryCooldownMs, ClientProficiencyData.warcryActiveMs);
-        String surge = skillLine("surge", ClientProficiencyData.surgeCooldownMs, 0);
-        g.drawString(this.font, warcry, x0 + 8, fy, CREAM, false);
-        g.drawString(this.font, surge, x0 + 78, fy, CREAM, false);
+        if (ClientProficiencyData.classCoreSet()) {
+            // 职业技能行：J=技能1 / 潜行+J=技能2（图标位以元素色块代替，冷却读秒客户端估算）
+            drawClassSkillLine(g, 0, x0 + 8, fy, mouseX, mouseY);
+            drawClassSkillLine(g, 1, x0 + 100, fy, mouseX, mouseY);
+            // 战吼/涌动改按钮触发（J 已被职业技能接管；未点节点置灰）
+            drawNodeSkillButton(g, "warcry", x0 + 176, fy, mouseX, mouseY);
+            drawNodeSkillButton(g, "surge", x0 + 216, fy, mouseX, mouseY);
+        } else {
+            // 主动技能冷却读秒（快照毫秒 → 秒；就绪显示✓）
+            String warcry = skillLine("warcry",
+                    ClientProficiencyData.warcryCooldownMs, ClientProficiencyData.warcryActiveMs);
+            String surge = skillLine("surge", ClientProficiencyData.surgeCooldownMs, 0);
+            g.drawString(this.font, warcry, x0 + 8, fy, CREAM, false);
+            g.drawString(this.font, surge, x0 + 78, fy, CREAM, false);
+        }
 
         // 洗点按钮（二次确认；未开启/全未用时置灰）
         int bx = x0 + PANEL_W - 96, bw = 88, bh = 12;
@@ -518,6 +541,35 @@ public class SkillTreeScreen extends Screen {
             return name + " §a" + (activeMs + 999) / 1000 + "s";
         }
         return cooldownMs > 0 ? name + " §7" + (cooldownMs + 999) / 1000 + "s" : name + " §a✓";
+    }
+
+    /** 职业技能行（名称 + 冷却读秒；客户端估算，服务端权威）。 */
+    private void drawClassSkillLine(GuiGraphics g, int slot, int x, int y, int mouseX, int mouseY) {
+        var skill = com.qianxiang.cap.ClassSkill.skillOf(ClientProficiencyData.classTemplateId, slot);
+        if (skill == null) return;
+        int cd = ClientSpellInput.classSkillCooldownRemainingMs(slot);
+        String name = this.font.plainSubstrByWidth(
+                Component.translatable(skill.displayKey()).getString(), 74);
+        String text = (slot == 0 ? "J " : "⇧J ") + name
+                + (cd > 0 ? " §7" + (cd + 999) / 1000 + "s" : " §a✓");
+        g.drawString(this.font, text, x, y, CREAM, false);
+        if (mouseX >= x && mouseX < x + 88 && mouseY >= y - 1 && mouseY < y + 9) {
+            g.renderTooltip(this.font, Component.translatable(skill.displayKey()), mouseX, mouseY);
+        }
+    }
+
+    /** 战吼/涌动小按钮（已设职业时 J 被职业技能接管，改此处点击触发）。 */
+    private void drawNodeSkillButton(GuiGraphics g, String skillId, int x, int y, int mouseX, int mouseY) {
+        boolean allocated = ClientProficiencyData.allocated.contains(skillId);
+        int cd = "warcry".equals(skillId)
+                ? ClientProficiencyData.warcryCooldownMs : ClientProficiencyData.surgeCooldownMs;
+        boolean hover = allocated && mouseX >= x && mouseX < x + 36 && mouseY >= y - 1 && mouseY < y + 9;
+        g.fill(x, y - 1, x + 36, y + 9, allocated ? (hover ? WOOD_LIGHT : SLOT_DARK) : 0x80101010);
+        border(g, x, y - 1, 36, 10, allocated ? COPPER_DARK : 0xFF3C3C3C);
+        String name = this.font.plainSubstrByWidth(
+                Component.translatable("qianxiang.proficiency.node." + skillId + ".name").getString(), 30);
+        g.drawCenteredString(this.font, name + (cd > 0 ? (cd + 999) / 1000 + "s" : ""),
+                x + 18, y + 1, allocated ? CREAM : GRAY);
     }
 
     // ============================ 交互 ============================
@@ -562,7 +614,20 @@ public class SkillTreeScreen extends Screen {
                     return true;
                 }
             }
-            // 洗点按钮（二次确认：5s 内再点一次才发）
+            // 战吼/涌动小按钮点击（仅已设职业路径显示时）
+        if (ClientProficiencyData.classCoreSet()) {
+            int fy = y0 + PANEL_H - 20;
+            for (int i = 0; i < 2; i++) {
+                String skillId = i == 0 ? "warcry" : "surge";
+                int bx = x0 + 176 + i * 40;
+                if (ClientProficiencyData.allocated.contains(skillId)
+                        && mouseX >= bx && mouseX < bx + 36 && mouseY >= fy - 1 && mouseY < fy + 9) {
+                    PacketDistributor.sendToServer(new ActivateSkillPayload(skillId));
+                    return true;
+                }
+            }
+        }
+        // 洗点按钮（二次确认：5s 内再点一次才发）
             int bx = x0 + PANEL_W - 96, bw = 88, bh = 12;
             int fy = y0 + PANEL_H - 20;
             if (ClientProficiencyData.unlocked && !ClientProficiencyData.allocated.isEmpty()

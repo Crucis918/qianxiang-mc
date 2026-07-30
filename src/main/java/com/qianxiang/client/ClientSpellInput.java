@@ -1,6 +1,7 @@
 package com.qianxiang.client;
 
 import com.qianxiang.Qianxiang;
+import net.minecraft.Util;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -24,6 +25,18 @@ public final class ClientSpellInput {
     /** 上一帧 K/J 键状态（边沿检测）。 */
     private static boolean wasSkillTreeDown;
     private static boolean wasSkillDown;
+
+    /** 职业技能客户端冷却估算：槽位 0/1 上次发动时刻（毫秒；HUD 读秒用）。 */
+    private static final long[] classSkillLastUseMs = {0L, 0L};
+
+    /** 职业技能剩余冷却（毫秒快照，客户端估算；技能表静态，职业模板 id 读缓存）。 */
+    public static int classSkillCooldownRemainingMs(int slot) {
+        String classId = ClientProficiencyData.classTemplateId;
+        var skill = com.qianxiang.cap.ClassSkill.skillOf(classId, slot);
+        if (skill == null) return 0;
+        long elapsed = Util.getMillis() - classSkillLastUseMs[slot];
+        return (int) Math.max(0L, skill.cooldownTicks() * 50L - elapsed);
+    }
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
@@ -56,20 +69,34 @@ public final class ClientSpellInput {
             mc.setScreen(new SkillTreeScreen());
         }
 
-        // 主动技能（J=战吼，潜行+J=涌动）：客户端先查已解锁节点，未解锁直接提示不发包
+        // 主动技能（J=槽1，潜行+J=槽2）：已设主职业 → 职业技能（class1/class2，
+        // 服务端校验职业/冷却/蓝耗）；未设职业 → 原战吼/涌动（节点校验保留）。
         boolean skillDown = SpellKeybinds.ACTIVATE_SKILL.isDown();
         if (skillDown && !wasSkillDown && mc.screen == null) {
-            String skillId = mc.player.isShiftKeyDown() ? "surge" : "warcry";
-            if (ClientProficiencyData.allocated.contains(skillId)) {
+            if (ClientProficiencyData.classCoreSet()) {
+                int slot = mc.player.isShiftKeyDown() ? 1 : 0;
                 try {
                     net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                            new com.qianxiang.network.ActivateSkillPayload(skillId));
+                            new com.qianxiang.network.ActivateSkillPayload(
+                                    slot == 0 ? "class1" : "class2"));
+                    // 客户端冷却估算（HUD 读秒用；服务端权威，拒放会短暂误灰，可接受）
+                    classSkillLastUseMs[slot] = Util.getMillis();
                 } catch (Throwable t) {
-                    Qianxiang.LOGGER.warn("[Qianxiang] 发送主动技能包失败", t);
+                    Qianxiang.LOGGER.warn("[Qianxiang] 发送职业技能包失败", t);
                 }
             } else {
-                mc.player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                        "qianxiang.proficiency.skill.locked"), true);
+                String skillId = mc.player.isShiftKeyDown() ? "surge" : "warcry";
+                if (ClientProficiencyData.allocated.contains(skillId)) {
+                    try {
+                        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                                new com.qianxiang.network.ActivateSkillPayload(skillId));
+                    } catch (Throwable t) {
+                        Qianxiang.LOGGER.warn("[Qianxiang] 发送主动技能包失败", t);
+                    }
+                } else {
+                    mc.player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                            "qianxiang.proficiency.skill.locked"), true);
+                }
             }
         }
         wasSkillDown = skillDown;

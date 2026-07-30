@@ -177,6 +177,17 @@ public final class PhaseAIRecipeService {
      */
     public static RecipeResult ask(String playerWant, String targetType, String targetTier,
                                     List<String> currentMaterials, String mode, List<String> allowedMaterials) {
+        return ask(playerWant, targetType, targetTier, currentMaterials, mode, allowedMaterials, null);
+    }
+
+    /**
+     * 带玩家上下文的入口（自创魔法贴合职业）：
+     * type==magic 且玩家已设主职业时——AI prompt 注入职业信息（指示优先内核元素、
+     * 贴合职业风格），且兜底路径的产物法术元素强制贴合内核（fitClassToCore）。
+     */
+    public static RecipeResult ask(String playerWant, String targetType, String targetTier,
+                                    List<String> currentMaterials, String mode, List<String> allowedMaterials,
+                                    @javax.annotation.Nullable net.minecraft.server.level.ServerPlayer player) {
         // 飞轮日志追踪（WQ-71）：本次 ask 的剔除材料与兜底原因，handler 在同一
         // AI 线程 ask 返回后立即读取（单线程执行器，无串扰）。
         LAST_DROPPED.get().clear();
@@ -195,25 +206,28 @@ public final class PhaseAIRecipeService {
             }
             if (lib.isEmpty()) {
                 LAST_FALLBACK_REASON.set("材料库为空");
-                return "confirm".equals(m)
+                return fitClassToCore("confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
-                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
+                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials), type, player);
             }
 
             // confirm 模式的任务是「评价玩家已放的材料」——槽是空的就没什么可评价，
             // 送去问 AI 只会得到一段重新推荐（还白烧一次 token）。
             if ("confirm".equals(m) && (mats == null || mats.isEmpty())) {
                 LAST_FALLBACK_REASON.set("confirm 空槽直接兜底");
-                return FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials);
+                return fitClassToCore(
+                        FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials),
+                        type, player);
             }
 
-            String systemPrompt = buildSystemPrompt(lib, playerWant, type, tier, mats, m, allowed != null);
+            String systemPrompt = buildSystemPrompt(lib, playerWant, type, tier, mats, m, allowed != null)
+                    + classPromptLine(player, type);
             var aiOpt = AIGateway.chat(playerWant, systemPrompt);
             if (aiOpt.isEmpty()) {
                 LAST_FALLBACK_REASON.set("AI 无响应（离线/超时/熔断）");
-                return "confirm".equals(m)
+                return fitClassToCore("confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
-                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
+                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials), type, player);
             }
 
             // 只解析一次：此前 extractConfirmMessage / extractQuestions / parseProposals
@@ -225,9 +239,9 @@ public final class PhaseAIRecipeService {
             proposals = restrictToWhitelist(proposals, allowed);
             if (proposals.isEmpty()) {
                 LAST_FALLBACK_REASON.set("解析后无有效方案");
-                return "confirm".equals(m)
+                return fitClassToCore("confirm".equals(m)
                         ? FallbackRecipes.proposeForConfirm(playerWant, type, tier, mats, allowedMaterials)
-                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
+                        : FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials), type, player);
             }
 
             if (!"confirm".equals(m)) {
@@ -235,7 +249,8 @@ public final class PhaseAIRecipeService {
                 proposals = restrictToWhitelist(proposals, allowed);
                 if (proposals.isEmpty()) {
                     LAST_FALLBACK_REASON.set("档位匹配后无方案");
-                    return FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials);
+                    return fitClassToCore(FallbackRecipes.propose3(playerWant, type, tier, allowedMaterials),
+                            type, player);
                 }
             }
             boolean fallback = allFallback(proposals);
@@ -248,8 +263,69 @@ public final class PhaseAIRecipeService {
             LAST_FALLBACK_REASON.set("ask 异常：" + t.getClass().getSimpleName());
             Qianxiang.LOGGER.warn("[Qianxiang] PhaseAIRecipeService.ask 异常，退 FallbackRecipes：{}",
                     t.getClass().getSimpleName() + ": " + t.getMessage());
-            return FallbackRecipes.propose3(playerWant, targetType, targetTier);
+            return fitClassToCore(FallbackRecipes.propose3(playerWant, targetType, targetTier),
+                    safeType(targetType), player);
         }
+    }
+
+    /**
+     * 自创魔法贴合职业（兜底路径）：type==magic 且玩家已设主职业时，把产物法术的
+     * element 改写为内核元素（已是内核元素不动，其余字段原样保留）。
+     * AI 在线路径不做强制改写——prompt 已注入职业信息让 AI 自觉贴合（见 buildSystemPrompt）。
+     */
+    private static RecipeResult fitClassToCore(RecipeResult result, String type,
+                                               net.minecraft.server.level.ServerPlayer player) {
+        if (!"magic".equals(type) || player == null || result == null
+                || result.proposals().isEmpty()) {
+            return result;
+        }
+        var core = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
+                .classCore();
+        if (!core.isSet()) return result;
+        List<RecipeProposal> mapped = new ArrayList<>();
+        boolean changed = false;
+        for (RecipeProposal p : result.proposals()) {
+            if (!p.hasSpell()) {
+                mapped.add(p);
+                continue;
+            }
+            String fitted = fitSpellJsonElement(p.spellJson(), core);
+            if (fitted.equals(p.spellJson())) {
+                mapped.add(p);
+                continue;
+            }
+            changed = true;
+            mapped.add(new RecipeProposal(p.materialNames(), p.estimatedPower(), p.summary(),
+                    fitted, p.movesetJson()));
+        }
+        return changed
+                ? new RecipeResult(mapped, result.confirmMessage(), result.fallback(), result.suggestQuestions())
+                : result;
+    }
+
+    /** spellJson 的 element 贴合内核：非内核元素改写为 elementA（JSON 其余字段不动）。 */
+    private static String fitSpellJsonElement(String spellJson, com.qianxiang.cap.ClassCore core) {
+        try {
+            JsonObject obj = JsonParser.parseString(spellJson).getAsJsonObject();
+            String element = obj.has("element") ? obj.get("element").getAsString() : "";
+            if (core.hasElement(element)) return spellJson;
+            obj.addProperty("element", core.elementA());
+            return obj.toString();
+        } catch (Throwable t) {
+            return spellJson; // 解析不动就原样（防御）
+        }
+    }
+
+    /** 注入 prompt 的职业行（自创魔法贴合职业①；无职业/非 magic 返回 ""）。 */
+    static String classPromptLine(net.minecraft.server.level.ServerPlayer player, String type) {
+        if (player == null || !"magic".equals(type)) return "";
+        var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
+        var core = data.classCore();
+        if (!core.isSet()) return "";
+        String classId = data.classTemplateId().isEmpty() ? "自定义职业" : data.classTemplateId();
+        return "【玩家职业】" + classId + "（内核元素：" + core.elementA() + " / " + core.elementB()
+                + "）——自创魔法就是角色技能：请优先选择内核元素的材料与法术元素，"
+                + "并贴合该职业的风格（形态：" + core.form() + "）。\n";
     }
 
     // ===================== 飞轮日志追踪（WQ-71，同 AI 线程读后即清） =====================
@@ -273,8 +349,14 @@ public final class PhaseAIRecipeService {
      * 供网络处理器直接使用的便捷入口。
      */
     public static RecipeResult ask(AiRequestPayload payload) {
+        return ask(payload, null);
+    }
+
+    /** 带玩家上下文的便捷入口（自创魔法贴合职业；两台 AI handler 用）。 */
+    public static RecipeResult ask(AiRequestPayload payload,
+                                   @javax.annotation.Nullable net.minecraft.server.level.ServerPlayer player) {
         return ask(payload.request(), payload.targetType(), payload.targetTier(),
-                payload.currentMaterials(), payload.mode(), payload.allowedMaterials());
+                payload.currentMaterials(), payload.mode(), payload.allowedMaterials(), player);
     }
 
     // ===================== 材料白名单 =====================

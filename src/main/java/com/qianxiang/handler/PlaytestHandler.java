@@ -52,6 +52,7 @@ import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -217,6 +218,23 @@ public final class PlaytestHandler {
         REPORT.add("---- [" + scenarios.get(0).id() + "] " + scenarios.get(0).title() + " ----");
         Qianxiang.LOGGER.info("[Qianxiang] PLAYTEST 启动：玩家 {} 进世界，{} 个场景开始",
                 player.getGameProfile().getName(), scenarios.size());
+    }
+
+    /**
+     * 死因留痕：subject 玩家死亡时 ERROR 打死亡来源（msgId/攻击者/位置）。
+     * 曾在真实世界拷贝的存档里被游荡野怪偷死、序列无声中断——日后再遇到一眼定位。
+     */
+    @SubscribeEvent
+    public static void onSubjectDeath(LivingDeathEvent event) {
+        ServerPlayer player = subject;
+        if (player == null || event.getEntity() != player) return;
+        var source = event.getSource();
+        var attacker = source.getEntity();
+        Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 玩家死亡：source={} attacker={} pos={}"
+                        + "（S 场景的 setInvulnerable 应已防住环境伤害，若仍死亡请查来源）",
+                source.getMsgId(),
+                attacker == null ? "无" : attacker.getType().toShortString(),
+                player.blockPosition());
     }
 
     @SubscribeEvent
@@ -500,6 +518,7 @@ public final class PlaytestHandler {
             Qianxiang.LOGGER.error("[Qianxiang] PLAYTEST 报告写入失败", t);
         }
         subject = null; // 序列结束（在 quit 之前，防 stop 过程再进 tick）
+        player.setInvulnerable(false); // 复原 S 场景开的实体级无敌：专用存档也不留副作用
         // 注意：不再 stopWatchdog()——看门狗循环看到 subject==null/finishing 会自行退出
         // （≤5s，daemon 无害）；主动 interrupt 有跨会话竞态：旧会话的 finish 可能打断
         // 新会话刚注册的看门狗，而 InterruptedException 曾是静默死亡通道（本轮根因之一）。
@@ -532,6 +551,7 @@ public final class PlaytestHandler {
     private static Scenario setup() {
         return sc("S", "准备（传送/放台）",
                 st(1, "时间天气", p -> {
+                    p.setInvulnerable(true); // 实体级无敌：存档是真实世界拷贝有野怪，防被偷死中断检测
                     runCommand(p, "time set day");
                     runCommand(p, "weather clear");
                 }),

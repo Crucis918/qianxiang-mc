@@ -45,11 +45,25 @@ public final class ProficiencyHandlers {
             switch (payload.skillId()) {
                 case "warcry" -> ProficiencyHelper.activateWarCry(player);
                 case "surge" -> ProficiencyHelper.activateSurge(player);
+                // 职业技能槽位：有职业（模板匹配）→ 职业技能；无职业回退战吼/涌动
+                // （用户口径：J 系优先职业技能，未设职业保持原键位语义）。
+                case "class1" -> activateClassSlot(player, 0);
+                case "class2" -> activateClassSlot(player, 1);
                 default -> com.qianxiang.Qianxiang.LOGGER.warn(
                         "[Qianxiang] 玩家 {} 请求未知主动技能 {}，已忽略",
                         player.getName().getString(), payload.skillId());
             }
         });
+    }
+
+    /** 职业技能槽入口（GameTest 可直接断言返回值）：有职业走技能，无职业回退战吼/涌动。 */
+    public static boolean activateClassSlot(ServerPlayer player, int slot) {
+        if (!com.qianxiang.cap.ClassCoreHelper.signatureOf(player).isEmpty()) {
+            return com.qianxiang.cap.ClassSkillMechanics.activate(player, slot);
+        }
+        return slot == 0
+                ? ProficiencyHelper.activateWarCry(player)
+                : ProficiencyHelper.activateSurge(player);
     }
 
     /** 主职业设定/转职：模板 id 优先（服务端查表），否则自定义三元组；校验在 setClassCore 内。 */

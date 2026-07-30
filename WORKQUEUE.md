@@ -1555,6 +1555,24 @@ EF FORM_CACHE 键从 efCategory 改 form id(同底座不同形态不再共享错
 
 ---
 
+## WQ-98 [x] 完成(待提交) 【大·职业技能】24 职业 × 2 主动技能 + 自创魔法贴合职业
+
+**范围**:① 48 个职业技能(ClassSkill/ClassSkillMechanics):J=技能1、潜行+J=技能2,
+有职业接管、无职业回退战吼/涌动(节点改技能树 footer 按钮);10 种机制(DASH/BLINK/
+FLURRY/SHIELD/SUMMON_WOLF/SUMMON_GOLEM/PULL/SMOKE/FAN3/EMPOWER)全部复用自家
+法术引擎,连招/增幅/内核/招牌乘区全吃。② 自创魔法贴合角色:炼金 AI prompt 注入
+职业信息(优先内核元素+风格),离线兜底强制内核元素(fitClassToCore),轮盘非内核
+压暗已有——自创魔法从此就是角色技能。③ 游玩检测两修:S 场景玩家 setInvulnerable
+防野怪偷死+死因 LivingDeathEvent 日志;检测存档被强杀腐蚀后重建(教训:别杀 JVM)。
+
+**验收**:175/175 GameTest(新增 8);新存档回归 27/27 全 PASS。
+
+**遗留观察**:① 技能特效沿用通用粒子,无职业专属演出(后续可做技能色);② EMPOWER
+对无伙伴职业给自身力量是近似实现(注释留档);③ 职业技能强度未实机调平(常量集中
+ClassSkill 顶部);④ 战吼/涌动节点在 footer 小按钮,可见性一般。
+
+---
+
 ## 已完成（勿重做）
 - P0-1 法术上行白名单+钳制、P0-4 调试栈打印、P0-5 en_us 中文污染、P0-7 AI 熔断、
   P0-8 防具映射（e3b66f9，侦察会话）
