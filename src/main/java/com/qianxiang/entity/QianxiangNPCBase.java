@@ -13,6 +13,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.level.Level;
@@ -214,14 +215,17 @@ public abstract class QianxiangNPCBase extends Villager {
         }
         for (MerchantOffer offer : offers) {
             // specialPriceDiff 只作用于 costA，而 costA 是「玩家付出的东西」。
-            // 售出型（玩家掏绿宝石买货）打折才是奖励；收购型（玩家交货换绿宝石）
+            // 售出型（玩家掏货币买货）打折才是奖励；收购型（玩家交货换钱）
             // 的 costA 是玩家交出的货，打折等于「交更少的货拿同样的钱」——
             // 高声望反而让卖货收益翻倍，屠杀烙印则双重惩罚。只对售出型定价。
-            if (!offer.getBaseCostA().is(net.minecraft.world.item.Items.EMERALD)) {
+            // 货币 = 绿宝石（流浪相师）或金粒（深渊商人，黄金经济）。
+            ItemStack baseCostA = offer.getBaseCostA();
+            if (!baseCostA.is(net.minecraft.world.item.Items.EMERALD)
+                    && !baseCostA.is(net.minecraft.world.item.Items.GOLD_NUGGET)) {
                 offer.setSpecialPriceDiff(0);
                 continue;
             }
-            int base = offer.getBaseCostA().getCount();
+            int base = baseCostA.getCount();
             int diff = -Math.round(base * pct / 100.0F);
             // 保证最终价 ≥1（specialPriceDiff 只作用于 costA）
             if (base + diff < 1) {

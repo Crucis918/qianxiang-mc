@@ -15,8 +15,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 
 /** 自定义台（相之凝结台）。右键打开容器 UI，并根据锻造状态释放粒子光效。
- * <p>「去格子化」投入式交互：手持材料右键投入（潜行投整组）；空手右键有产物直接拿、
- * 无产物开 GUI；潜行+空手右键取回全部材料。逻辑共用见 {@link TableInteractions}。</p> */
+ * <p>「去格子化」投入式交互：手持材料右键投入（潜行投整组）；空手右键开 GUI
+ * （DONE 时拾取仪式产物；仪式只从 GUI 触发，空手右键不再启动）；
+ * 潜行+空手右键取回全部材料。逻辑共用见 {@link TableInteractions}。</p> */
 public class ForgeTableBlock extends BaseEntityBlock {
     public static final MapCodec<ForgeTableBlock> CODEC = simpleCodec(ForgeTableBlock::new);
 
@@ -94,14 +95,9 @@ public class ForgeTableBlock extends BaseEntityBlock {
             RitualLogic.notifyBusy(player);
             return InteractionResult.SUCCESS;
         }
-        // 空手右键：有产物 → 触发合成仪式（材料飞入→成型→台面拾取）；无产物开 GUI
-        net.minecraft.world.item.ItemStack result = be.getItem(com.qianxiang.menu.ForgeTableMenu.RESULT_SLOT);
-        if (!result.isEmpty()) {
-            if (!level.isClientSide && player instanceof net.minecraft.server.level.ServerPlayer sp) {
-                RitualLogic.startRitual(be, sp);
-            }
-            return InteractionResult.SUCCESS;
-        }
+        // 空手右键：永远开 GUI（哪怕有产物）——玩家要能在界面里取回材料。
+        // 仪式只从 GUI 的「开始创作」按钮与产物槽点击触发（RitualStartPayload 链路），
+        // 空手右键不再触发仪式（此前有产物时右键直接开仪式，GUI 根本开不了）。
         if (!level.isClientSide) {
             player.openMenu(be);
         }

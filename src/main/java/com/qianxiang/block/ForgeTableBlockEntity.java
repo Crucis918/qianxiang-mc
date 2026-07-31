@@ -250,7 +250,8 @@ public class ForgeTableBlockEntity extends BlockEntity implements WorldlyContain
             parsingTicks = 0;
         }
 
-        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸；仪式中不吸——投料一律拒绝）
+        // 投入式交互：每 5 tick 吸收台面上方的掉落物（满槽不吸；只吸材料白名单内物品，
+        // 误扔的猪肉/种子留在原地；仪式中不吸——投料一律拒绝）
         if (level != null && level.getGameTime() % 5 == 0 && !ritualState.active()
                 && TableInteractions.absorbAbove(this, ForgeTableMenu.SLOT_FILL_ORDER, level, worldPosition) > 0) {
             recomputeResult(null);

@@ -27,7 +27,8 @@ import java.util.Set;
  * <p>
  * 推导优先级（先到先得）：①已有 PhaseData / 功能 tag / 效果 tag → 用现有结果
  * （①.5 杂项栏物品例外：给具体概念——记载/指引/计时/容器/龙息/翼…，显式数据并入不丢弃）；
- * ②食物（腐肉特例在前）；③装备；④原版 tag / 名称推导（木质/石质/矿物）；⑤红石；⑥下界；⑦末地；
+ * ②食物（腐肉/有害食物特例在前：不给 HEAL 给 POISON）；③装备（金制装备额外 MANA——
+ * 黄金是中和之物）；④原版 tag / 名称推导（木质/石质/矿物）；⑤红石；⑥下界；⑦末地；
  * ⑧水生；⑨植物（花特例在前）；⑩土类（沙特例在前）；⑪怪物掉落；⑫兜底「凡物」。
  * 任何常见物品都会得到一个非空概念（至少一组相性 + 概念键）。
  * <p>
@@ -207,30 +208,51 @@ public final class ItemConceptResolver {
         ItemConcept misc = resolveMisc(path);
         if (misc != null) return misc;
 
+        // ②a 有害食物（腐肉已特例在前；蜘蛛眼/毒马铃薯/河豚等带非有益食用效果）→
+        //      冲突相 + POISON。「食物=滋养」不适用于下毒的东西——按 FoodProperties
+        //      的食用效果判定，不堆物品特例。
+        if (isHarmfulFood(stack)) {
+            return of(CONCEPT_MONSTER, phases(Phase.CONFLICT), fns(PhaseFunction.POISON), Map.of());
+        }
+
         // ② 食物 → HEAL + 生命相，概念「滋养」
         if (stack.get(DataComponents.FOOD) != null) {
             return of(CONCEPT_NOURISH, phases(Phase.LIFE), fns(PhaseFunction.HEAL), Map.of());
         }
 
-        // ③ 装备类
+        // ③ 装备类（金制装备额外给 MANA——黄金是中和之物，见矿物规则的金条目）
         if (item instanceof ArmorItem) {
             boolean hide = path.contains("leather") || path.contains("turtle");
-            return of(CONCEPT_ARMOR,
-                    hide ? phases(Phase.ABYSS, Phase.ORDER) : phases(Phase.ORDER),
-                    hide ? fns(PhaseFunction.BASE_HIDE, PhaseFunction.DEFENSE)
-                         : fns(PhaseFunction.BASE_METAL, PhaseFunction.DEFENSE),
-                    Map.of());
+            boolean gold = path.contains("gold");
+            Set<Phase> p = hide ? phases(Phase.ABYSS, Phase.ORDER) : phases(Phase.ORDER);
+            Set<PhaseFunction> f = hide ? fns(PhaseFunction.BASE_HIDE, PhaseFunction.DEFENSE)
+                                        : fns(PhaseFunction.BASE_METAL, PhaseFunction.DEFENSE);
+            if (gold) {
+                p.add(Phase.KNOWLEDGE);
+                f.add(PhaseFunction.MANA);
+            }
+            return of(CONCEPT_ARMOR, p, f, Map.of());
         }
         if (item instanceof SwordItem || path.equals("trident") || path.equals("mace")) {
             boolean wood = item instanceof TieredItem t && t.getTier() == Tiers.WOOD;
-            return of(CONCEPT_BLADE,
-                    wood ? phases(Phase.LIFE, Phase.CONFLICT) : phases(Phase.ORDER, Phase.CONFLICT),
-                    fns(wood ? PhaseFunction.BASE_WOOD : PhaseFunction.BASE_METAL, PhaseFunction.EDGE),
-                    Map.of());
+            boolean gold = item instanceof TieredItem t && t.getTier() == Tiers.GOLD;
+            Set<Phase> p = wood ? phases(Phase.LIFE, Phase.CONFLICT) : phases(Phase.ORDER, Phase.CONFLICT);
+            Set<PhaseFunction> f = fns(wood ? PhaseFunction.BASE_WOOD : PhaseFunction.BASE_METAL,
+                    PhaseFunction.EDGE);
+            if (gold) {
+                p.add(Phase.KNOWLEDGE);
+                f.add(PhaseFunction.MANA);
+            }
+            return of(CONCEPT_BLADE, p, f, Map.of());
         }
         if (path.equals("bow") || path.equals("crossbow")) {
             return of(CONCEPT_BLADE, phases(Phase.LIFE, Phase.CONFLICT),
                     fns(PhaseFunction.BASE_WOOD, PhaseFunction.EDGE), Map.of());
+        }
+        // 箭矢（普通/光灵/药箭）→ 锋锐，概念「兵刃」
+        if (path.equals("arrow") || path.equals("spectral_arrow") || path.equals("tipped_arrow")) {
+            return of(CONCEPT_BLADE, phases(Phase.LIFE, Phase.CONFLICT),
+                    fns(PhaseFunction.EDGE), Map.of());
         }
         if (path.equals("shield")) {
             return of(CONCEPT_ARMOR, phases(Phase.LIFE, Phase.ORDER),
@@ -244,10 +266,16 @@ public final class ItemConceptResolver {
         }
         if (item instanceof DiggerItem digger) {
             boolean wood = digger.getTier() == Tiers.WOOD;
+            boolean gold = digger.getTier() == Tiers.GOLD;
             Set<PhaseFunction> f = fns(wood ? PhaseFunction.BASE_WOOD : PhaseFunction.BASE_METAL,
                     PhaseFunction.AREA_HARVEST);
             if (item instanceof HoeItem) f.add(PhaseFunction.GROWTH);
-            return of(CONCEPT_TOOL, wood ? phases(Phase.LIFE) : phases(Phase.ORDER), f, Map.of());
+            Set<Phase> p = wood ? phases(Phase.LIFE) : phases(Phase.ORDER);
+            if (gold) {
+                p.add(Phase.KNOWLEDGE);
+                f.add(PhaseFunction.MANA);
+            }
+            return of(CONCEPT_TOOL, p, f, Map.of());
         }
 
         // ④ 矿物（矿石/粗矿/锭/宝石，含对应矿石块）→ 对应相 + EDGE 或 BASE_METAL，概念「精矿」
@@ -371,6 +399,10 @@ public final class ItemConceptResolver {
         // 超脱：玻璃瓶/附魔之瓶 → 「魔瓶」
         if (path.equals("glass_bottle") || path.equals("experience_bottle")) {
             return of(CONCEPT_MANA_VIAL, phases(Phase.TRANSCEND), Set.of(), Map.of());
+        }
+        // 超脱：药水/喷溅药水/滞留药水 → MANA（装满的魔瓶），概念「魔瓶」
+        if (path.equals("potion") || path.equals("splash_potion") || path.equals("lingering_potion")) {
+            return of(CONCEPT_MANA_VIAL, phases(Phase.TRANSCEND), fns(PhaseFunction.MANA), Map.of());
         }
         // 混沌：龙息（高档）→ MANA + IGNITE 双算子，概念「龙息」
         if (path.equals("dragon_breath")) {
@@ -513,9 +545,14 @@ public final class ItemConceptResolver {
         if ((ore && path.contains("copper")) || path.contains("copper")) {
             return of(CONCEPT_METAL, phases(Phase.FIRE), fns(PhaseFunction.BASE_METAL), Map.of());
         }
-        // 金：智识 + 金属基底
+        // 金粒：硬币（通行全游戏的中和介质）→ 智识 + MANA，不当骨架
+        if (path.equals("gold_nugget")) {
+            return of(CONCEPT_METAL, phases(Phase.KNOWLEDGE), fns(PhaseFunction.MANA), Map.of());
+        }
+        // 金：智识 + 金属基底 + MANA——黄金是中和之物（通行全游戏的中和介质，见黄金经济）
         if ((ore && path.contains("gold")) || path.contains("gold")) {
-            return of(CONCEPT_METAL, phases(Phase.KNOWLEDGE), fns(PhaseFunction.BASE_METAL), Map.of());
+            return of(CONCEPT_METAL, phases(Phase.KNOWLEDGE),
+                    fns(PhaseFunction.BASE_METAL, PhaseFunction.MANA), Map.of());
         }
         // 紫水晶：智识/超脱 + 锋锐
         if (path.contains("amethyst")) {
@@ -527,6 +564,16 @@ public final class ItemConceptResolver {
             return of(CONCEPT_METAL, phases(Phase.ORDER), fns(PhaseFunction.BASE_METAL), Map.of());
         }
         return null;
+    }
+
+    /** 有害食物：带任一非有益食用效果（毒/饥饿/凋零…）的食物不算「滋养」，算「魔骸」POISON。 */
+    private static boolean isHarmfulFood(ItemStack stack) {
+        var food = stack.get(DataComponents.FOOD);
+        if (food == null) return false;
+        for (var entry : food.effects()) {
+            if (!entry.effect().getEffect().value().isBeneficial()) return true;
+        }
+        return false;
     }
 
     private static boolean isRedstoneComponent(String path) {

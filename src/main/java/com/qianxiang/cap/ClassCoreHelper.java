@@ -16,7 +16,7 @@ import net.minecraft.world.entity.player.Player;
  * 空串视为非内核）；未设内核（旧存档）全部 ×1.0。
  * </p>
  * <p>
- * 设定/转职：首次免费，之后每次 {@link #RESPEC_EMERALD_COST} 绿宝石；
+ * 设定/转职：首次免费，之后每次 {@link #RESPEC_GOLD_COST} 金粒；
  * 写入后记相谱一条并全量同步（与洗点同范式）。
  * </p>
  */
@@ -38,8 +38,8 @@ public final class ClassCoreHelper {
     public static final double CORE_MELEE_DAMAGE = 1.05;
     /** 非内核形态武器近战伤害倍率。 */
     public static final double OFF_MELEE_DAMAGE = 0.6;
-    /** 转职费用（绿宝石；首次设定免费）。 */
-    public static final int RESPEC_EMERALD_COST = 10;
+    /** 转职费用（金粒；首次设定免费。黄金经济：金粒是唯一服务费，绿宝石不再收）。 */
+    public static final int RESPEC_GOLD_COST = 45;
 
     // ===================== 招牌被动调平常量区（24 职业，按模板 id 分派） =====================
 
@@ -323,7 +323,7 @@ public final class ClassCoreHelper {
     // ===================== 设定 / 转职 =====================
 
     /**
-     * 设定或更换主职业（首次免费，转职扣 {@link #RESPEC_EMERALD_COST} 绿宝石）。
+     * 设定或更换主职业（首次免费，转职扣 {@link #RESPEC_GOLD_COST} 金粒）。
      * 校验：已开启修行 + 内核合法（两元素互不相同且在白名单、形态在白名单）；
      * 成功后写入 attachment、记相谱、全量同步。
      *
@@ -347,9 +347,9 @@ public final class ClassCoreHelper {
             return false;
         }
         boolean firstTime = !d.classCore().isSet();
-        if (!firstTime && !takeEmeralds(player, RESPEC_EMERALD_COST)) {
+        if (!firstTime && !takeGoldNuggets(player, RESPEC_GOLD_COST)) {
             player.displayClientMessage(
-                    Component.translatable("qianxiang.classcore.no_emerald"), true);
+                    Component.translatable("qianxiang.classcore.no_gold"), true);
             return false;
         }
         player.setData(QianxiangAttachments.PLAYER_PROFICIENCY_DATA,
@@ -363,19 +363,19 @@ public final class ClassCoreHelper {
         return true;
     }
 
-    /** 从背包精确扣除 count 个绿宝石（不足则一颗不扣），返回是否扣成。 */
-    private static boolean takeEmeralds(ServerPlayer player, int count) {
+    /** 从背包精确扣除 count 个金粒（不足则一颗不扣），返回是否扣成。 */
+    private static boolean takeGoldNuggets(ServerPlayer player, int count) {
         var inv = player.getInventory();
         int have = 0;
         for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
             var s = inv.getItem(i);
-            if (s.is(net.minecraft.world.item.Items.EMERALD)) have += s.getCount();
+            if (s.is(net.minecraft.world.item.Items.GOLD_NUGGET)) have += s.getCount();
         }
         if (have < count) return false;
         int remaining = count;
         for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE && remaining > 0; i++) {
             var s = inv.getItem(i);
-            if (!s.is(net.minecraft.world.item.Items.EMERALD)) continue;
+            if (!s.is(net.minecraft.world.item.Items.GOLD_NUGGET)) continue;
             int take = Math.min(remaining, s.getCount());
             s.shrink(take);
             inv.setItem(i, s);

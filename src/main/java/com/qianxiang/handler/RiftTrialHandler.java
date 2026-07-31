@@ -18,6 +18,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.item.ItemStack; // 注：A 路补——C 路漏 import（GOLD_NUGGET 保底掉落用），逻辑未动
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -61,7 +62,8 @@ import java.util.UUID;
  * 材料带 {@code AFFIX} 组件——凭它在 PhaseFunctionResolver 注入算子，直接进锻造台当零件。
  * <p>
  * <b>结算</b>：全灭 → wins+1（存玩家 PersistentData {@code qianxiang:trial_wins}，
- * 零新 attachment 基建）、actionbar 祝贺、保底掉 1~2 个词缀材料。
+ * 零新 attachment 基建）、actionbar 祝贺、保底掉 1~2 个词缀材料 + 金粒 2~5
+ * （黄金保底，随 wins 微涨，见 {@link #rollGoldBonus}）。
  * 玩家死亡 / 离开试炼维度超过 {@value LEAVE_GRACE_TICKS} tick（60s）/ 登出 →
  * 判失败，剩余试炼怪（带 {@value TAG_TRIAL_MOB} tag）全部 despawn。
  */
@@ -337,12 +339,29 @@ public final class RiftTrialHandler {
                             player.getX(), player.getY(), player.getZ(), affix.materialStack()));
                 }
             }
+            // 黄金保底：试炼胜利必掉金粒（黄金是通行全游戏的中和介质，随 wins 微涨）
+            if (level != null) {
+                int gold = rollGoldBonus(wins, rand);
+                level.addFreshEntity(new ItemEntity(level,
+                        player.getX(), player.getY(), player.getZ(),
+                        new ItemStack(net.minecraft.world.item.Items.GOLD_NUGGET, gold)));
+                player.displayClientMessage(
+                        Component.translatable("qianxiang.trial.gold_bonus", gold), true);
+            }
         } else {
             player.displayClientMessage(Component.translatable("qianxiang.trial.fail"), true);
         }
     }
 
     // ============================ 查询 / 测试入口 ============================
+
+    /**
+     * 试炼胜利的金粒保底数量：基础 2~5，每累计 5 胜 +1（封顶 +2）。
+     * 单独成函数供 GameTest 断言边界。
+     */
+    public static int rollGoldBonus(int wins, RandomSource rand) {
+        return 2 + rand.nextInt(4) + Math.min(wins / 5, 2);
+    }
 
     /** 玩家累计完成次数（PersistentData，零新 attachment 基建）。 */
     public static int getWins(ServerPlayer player) {

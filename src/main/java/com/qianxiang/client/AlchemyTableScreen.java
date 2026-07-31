@@ -47,6 +47,10 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private enum Status { IDLE, PARSING, READY, COMPLETE }
 
     private EditBox requestBox;
+    /** 「示例」按钮（轮换填入示例需求）。 */
+    private Button exampleButton;
+    /** 示例轮换下标。 */
+    private int exampleIndex = 0;
     private Button askButton;
     private Button clearButton;
     private Button confirmButton;
@@ -54,6 +58,8 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     private Button beginCraftButton;
     /** 「全部取回」按钮（材料区标题旁，材料为空/仪式启动后置灰）。 */
     private Button retrieveAllButton;
+    /** 「自动备料」按钮（有 AI 方案时显示，一键放料）。 */
+    private Button autoPlaceButton;
     /** 已发仪式请求、等服务端关 GUI 的窗口期：禁用一切投入/取回点击（服务端仍权威拒判）。 */
     private boolean awaitingRitual = false;
 
@@ -84,6 +90,14 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         }
         this.addRenderableWidget(this.requestBox);
 
+        // 「示例」按钮（输入框下方空档）：点击轮换填入 3 条示例需求，帮玩家起步
+        this.exampleButton = Button.builder(
+                        Component.translatableWithFallback("qianxiang.ai.example_button", "示例"),
+                        b -> cycleExample())
+                .bounds(leftPos + 168, topPos + 35, 36, 14)
+                .build();
+        this.addRenderableWidget(this.exampleButton);
+
         this.askButton = Button.builder(
                         Component.translatable("qianxiang.forge_table.button.ask"), b -> sendAiRequest())
                 .bounds(leftPos + BTN_X, topPos + 50, BTN_W, BTN_H).build();
@@ -107,6 +121,14 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                 .bounds(leftPos + 8, topPos + 80, 64, 12)
                 .build();
         this.addRenderableWidget(this.beginCraftButton);
+
+        // 「自动备料」按钮（「开始创作」右侧）：对当前选中方案（或第 0 方案）一键放料
+        this.autoPlaceButton = Button.builder(
+                        Component.translatableWithFallback("qianxiang.ai.auto_place", "自动备料"),
+                        b -> autoPlace())
+                .bounds(leftPos + 76, topPos + 80, 46, 12)
+                .build();
+        this.addRenderableWidget(this.autoPlaceButton);
 
         // 「全部取回」按钮（材料区标题旁）：取回全部材料（slotIndex=-1 + all）
         this.retrieveAllButton = Button.builder(
@@ -230,6 +252,9 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         this.beginCraftButton.visible = !this.menu.getSlot(AlchemyTableMenu.RESULT_SLOT).getItem().isEmpty();
         // 「全部取回」：材料为空或仪式启动窗口期置灰
         this.retrieveAllButton.active = hasMaterialsInSlots() && !awaitingRitual;
+        // 「自动备料」：有 AI 方案才显示
+        this.autoPlaceButton.visible = lastAiResult != null
+                && !lastAiResult.proposals().isEmpty() && !awaitingRitual;
         renderMaterialList(g);
         renderStatus(g);
         renderCards(g, mouseX, mouseY);
@@ -387,6 +412,19 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
     // ============================ 交互 ============================
 
+    /** 「示例」轮换：3 条示例需求依次填入输入框（qianxiang.ai.example.1~3）。 */
+    private void cycleExample() {
+        exampleIndex = exampleIndex % 3 + 1;
+        String key = "qianxiang.ai.example." + exampleIndex;
+        String fallback = switch (exampleIndex) {
+            case 1 -> "我要一把会喷火的剑";
+            case 2 -> "想要猛一点的巨剑，越重越好";
+            default -> "整把帅的，带闪电特效";
+        };
+        this.requestBox.setValue(Component.translatableWithFallback(key, fallback).getString());
+        this.requestBox.moveCursorToEnd(false);
+    }
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
@@ -486,6 +524,14 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         this.selectedCardResult = lastAiResult;
         PacketDistributor.sendToServer(new AiPlaceMaterialsPayload(
                 proposal.materialNames(), true, ClientAlchemyTableAI.lastReqId()));
+    }
+
+    /** 「自动备料」：对当前选中方案（无选中取第 0 方案）一键放料（复用点卡路径，replace 语义）。 */
+    private void autoPlace() {
+        if (lastAiResult == null || lastAiResult.proposals().isEmpty()) return;
+        int index = this.selectedCard >= 0 && this.selectedCard < lastAiResult.proposals().size()
+                ? this.selectedCard : 0;
+        applyProposal(index);
     }
 
     /** 点击卡片上单个材料条目：选中该方案（同点卡）但只放入这一种材料（叠加，非替换）。 */

@@ -33,7 +33,8 @@ public final class RitualLogic {
     public static final int FORMING_TICKS = 50;
 
     /**
-     * 触发仪式。三个入口（GUI「开始创作」按钮 / 产物槽点击 / 空手右键有产物）都汇到这里。
+     * 触发仪式。两个入口（GUI「开始创作」按钮 / 产物槽点击）都汇到这里；
+     * 空手右键方块<b>不</b>触发仪式（开 GUI 取材料优先，见两台块的 useWithoutItem）。
      *
      * @return true = 仪式启动；false = 仪式中/无有效产物（仪式中会发忙提示）
      */

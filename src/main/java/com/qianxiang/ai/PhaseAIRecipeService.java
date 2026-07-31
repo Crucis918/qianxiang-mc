@@ -419,8 +419,16 @@ public final class PhaseAIRecipeService {
               .append("\n");
         }
         sb.append("玩家需求：").append(request == null ? "" : request).append("；");
-        sb.append("目标产物类型：").append(typeDesc).append("；");
-        sb.append("目标强度档位：").append(tierDesc).append("（高挡位应优先选高 tier 材料，低挡位优先低 tier）。\n\n");
+        sb.append("目标强度档位：").append(tierDesc).append("（高挡位应优先选高 tier 材料，低挡位优先低 tier）。\n");
+        // 【口语理解】玩家可能说得很含糊/口语：先复述理解再给方案，不确定给 questions 而非乱猜
+        sb.append("【口语理解】玩家可能说得很口语、很含糊（如「想要猛一点的」「整把帅的」）。");
+        sb.append("先在 summary 里写一句「我理解你想要：X」复述你的理解；需求有多种合理理解时，");
+        sb.append("用 questions 给玩家 2~3 个澄清选项，不要硬猜。\n");
+        sb.append("示例一：「想要猛一点的刀」→ summary：「我理解你想要：高攻击力的刀」，");
+        sb.append("questions：[「要多猛？可以接受自伤代价吗」「要火焰还是纯粹的力量？」]\n");
+        sb.append("示例二：「整把帅的」→ summary：「我理解你想要：外观帅气的武器」，");
+        sb.append("questions：[「喜欢火焰特效还是暗影风格？」]\n");
+        sb.append("目标产物类型：").append(typeDesc).append("；\n\n");
         if (restricted) {
             sb.append("【材料白名单】玩家已在「材料筛选」中勾选了愿意使用的材料，下列材料库就是白名单——");
             sb.append("每个方案的所有材料必须来自该白名单，严禁使用白名单外的任何材料。\n");

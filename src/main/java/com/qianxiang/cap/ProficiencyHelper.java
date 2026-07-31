@@ -86,8 +86,8 @@ public final class ProficiencyHelper {
     private static final net.minecraft.resources.ResourceLocation WARCRY_MODIFIER_ID =
             net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(Qianxiang.MOD_ID, "warcry_attack_speed");
 
-    /** 洗点价格：10 绿宝石。 */
-    public static final int RESPEC_EMERALD_COST = 10;
+    /** 洗点价格：30 金粒（黄金经济：金粒是通行全游戏的中和硬币，绿宝石不再收）。 */
+    public static final int RESPEC_GOLD_COST = 30;
 
     /** 蓝图库基础保存位（lore 节点在之上 +4）。 */
     public static final int BASE_BLUEPRINT_SLOTS = 8;
@@ -178,26 +178,27 @@ public final class ProficiencyHelper {
     }
 
     /**
-     * 洗点：扣 10 绿宝石 → 清空 allocated、三轨点数=轨等级全额返还、记相谱、同步。
+     * 洗点：扣 {@value #RESPEC_GOLD_COST} 金粒 → 清空 allocated、三轨点数=轨等级全额返还、记相谱、同步。
+     * （黄金经济：金粒是唯一服务费，绿宝石不再收。）
      */
     public static boolean respec(ServerPlayer player) {
         PlayerProficiencyData d = data(player);
         if (!d.unlocked() || d.allocated().isEmpty()) return false;
         var inv = player.getInventory();
-        int emeralds = 0;
+        int gold = 0;
         for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE; i++) {
             var s = inv.getItem(i);
-            if (s.is(net.minecraft.world.item.Items.EMERALD)) emeralds += s.getCount();
+            if (s.is(net.minecraft.world.item.Items.GOLD_NUGGET)) gold += s.getCount();
         }
-        if (emeralds < RESPEC_EMERALD_COST) {
+        if (gold < RESPEC_GOLD_COST) {
             player.displayClientMessage(
-                    Component.translatable("qianxiang.proficiency.respec.no_emerald"), true);
+                    Component.translatable("qianxiang.proficiency.respec.no_gold"), true);
             return false;
         }
-        int remaining = RESPEC_EMERALD_COST;
+        int remaining = RESPEC_GOLD_COST;
         for (int i = 0; i < net.minecraft.world.entity.player.Inventory.INVENTORY_SIZE && remaining > 0; i++) {
             var s = inv.getItem(i);
-            if (!s.is(net.minecraft.world.item.Items.EMERALD)) continue;
+            if (!s.is(net.minecraft.world.item.Items.GOLD_NUGGET)) continue;
             int take = Math.min(remaining, s.getCount());
             s.shrink(take);
             inv.setItem(i, s);
@@ -211,7 +212,7 @@ public final class ProficiencyHelper {
         player.setData(QianxiangAttachments.PLAYER_PROFICIENCY_DATA, next);
         var saga = player.getData(QianxiangAttachments.SAGA_DATA);
         player.setData(QianxiangAttachments.SAGA_DATA,
-                saga.withEntry("§e[洗点] §r以 10 绿宝石重置熟练度，技能点全部归还"));
+                saga.withEntry("§e[洗点] §r以 " + RESPEC_GOLD_COST + " 金粒重置熟练度，技能点全部归还"));
         player.displayClientMessage(Component.translatable("qianxiang.proficiency.respec.done"), true);
         sync(player);
         return true;

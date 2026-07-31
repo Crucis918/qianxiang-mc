@@ -27,8 +27,15 @@ public final class AiPlaceMaterialsHandler {
 
     private AiPlaceMaterialsHandler() {}
 
-    /** 放料结果：放入数量 + 已放入物品 + 缺料名单（请求了但没放进的）。 */
-    public record PlaceResult(int placedCount, List<Item> placed, List<Item> missing) {}
+    /** 放料结果：放入数量 + 已放入物品 + 缺料名单（请求了但没放进的）+
+     *  来源拆分（背包 / 外部存储——台旁箱子、TB、RS2 统称「存储」，来源抽象不带名）。 */
+    public record PlaceResult(int placedCount, List<Item> placed, List<Item> missing,
+                              int fromInventory, int fromStorage) {
+        /** 兼容旧四参（无来源统计）。 */
+        public PlaceResult(int placedCount, List<Item> placed, List<Item> missing) {
+            this(placedCount, placed, missing, 0, 0);
+        }
+    }
 
     public static void handle(AiPlaceMaterialsPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
@@ -86,6 +93,13 @@ public final class AiPlaceMaterialsHandler {
                 }
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
                         sp, new MissingMaterialsPayload(missingIds));
+                // 备料不足一半时附来源提示（背包 N · 存储 N；来源拆分见 PlaceResult）
+                if (result.placedCount() > 0 && result.placedCount() * 2 < wanted.size()
+                        && result.fromStorage() > 0) {
+                    player.displayClientMessage(Component.translatableWithFallback(
+                            "qianxiang.table.source_hint", "已从背包取 %d · 存储取 %d",
+                            result.fromInventory(), result.fromStorage()), true);
+                }
             }
         });
     }
@@ -135,17 +149,20 @@ public final class AiPlaceMaterialsHandler {
 
         List<Item> placed = new ArrayList<>();
         List<Item> missing = new ArrayList<>();
+        int fromInventory = 0, fromStorage = 0;
         for (Item item : wanted) {
             int materialSlot = findMaterialSlot(container, item, fillOrder);
             if (materialSlot < 0) {
                 missing.add(item); // 材料槽已满（先查槽再抽取，守恒）
                 continue;
             }
-            ItemStack move = extractFromSources(sources, item, 1);
-            if (move.isEmpty()) {
+            Extracted extracted = extractFromSources(sources, item, 1);
+            if (extracted == null) {
                 missing.add(item);
                 continue;
             }
+            if (extracted.sourceIndex() == 0) fromInventory++; else fromStorage++;
+            ItemStack move = extracted.stack();
             ItemStack existing = container.getItem(materialSlot);
             if (existing.isEmpty()) {
                 container.setItem(materialSlot, move);
@@ -163,8 +180,12 @@ public final class AiPlaceMaterialsHandler {
             }
             placed.add(item);
         }
-        return new PlaceResult(placed.size(), List.copyOf(placed), List.copyOf(missing));
+        return new PlaceResult(placed.size(), List.copyOf(placed), List.copyOf(missing),
+                fromInventory, fromStorage);
     }
+
+    /** 抽取结果：栈 + 来源下标（0=玩家背包，>0=外部存储）。 */
+    private record Extracted(ItemStack stack, int sourceIndex) {}
 
     /** 替换语义的先手：材料槽现有物品全部退回玩家背包（背包满则掉脚下，不丢物品）。 */
     private static void returnExistingMaterials(Player player, net.minecraft.world.Container container,
@@ -179,15 +200,16 @@ public final class AiPlaceMaterialsHandler {
         }
     }
 
-    /** 按序遍历来源抽取至多 count 个；全部来源都没有返回空栈。 */
-    private static ItemStack extractFromSources(
+    /** 按序遍历来源抽取至多 count 个；全部来源都没有返回 null。 */
+    private static Extracted extractFromSources(
             List<com.qianxiang.phase.MaterialSources.Source> sources, Item item, int count) {
-        for (var source : sources) {
+        for (int i = 0; i < sources.size(); i++) {
+            var source = sources.get(i);
             if (source.count(item) <= 0) continue;
             ItemStack got = source.extract(item, count);
-            if (!got.isEmpty()) return got;
+            if (!got.isEmpty()) return new Extracted(got, i);
         }
-        return ItemStack.EMPTY;
+        return null;
     }
 
     /** 测试入口：直接对容器做槽位选择（GameTest 无需构造完整菜单）。 */

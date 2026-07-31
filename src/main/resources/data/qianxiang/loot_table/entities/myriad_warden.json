@@ -88,6 +88,27 @@
           "name": "qianxiang:warden_core"
         }
       ]
+    },
+    {
+      "comment": "黄金保底：守望者必掉 2~4 金锭（黄金是中和之物，Boss 级产金口）",
+      "rolls": 1.0,
+      "bonus_rolls": 0.0,
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:gold_ingot",
+          "functions": [
+            {
+              "function": "minecraft:set_count",
+              "count": {
+                "type": "minecraft:uniform",
+                "min": 2.0,
+                "max": 4.0
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "random_sequence": "qianxiang:entities/myriad_warden"

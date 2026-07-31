@@ -450,6 +450,23 @@ public final class FallbackRecipes {
             picks.add("qianxiang:ember_crystal");
             picks.add("qianxiang:beast_fang");
         }
+        // ---- 口语化扩充（「和 AI 说不明白」的起步词）----
+        // 猛/狠/暴力 → 攻击向（锋刃/力量）；帅/好看/酷 → 外观向（焰色刃缘）；
+        // 快/速/迅 → 攻速向（金属基底提供攻速）。
+        if (matchesAny(want, "猛", "狠", "暴力", "伤害", "输出", "强力", "attack", "damage", "dps")) {
+            String edge = findByFunction("EDGE");
+            if (edge != null) picks.add(edge);
+            String strength = findByFunction("STRENGTH");
+            if (strength != null) picks.add(strength);
+        }
+        if (matchesAny(want, "帅", "好看", "漂亮", "酷", "拉风", "颜值", "外观",
+                "cool", "handsome", "stylish", "fancy")) {
+            picks.add("qianxiang:ember_crystal");
+        }
+        if (matchesAny(want, "快速", "快攻", "迅捷", "轻快", "疾速", "fast", "quick", "swift")) {
+            String baseMetal = findByFunction("BASE_METAL");
+            if (baseMetal != null) picks.add(baseMetal);
+        }
         return picks;
     }
 

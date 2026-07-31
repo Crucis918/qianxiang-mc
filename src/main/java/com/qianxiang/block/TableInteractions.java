@@ -59,12 +59,14 @@ public final class TableInteractions {
         }
     }
 
-    /** 吸收台面上方的掉落物（BE tick 驱动，满槽不吸）。返回吸收总数。 */
+    /** 吸收台面上方的掉落物（BE tick 驱动，满槽不吸；非材料不吸）。返回吸收总数。 */
     public static int absorbAbove(Container container, int[] fillOrder, Level level, BlockPos pos) {
         int moved = 0;
         for (ItemEntity entity : level.getEntitiesOfClass(ItemEntity.class, new AABB(pos).inflate(0.5))) {
             ItemStack stack = entity.getItem();
             if (stack.isEmpty()) continue;
+            // 白名单：只吸「能当零件」的，玩家误扔的猪肉/种子留在原地不动
+            if (!isAbsorbable(stack)) continue;
             int m = insert(container, fillOrder, stack, true);
             if (m > 0) {
                 moved += m;
@@ -79,6 +81,26 @@ public final class TableInteractions {
             level.playSound(null, pos, SoundEvents.ITEM_FRAME_ADD_ITEM, SoundSource.BLOCKS, 0.5f, 1.3f);
         }
         return moved;
+    }
+
+    /**
+     * 掉落物吸收白名单：只吸「材料相」物品（能当零件的），其余留在原地。
+     * <p>
+     * 口径 = <b>显式</b>材料数据，只调公开 API、不复制解析逻辑：
+     * ①PhaseData（{@code phase_data} component 或数据包定义）；
+     * ②功能 tag（{@code qianxiang:materials/<function>}，如铁锭在 base_metal）；
+     * ③效果 tag 等其余显式来源——概念引擎会把它们归到「相材」概念
+     * （{@link com.qianxiang.phase.ItemConceptResolver#CONCEPT_MATERIAL}）。
+     * <b>不</b>用 {@link com.qianxiang.phase.PhaseFunctionResolver#get}：它末尾带
+     * 全物品推导兜底（食物→HEAL、植物→GROWTH、泥土→HEAL…），会把玩家误扔的
+     * 猪肉/种子也判成材料吞掉。手持投入不受此限（主动投料是显式意图）。
+     */
+    public static boolean isAbsorbable(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        if (com.qianxiang.phase.PhaseFunctionResolver.effectivePhaseData(stack) != null) return true;
+        if (!com.qianxiang.phase.PhaseFunctionResolver.getExplicit(stack).isEmpty()) return true;
+        return com.qianxiang.phase.ItemConceptResolver.CONCEPT_MATERIAL
+                .equals(com.qianxiang.phase.ItemConceptResolver.resolve(stack).conceptKey());
     }
 
     /**

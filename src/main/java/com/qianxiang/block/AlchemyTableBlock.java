@@ -16,8 +16,8 @@ import net.minecraft.world.phys.BlockHitResult;
 
 /** 炼金台。右键打开容器 UI（6 材料槽 + 1 卷轴产物槽，支持 AI 方案）。
  * <p>「去格子化」投入式交互与锻造台一致（逻辑共用见 {@link TableInteractions}）：
- * 手持材料右键投入（潜行投整组）；空手右键有产物直接拿、无产物开 GUI；
- * 潜行+空手右键取回全部材料。</p> */
+ * 手持材料右键投入（潜行投整组）；空手右键开 GUI（DONE 时拾取仪式产物；
+ * 仪式只从 GUI 触发，空手右键不再启动）；潜行+空手右键取回全部材料。</p> */
 public class AlchemyTableBlock extends BaseEntityBlock {
     public static final MapCodec<AlchemyTableBlock> CODEC = simpleCodec(AlchemyTableBlock::new);
 
@@ -95,14 +95,9 @@ public class AlchemyTableBlock extends BaseEntityBlock {
             RitualLogic.notifyBusy(player);
             return InteractionResult.SUCCESS;
         }
-        // 空手右键：有产物 → 触发合成仪式；无产物开 GUI
-        net.minecraft.world.item.ItemStack result = be.getItem(com.qianxiang.menu.AlchemyTableMenu.RESULT_SLOT);
-        if (!result.isEmpty()) {
-            if (!level.isClientSide && player instanceof net.minecraft.server.level.ServerPlayer sp) {
-                RitualLogic.startRitual(be, sp);
-            }
-            return InteractionResult.SUCCESS;
-        }
+        // 空手右键：永远开 GUI（哪怕有产物）——玩家要能在界面里取回材料。
+        // 仪式只从 GUI 的「开始创作」按钮与产物槽点击触发（RitualStartPayload 链路），
+        // 空手右键不再触发仪式（此前有产物时右键直接开仪式，GUI 根本开不了）。
         if (!level.isClientSide) {
             player.openMenu(be);
         }

@@ -74,8 +74,8 @@ public final class QianxiangClassCoreGameTests {
         helper.assertTrue(Math.abs(core / base - 1.15f) < 0.02f,
                 "内核元素掉血比应 ≈1.15，实际 " + (core / base));
 
-        // 转职成不含 fire 的内核：×0.45，蓝耗 10→13（先给 10 绿宝石付转职费）
-        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        // 转职成不含 fire 的内核：×0.45，蓝耗 10→13（先给 45 金粒付转职费）
+        player.getInventory().setItem(0, new ItemStack(Items.GOLD_NUGGET, 45));
         helper.assertTrue(ClassCoreHelper.setClassCore(player,
                 new ClassCore("frost", "lightning", "mace")), "付费转职应成功");
         float off = castAtPig(helper, spell, player);
@@ -169,9 +169,9 @@ public final class QianxiangClassCoreGameTests {
         helper.succeed();
     }
 
-    /** 转职费用：首次免费（无绿宝石也成）；二次无绿宝石拒；10 绿宝石扣费成功。 */
+    /** 转职费用：首次免费（无金粒也成）；二次无金粒拒；45 金粒扣费成功；绿宝石不再收。 */
     @GameTest(template = "item_concept")
-    public static void classRespecCostsEmeralds(GameTestHelper helper) {
+    public static void classRespecCostsGold(GameTestHelper helper) {
         var player = QianxiangCoreGameTests.mockServerPlayer(helper);
         player.getInventory().clearContent();
         ProficiencyHelper.unlock(player);
@@ -179,16 +179,21 @@ public final class QianxiangClassCoreGameTests {
         helper.assertTrue(ClassCoreHelper.setClassCore(player,
                 new ClassCore("fire", "arcane", "sword")), "首次设定应免费");
         helper.assertTrue(!ClassCoreHelper.setClassCore(player,
-                new ClassCore("frost", "lightning", "mace")), "无绿宝石转职应被拒");
+                new ClassCore("frost", "lightning", "mace")), "无金粒转职应被拒");
+        // 绿宝石不再收：只有绿宝石仍应被拒
+        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 64));
+        helper.assertTrue(!ClassCoreHelper.setClassCore(player,
+                new ClassCore("frost", "lightning", "mace")), "只有绿宝石转职应被拒——黄金经济后绿宝石不再收");
+        player.getInventory().clearContent();
         helper.assertTrue(player.getData(QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
                         .classCore().form().equals("sword"),
                 "被拒后内核应保持不变");
 
-        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        player.getInventory().setItem(0, new ItemStack(Items.GOLD_NUGGET, 45));
         helper.assertTrue(ClassCoreHelper.setClassCore(player,
-                new ClassCore("frost", "lightning", "mace")), "10 绿宝石转职应成功");
-        helper.assertTrue(player.getInventory().countItem(Items.EMERALD) == 0,
-                "转职应恰扣 10 绿宝石");
+                new ClassCore("frost", "lightning", "mace")), "45 金粒转职应成功");
+        helper.assertTrue(player.getInventory().countItem(Items.GOLD_NUGGET) == 0,
+                "转职应恰扣 45 金粒");
         helper.assertTrue(player.getData(QianxiangAttachments.PLAYER_PROFICIENCY_DATA)
                         .classCore().form().equals("mace"),
                 "转职后内核应更新");
@@ -239,7 +244,7 @@ public final class QianxiangClassCoreGameTests {
         helper.assertTrue(baseHeal > 0.0f, "基准治疗应 > 0");
 
         // 牧师（holy+nature·staff）：同 ×1.15 内核元素，再 ×1.3 治疗
-        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        player.getInventory().setItem(0, new ItemStack(Items.GOLD_NUGGET, 45));
         ClassCoreHelper.setClassCore(player, ClassCore.template("priest"));
         helper.assertTrue("priest".equals(ClassCoreHelper.signatureOf(player)), "应匹配 priest");
         learn(heal, player);
@@ -392,7 +397,7 @@ public final class QianxiangClassCoreGameTests {
                 "战斗法师连招应封顶 12，实际 " + com.qianxiang.spell.ComboTracker.comboOf(player));
 
         // 换非战斗法师职业：继续交替施法，cap 回落 10
-        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        player.getInventory().setItem(0, new ItemStack(Items.GOLD_NUGGET, 45));
         ClassCoreHelper.setClassCore(player, new ClassCore("holy", "shadow", "mace"));
         for (int i = 0; i < 4; i++) {
             var attachment = QianxiangAttachments.PLAYER_SPELL_DATA;

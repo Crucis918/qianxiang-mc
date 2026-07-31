@@ -83,6 +83,10 @@ public class MovesetEditorScreen extends Screen {
     private Button applyButton;
     private Button backButton;
 
+    /** 「AI 编排」输入框与按钮（自然语言 → 服务端编排 → 回包回填序列）。 */
+    private net.minecraft.client.gui.components.EditBox aiBox;
+    private Button aiComposeButton;
+
     /** 底部提示闪烁（「已应用」/「无目标」等）剩余 tick。 */
     private int flashTicks = 0;
     private Component flashText = Component.empty();
@@ -235,6 +239,19 @@ public class MovesetEditorScreen extends Screen {
         this.addRenderableWidget(this.applyButton);
         this.addRenderableWidget(this.backButton);
 
+        // 「AI 编排」行（底部两排按钮之上）：输入框 + 按钮
+        this.aiBox = new net.minecraft.client.gui.components.EditBox(this.font,
+                mid - 168, this.height - 66, 148, 16,
+                Component.translatableWithFallback("qianxiang.moveset_editor.ai_hint", "描述想要的连招，如「三段快斩接一次重劈」"));
+        this.aiBox.setMaxLength(60);
+        this.aiBox.setHint(Component.translatableWithFallback("qianxiang.moveset_editor.ai_hint", "描述想要的连招，如「三段快斩接一次重劈」"));
+        this.addRenderableWidget(this.aiBox);
+        this.aiComposeButton = Button.builder(
+                        Component.translatableWithFallback("qianxiang.moveset_editor.ai_compose", "AI 编排"),
+                        b -> sendComposeRequest())
+                .bounds(mid - 14, this.height - 66, 76, 16).build();
+        this.addRenderableWidget(this.aiComposeButton);
+
         refreshWidgets();
     }
 
@@ -342,6 +359,38 @@ public class MovesetEditorScreen extends Screen {
         sb.append("],\"collider\":\"").append(collider).append("\"}");
         PacketDistributor.sendToServer(new MovesetApplyPayload(sb.toString()));
         flash(Component.translatable("qianxiang.moveset_editor.msg.applied"), 0xFF55FF55);
+    }
+
+    /** 「AI 编排」按钮：发自然语言需求给服务端（AI/兜底双路径），回包在 render 里消费。 */
+    private void sendComposeRequest() {
+        String request = this.aiBox.getValue().trim();
+        if (request.isEmpty()) return;
+        PacketDistributor.sendToServer(new com.qianxiang.network.MovesetComposePayload(request));
+        flash(Component.translatableWithFallback("qianxiang.moveset_editor.ai_composing", "编排中…"), 0xFFFFFFAA);
+    }
+
+    /** 回包回填：动作集 JSON 的 combos 全 id → 动画条目，整体替换当前序列（可再微调）。 */
+    private void applyComposeResult(String movesetJson) {
+        try {
+            var obj = com.google.gson.JsonParser.parseString(movesetJson).getAsJsonObject();
+            if (!obj.has("combos") || !obj.get("combos").isJsonArray()) return;
+            List<AnimationLibrary.AnimInfo> next = new ArrayList<>();
+            for (var el : obj.getAsJsonArray("combos")) {
+                var info = AnimationLibrary.byId(
+                        net.minecraft.resources.ResourceLocation.tryParse(el.getAsString()));
+                if (info != null && next.size() < MAX_SEGMENTS) next.add(info);
+            }
+            if (next.isEmpty()) return;
+            segments.clear();
+            segments.addAll(next);
+            currentSegment = 0;
+            if (obj.has("category")) category = obj.get("category").getAsString();
+            if (obj.has("collider")) collider = obj.get("collider").getAsString();
+            refreshWidgets();
+            flash(Component.translatableWithFallback("qianxiang.moveset_editor.ai_done", "已回填序列，可微调后应用"), 0xFF55FF55);
+        } catch (Throwable t) {
+            flash(Component.translatableWithFallback("qianxiang.moveset_editor.ai_failed", "编排失败，请换个说法"), 0xFFFF5555);
+        }
     }
 
     private void flash(Component text, int color) {
@@ -458,6 +507,8 @@ public class MovesetEditorScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        String composed = ClientMovesetCompose.consume();
+        if (composed != null) applyComposeResult(composed);
         super.render(g, mouseX, mouseY, partialTick);
 
         renderLibrary(g, mouseX, mouseY);

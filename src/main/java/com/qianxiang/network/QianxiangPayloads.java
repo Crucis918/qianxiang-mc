@@ -108,6 +108,16 @@ public final class QianxiangPayloads {
         registrar.playToServer(RitualStartPayload.TYPE, RitualStartPayload.STREAM_CODEC,
                 (payload, context) -> RitualStartHandler.handle(payload, context));
 
+        // 客户端→服务端：动作编辑器「AI 编排」请求；服务端→客户端：编排结果回推。
+        registrar.playToServer(MovesetComposePayload.TYPE, MovesetComposePayload.STREAM_CODEC,
+                (payload, context) -> MovesetComposeHandler.handle(payload, context));
+        registrar.playToClient(MovesetComposeResultPayload.TYPE, MovesetComposeResultPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.flow() == PacketFlow.CLIENTBOUND) {
+                        com.qianxiang.client.ClientMovesetCompose.receive(payload.movesetJson());
+                    }
+                }));
+
         // 客户端→服务端：熟练度——分配节点 / 洗点 / 主动技能（战吼/涌动）/ 主职业设定。
         registrar.playToServer(AllocateNodePayload.TYPE, AllocateNodePayload.STREAM_CODEC,
                 (payload, context) -> ProficiencyHandlers.handleAllocate(payload, context));

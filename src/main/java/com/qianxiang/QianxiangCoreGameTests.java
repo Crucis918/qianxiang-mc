@@ -2195,7 +2195,7 @@ public final class QianxiangCoreGameTests {
         helper.succeed();
     }
 
-    /** 洗点返还：allocated 清空、点数=等级返还、绿宝石 -10；无绿宝石拒。 */
+    /** 洗点返还：allocated 清空、点数=等级返还、金粒 -30；无金粒拒、绿宝石不再收。 */
     @GameTest(template = "item_concept")
     public static void respecRefunds(GameTestHelper helper) {
         var player = mockServerPlayer(helper);
@@ -2207,17 +2207,19 @@ public final class QianxiangCoreGameTests {
         com.qianxiang.cap.ProficiencyHelper.allocate(player, "blade1");
 
         helper.assertTrue(!com.qianxiang.cap.ProficiencyHelper.respec(player),
-                "无 10 绿宝石时洗点应被拒");
+                "无金粒时洗点应被拒");
 
-        player.getInventory().setItem(0, new ItemStack(Items.EMERALD, 10));
+        // 黄金经济：洗点费用为金粒（C 路改动，绿宝石不再收）
+        int cost = com.qianxiang.cap.ProficiencyHelper.RESPEC_GOLD_COST;
+        player.getInventory().setItem(0, new ItemStack(Items.GOLD_NUGGET, cost));
         helper.assertTrue(com.qianxiang.cap.ProficiencyHelper.respec(player),
-                "有 10 绿宝石时洗点应成功");
+                "金粒足够时洗点应成功");
+        helper.assertTrue(player.getInventory().countItem(Items.GOLD_NUGGET) == 0,
+                "洗点应恰扣 " + cost + " 金粒");
         var data = player.getData(com.qianxiang.cap.QianxiangAttachments.PLAYER_PROFICIENCY_DATA);
-        helper.assertTrue(data.allocated().isEmpty(), "洗点后 allocated 应清空");
+        helper.assertTrue(!data.hasAllocated("blade1"), "洗点后 allocated 应清空");
         helper.assertTrue(data.combatPoints() == data.combatLevel(),
-                "洗点应返还点数=等级（" + data.combatLevel() + "），实际 " + data.combatPoints());
-        helper.assertTrue(countInInventory(player, Items.EMERALD) == 0,
-                "洗点应扣 10 绿宝石，实际剩余 " + countInInventory(player, Items.EMERALD));
+                "洗点应全额返还技能点（点数=等级）");
         helper.succeed();
     }
 
