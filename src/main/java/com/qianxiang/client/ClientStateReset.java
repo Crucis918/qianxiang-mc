@@ -46,6 +46,8 @@ public final class ClientStateReset {
             ClientDamageNumbers.clearAll();
             ClientBlueprintCache.clear();
             ClientTableSuggestion.clear();
+            AiChatLog.FORGE.clear();
+            AiChatLog.ALCHEMY.clear();
             ForgeTableScreen.clearHistory();
             ClientMaterialFilter.resetForWorldChange();
         } catch (Throwable t) {

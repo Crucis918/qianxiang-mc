@@ -84,30 +84,28 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     private static final int STATUS_W = 132;
     private static final int STATUS_H = 10;
 
-    // 「去格子化」：材料网格退役，左上材料区改文字列表（材料名×数量）。
+    // 材料区图标网格：5 列 × 5 行（25 槽），每格 18×18（物品图标+数量角标，
+    // 空槽淡虚线框提示投入；hover 显示性质卡+取回提示，左键取 1、Shift 取整槽）。
     // 槽位数据模型不变（menu 槽位坐标已挪屏外，快速移动按索引工作）。
-    /** 材料列表：左上角起点与行距。 */
-    private static final int MATLIST_X = 8;
-    private static final int MATLIST_Y = 17;
-    private static final int MATLIST_ROW_H = 9;
-    private static final int MATLIST_MAX_ROWS = 8;
-    /** 三行操作提示首行 y（0.6 缩放小字、行距 6px：列表区底部与状态条之间）。 */
-    private static final int MATLIST_HINT_Y = 90;
+    /** 材料网格：左上角起点与列数。 */
+    private static final int MATGRID_X = 8;
+    private static final int MATGRID_Y = 17;
+    private static final int MATGRID_COLS = 5;
 
     /** 结果槽坐标（逻辑槽 16×16，视觉渲染为 32×32）。 */
     private static final int RESULT_SLOT_X = 222;
     private static final int RESULT_SLOT_Y = 54;
 
-    /** 操作按钮（材料槽与结果槽之间）。 */
-    private static final int ASK_X = 146;
+    /** 操作按钮（输入框下方一行压缩排布，为聊天气泡区让位）。 */
+    private static final int ASK_X = 104;
     private static final int ASK_Y = 50;
-    private static final int CLEAR_X = 146;
-    private static final int CLEAR_Y = 66;
-    private static final int CONFIRM_X = 146;
-    private static final int CONFIRM_Y = 82;
-    private static final int BUTTON_W = 58;
-    private static final int BUTTON_H = 13;
-    private static final int CONFIRM_W = 58;
+    private static final int CLEAR_X = 154;
+    private static final int CLEAR_Y = 50;
+    private static final int CONFIRM_X = 204;
+    private static final int CONFIRM_Y = 50;
+    private static final int BUTTON_W = 46;
+    private static final int BUTTON_H = 12;
+    private static final int CONFIRM_W = 44;
 
     /** AI 推荐配方卡片（2 列网格，材料网格与状态条下方、背包上方）。 */
     private static final int CARD_X = 8;
@@ -485,10 +483,13 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                 .build();
         this.addRenderableWidget(this.retrieveAllButton);
 
-        // 注册 AI 结果监听器
+        // 注册 AI 结果监听器（顺带记一条 AI 气泡：summary + 兜底标记）
         ClientForgeTableAI.setListener(result -> {
             this.lastAiResult = result;
             this.status = (result != null && !result.proposals().isEmpty()) ? Status.READY : Status.IDLE;
+            if (result != null && !result.proposals().isEmpty()) {
+                AiChatLog.FORGE.addAi(chatTextOf(result), result.fallback());
+            }
         });
         this.lastAiResult = ClientForgeTableAI.getLastResult();
         this.status = (lastAiResult != null && !lastAiResult.proposals().isEmpty()) ? Status.READY : Status.IDLE;
@@ -641,12 +642,13 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
 
         super.render(g, mouseX, mouseY, partialTick);
 
-        renderMaterialList(g);
+        renderMaterialGrid(g);
         renderStatusBar(g);
         renderSuggestionLine(g);
         renderKeywordHints(g);
         renderResultSlotPreview(g);
         renderResultSlotEffect(g);
+        renderChat(g, mouseX, mouseY);
         renderRecipeCards(g, mouseX, mouseY);
         renderSuggestChips(g, mouseX, mouseY);
         renderMaterialPreview(g);
@@ -680,6 +682,12 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
+            int example = hitTestExampleBubble(mouseX, mouseY);
+            if (example > 0) {
+                exampleIndex = example;
+                cycleExample();
+                return true;
+            }
             String suggestion = hitTestSuggestion(mouseX, mouseY);
             if (suggestion != null) {
                 applySuggestion(suggestion);
@@ -697,7 +705,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
                 return true;
             }
             // 材料列表行点击 = 取回该槽材料（左键 1 个，Shift+左键全部）
-            int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
+            int retrieveSlot = hitTestMaterialGrid(mouseX, mouseY);
             if (retrieveSlot >= 0) {
                 if (!awaitingRitual) {
                     PacketDistributor.sendToServer(new com.qianxiang.network.TableRetrievePayload(
@@ -776,6 +784,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     /** 发送 AI 推荐请求到服务端。 */
     private void sendAiRequest() {
         String request = this.requestBox.getValue().trim();
+        AiChatLog.FORGE.addUser(request);
         addHistoryEntry(request);
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
@@ -788,6 +797,7 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
     /** 发送「AI 修改确认」请求到服务端。 */
     private void sendConfirmRequest() {
         String request = this.requestBox.getValue().trim();
+        AiChatLog.FORGE.addUser(request);
         addHistoryEntry(request);
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
@@ -875,53 +885,26 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         super.renderSlot(g, slot);
     }
 
-    /** 材料列表行：真实槽位下标 + 物品栈（取回 payload 要用槽位下标，不能用行号）。 */
-    private record MatRow(int slot, ItemStack stack) {}
-
-    /** 当前非空材料槽的物品列表（展示/命中测试共用，按槽序）。 */
-    private List<MatRow> materialListRows() {
-        List<MatRow> rows = new ArrayList<>();
+    /** 材料区图标网格：5 列 × 5 行，物品图标+数量角标；空槽淡虚线框（提示投入）；
+     *  hover 高亮（tooltip 在 renderMaterialSlotTooltips 统一画）；点击取回见 mouseClicked。 */
+    private void renderMaterialGrid(GuiGraphics g) {
+        int hovered = hoveredGridSlot();
         for (int i = 0; i < ForgeTableMenu.MATERIAL_SLOTS; i++) {
-            ItemStack s = this.menu.getSlot(i).getItem();
-            if (!s.isEmpty()) rows.add(new MatRow(i, s));
+            int cx = leftPos + MATGRID_X + (i % MATGRID_COLS) * MaterialGrid.CELL;
+            int cy = topPos + MATGRID_Y + (i / MATGRID_COLS) * MaterialGrid.CELL;
+            MaterialGrid.renderCell(g, this.font, this.menu.getSlot(i), cx, cy, i == hovered);
         }
-        return rows;
     }
 
-    /** 材料区文字列表：材料名×数量，超出省略；行 hover 高亮（点击取回）；底部投入提示行。 */
-    private void renderMaterialList(GuiGraphics g) {
-        List<MatRow> rows = materialListRows();
-        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            int rx = leftPos + MATLIST_X;
-            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
-            boolean hover = this.minecraft != null
-                    && mouseInRect(rx, ry, 92, MATLIST_ROW_H);
-            if (hover) {
-                g.fill(rx - 1, ry - 1, rx + 92, ry + MATLIST_ROW_H, 0x20FFFFFF);
-            }
-            ItemStack s = rows.get(i).stack();
-            String line = s.getHoverName().getString() + " ×" + s.getCount();
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, 88),
-                    rx, ry, hover ? 0xFFFFFF : 0xE0E0E0, false);
-        }
-        if (rows.size() > shown) {
-            g.drawString(this.font, "… +" + (rows.size() - shown),
-                    leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
-        }
-        // 三行操作说明（0.6 缩放小字：投入/取回/台子外交互各一行）
-        String[] hints = {
-                Component.translatable("qianxiang.table.hint_insert").getString(),
-                Component.translatable("qianxiang.table.hint_insert_2").getString(),
-                Component.translatable("qianxiang.table.hint_insert_3").getString()
-        };
-        for (int i = 0; i < hints.length; i++) {
-            g.pose().pushPose();
-            g.pose().translate(leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + i * 6, 0);
-            g.pose().scale(0.6f, 0.6f, 1.0f);
-            g.drawString(this.font, this.font.plainSubstrByWidth(hints[i], 156), 0, 0, 0x777777, false);
-            g.pose().popPose();
-        }
+    /** 当前 hover 的材料槽下标（无 hover -1；屏幕坐标 → 网格相对坐标换算）。 */
+    private int hoveredGridSlot() {
+        if (this.minecraft == null) return -1;
+        double mx = this.minecraft.mouseHandler.xpos() * this.minecraft.getWindow().getGuiScaledWidth()
+                / this.minecraft.getWindow().getScreenWidth();
+        double my = this.minecraft.mouseHandler.ypos() * this.minecraft.getWindow().getGuiScaledHeight()
+                / this.minecraft.getWindow().getScreenHeight();
+        return MaterialGrid.slotAt(leftPos + MATGRID_X, topPos + MATGRID_Y, MATGRID_COLS,
+                mx, my, ForgeTableMenu.MATERIAL_SLOTS);
     }
 
     /** 当前鼠标是否在给定矩形内（相对窗口坐标）。 */
@@ -933,18 +916,12 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    /** 命中材料列表行 → 该行的真实槽位下标；未命中 -1。 */
-    private int hitTestMaterialRow(double mouseX, double mouseY) {
-        List<MatRow> rows = materialListRows();
-        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            int rx = leftPos + MATLIST_X;
-            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
-            if (mouseX >= rx && mouseX < rx + 92 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
-                return rows.get(i).slot();
-            }
-        }
-        return -1;
+    /** 命中材料网格格 → 真实槽位下标；未命中/空槽返回 -1。 */
+    private int hitTestMaterialGrid(double mouseX, double mouseY) {
+        int slot = MaterialGrid.slotAt(leftPos + MATGRID_X, topPos + MATGRID_Y, MATGRID_COLS,
+                mouseX, mouseY, ForgeTableMenu.MATERIAL_SLOTS);
+        if (slot < 0 || this.menu.getSlot(slot).getItem().isEmpty()) return -1;
+        return slot;
     }
 
     /**
@@ -952,32 +929,27 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
      * （名称/稀有度档位/相性/功能算子+用途/自由状态效果/概念/贡献预估）。
      */
     private void renderMaterialSlotTooltips(GuiGraphics g, int mouseX, int mouseY) {
-        List<MatRow> rows = materialListRows();
-        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            int rx = leftPos + MATLIST_X;
-            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
-            if (mouseX >= rx && mouseX < rx + 92 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
-                ItemStack stack = rows.get(i).stack();
-                try {
-                    MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
-                    List<Component> card = MaterialCardHelper.buildCard(stack, info);
-                    if (!card.isEmpty()) {
-                        card.add(Component.translatable("qianxiang.table.retrieve_hint")
-                                .withStyle(net.minecraft.ChatFormatting.GRAY));
-                        g.renderTooltip(this.font, card, Optional.empty(), mouseX, mouseY);
-                        return;
-                    }
-                } catch (Throwable t) {
-                    // 性质卡渲染失败退化为物品名
-                }
-                g.renderTooltip(this.font, List.of(stack.getHoverName(),
-                                Component.translatable("qianxiang.table.retrieve_hint")
-                                        .withStyle(net.minecraft.ChatFormatting.GRAY)),
-                        Optional.empty(), mouseX, mouseY);
+        int slot = MaterialGrid.slotAt(leftPos + MATGRID_X, topPos + MATGRID_Y, MATGRID_COLS,
+                mouseX, mouseY, ForgeTableMenu.MATERIAL_SLOTS);
+        if (slot < 0) return;
+        ItemStack stack = this.menu.getSlot(slot).getItem();
+        if (stack.isEmpty()) return;
+        try {
+            MaterialCardHelper.MaterialInfo info = MaterialCardHelper.analyze(stack);
+            List<Component> card = MaterialCardHelper.buildCard(stack, info);
+            if (!card.isEmpty()) {
+                card.add(Component.translatable("qianxiang.table.retrieve_hint")
+                        .withStyle(net.minecraft.ChatFormatting.GRAY));
+                g.renderTooltip(this.font, card, Optional.empty(), mouseX, mouseY);
                 return;
             }
+        } catch (Throwable t) {
+            // 性质卡渲染失败退化为物品名
         }
+        g.renderTooltip(this.font, List.of(stack.getHoverName(),
+                        Component.translatable("qianxiang.table.retrieve_hint")
+                                .withStyle(net.minecraft.ChatFormatting.GRAY)),
+                Optional.empty(), mouseX, mouseY);
     }
 
     /** 「能做啥」主动建议行（状态条与方案卡之间；纯展示，不占 AI 结果区）。
@@ -1003,6 +975,95 @@ public class ForgeTableScreen extends AbstractContainerScreen<ForgeTableMenu> {
         }
         return Component.translatableWithFallback("qianxiang.table.suggestion.upgrade",
                 "可升级：Lv.%d → 喂料升级", level);
+    }
+
+    // ========================== AI 聊天面板 ==========================
+
+    /** 聊天区布局（右列：输入框/按钮之下、「开始创作」之上）。 */
+    private static final int CHAT_X = 104;
+    private static final int CHAT_Y = 64;
+    private static final int CHAT_W = 144;
+
+    /** AI 气泡文本：首方案 summary（lang 键走 translatable，AI 原文照用）；空则 confirmMessage。 */
+    private static String chatTextOf(ClientForgeTableAI.AiResult result) {
+        String summary = result.proposals().isEmpty() ? "" : result.proposals().get(0).summary();
+        if (summary == null || summary.isBlank()) summary = result.confirmMessage();
+        if (summary == null) return "";
+        return summary.startsWith("qianxiang.")
+                ? Component.translatable(summary).getString() : summary;
+    }
+
+    /** 连接状态行（绿在线 / 黄离线兜底 / 红密钥无效）+ 聊天气泡（用户右深底 / AI 左铜边）。 */
+    private void renderChat(GuiGraphics g, int mouseX, int mouseY) {
+        int x = leftPos + CHAT_X, y = topPos + CHAT_Y, w = CHAT_W;
+        String statusKey = switch (ClientForgeTableAI.aiStatus) {
+            case "auth" -> "qianxiang.ai.status.auth";
+            case "offline", "endpoint" -> "qianxiang.ai.status.offline";
+            default -> "qianxiang.ai.status.online";
+        };
+        int statusColor = switch (ClientForgeTableAI.aiStatus) {
+            case "auth" -> 0xFFFF5555;
+            case "offline", "endpoint" -> 0xFFFFFF55;
+            default -> 0xFF55FF55;
+        };
+        g.drawString(this.font, this.font.plainSubstrByWidth(
+                Component.translatable(statusKey).getString(), w), x, y, statusColor, false);
+
+        var log = AiChatLog.FORGE.msgs();
+        int by = y + 11;
+        if (log.isEmpty()) {
+            // 空状态：问候 + 两条可点击示例气泡（像在和相师聊天，不是冷冰冰的表单）
+            g.drawString(this.font, this.font.plainSubstrByWidth(
+                    Component.translatable("qianxiang.ai.chat.greeting").getString(), w),
+                    x, by, 0xAAAAAA, false);
+            for (int i = 1; i <= 2; i++) {
+                String ex = this.font.plainSubstrByWidth(
+                        Component.translatable("qianxiang.ai.example." + i).getString(), w - 16);
+                int tw = this.font.width(ex) + 6;
+                int ey = by + 10 + (i - 1) * 11;
+                boolean hover = mouseX >= x && mouseX < x + tw && mouseY >= ey && mouseY < ey + 10;
+                g.fill(x, ey, x + tw, ey + 10, hover ? 0x603A2A1A : 0x40201810);
+                g.drawString(this.font, ex, x + 3, ey + 1, hover ? 0xFFFFFFFF : 0xFFBBBB99, false);
+            }
+            return;
+        }
+        int show = Math.min(3, log.size());
+        for (int i = log.size() - show; i < log.size(); i++) {
+            var msg = log.get(i);
+            if (msg.user()) {
+                String text = this.font.plainSubstrByWidth(msg.text(), w - 12);
+                int tw = this.font.width(text) + 6;
+                g.fill(x + w - tw, by, x + w, by + 10, 0xC0201810);
+                g.drawString(this.font, text, x + w - tw + 3, by + 1, 0xE0E0E0, false);
+            } else {
+                String text = msg.text() + (msg.fallback()
+                        ? " " + Component.translatable("qianxiang.ai.chat.fallback_note").getString() : "");
+                text = this.font.plainSubstrByWidth(text, w - 12);
+                int tw = this.font.width(text) + 6;
+                g.fill(x, by, x + tw, by + 10, 0x40101010);
+                g.fill(x, by, x + tw, by + 1, 0xFFB87333);
+                g.fill(x, by + 9, x + tw, by + 10, 0xFFB87333);
+                g.fill(x, by, x + 1, by + 10, 0xFFB87333);
+                g.fill(x + tw - 1, by, x + tw, by + 10, 0xFFB87333);
+                g.drawString(this.font, text, x + 3, by + 1, 0xFFD8CDB0, false);
+            }
+            by += 11;
+        }
+    }
+
+    /** 空状态示例气泡命中（点击填入输入框）；无命中 0。 */
+    private int hitTestExampleBubble(double mouseX, double mouseY) {
+        if (!AiChatLog.FORGE.isEmpty()) return 0;
+        int x = leftPos + CHAT_X, by = topPos + CHAT_Y + 11;
+        int w = CHAT_W;
+        for (int i = 1; i <= 2; i++) {
+            String ex = this.font.plainSubstrByWidth(
+                    Component.translatable("qianxiang.ai.example." + i).getString(), w - 16);
+            int tw = this.font.width(ex) + 6;
+            int ey = by + 10 + (i - 1) * 11;
+            if (mouseX >= x && mouseX < x + tw && mouseY >= ey && mouseY < ey + 10) return i;
+        }
+        return 0;
     }
 
     // ========================== 状态条 ==========================

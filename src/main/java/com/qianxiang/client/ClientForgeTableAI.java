@@ -27,6 +27,8 @@ public final class ClientForgeTableAI {
     private static Consumer<AiResult> onResult = null;
     /** 最近一次响应的飞轮 reqId（WQ-71）：放料时随 {@code AiPlaceMaterialsPayload} 回传。 */
     private static volatile String lastReqId = "";
+    /** 最近一次响应的 AI 状态（"" 在线 / offline / auth=密钥无效 / endpoint）。 */
+    public static volatile String aiStatus = "";
 
     /** 客户端自增请求序号（仅客户端主线程读写）：服务端原样带回，用于丢弃落后响应（WQ-76）。 */
     private static int nextSeq = 0;
@@ -61,6 +63,7 @@ public final class ClientForgeTableAI {
         }
         lastAcceptedSeq = payload.seq();
         lastReqId = payload.reqId() == null ? "" : payload.reqId();
+        aiStatus = payload.aiStatus() == null ? "" : payload.aiStatus();
         boolean fallback = !payload.proposals().isEmpty()
                 && payload.proposals().stream().allMatch(PhaseAIRecipeService.RecipeProposal::isFallback);
         lastResult = new AiResult(payload.proposals(), payload.confirmMessage(), fallback,
@@ -99,6 +102,7 @@ public final class ClientForgeTableAI {
         onResult = null;
         lastResult = null;
         lastReqId = "";
+        aiStatus = "";
         selectedIndex = SpellJsonReportPayload.NONE;
         nextSeq = 0;
         lastAcceptedSeq = 0;

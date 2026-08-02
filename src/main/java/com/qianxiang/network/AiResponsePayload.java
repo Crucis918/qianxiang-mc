@@ -28,14 +28,23 @@ public record AiResponsePayload(int seq,
                                 String reqId,
                                 List<PhaseAIRecipeService.RecipeProposal> proposals,
                                 String confirmMessage,
-                                List<String> suggestQuestions) implements CustomPacketPayload {
+                                List<String> suggestQuestions,
+                                String aiStatus) implements CustomPacketPayload {
+
+    /** 兼容旧五参构造（无状态）：aiStatus = ""（在线）。 */
+    public AiResponsePayload(int seq, String reqId,
+                             List<PhaseAIRecipeService.RecipeProposal> proposals,
+                             String confirmMessage,
+                             List<String> suggestQuestions) {
+        this(seq, reqId, proposals, confirmMessage, suggestQuestions, "");
+    }
 
     /** 兼容旧四参构造（无 reqId）：reqId = ""。 */
     public AiResponsePayload(int seq,
                              List<PhaseAIRecipeService.RecipeProposal> proposals,
                              String confirmMessage,
                              List<String> suggestQuestions) {
-        this(seq, "", proposals, confirmMessage, suggestQuestions);
+        this(seq, "", proposals, confirmMessage, suggestQuestions, "");
     }
 
     /** 兼容旧三参构造（无序号/reqId）：seq = 0，reqId = ""。 */
@@ -61,6 +70,7 @@ public record AiResponsePayload(int seq,
                     AiResponsePayload::proposals,
                     ByteBufCodecs.STRING_UTF8, AiResponsePayload::confirmMessage,
                     ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), AiResponsePayload::suggestQuestions,
+                    ByteBufCodecs.stringUtf8(16), AiResponsePayload::aiStatus,
                     AiResponsePayload::new);
 
     @Override

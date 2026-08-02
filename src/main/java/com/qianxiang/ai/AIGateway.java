@@ -86,6 +86,14 @@ public final class AIGateway {
     private static final AtomicLong FAILURES = new AtomicLong();
     private static volatile long lastLatencyMs = -1;
     private static volatile String lastFailure = "";
+    /** 最近一次 AI 调用状态归类（界面状态行用）："" = 在线，"offline" = 连不上/超时，
+     *  "auth" = 密钥无效（401/403），"endpoint" = 端点其他错误。 */
+    private static volatile String lastErrorKind = "";
+
+    /** 界面/同步用：最近一次 AI 状态归类（见上）。 */
+    public static String lastErrorKind() {
+        return lastErrorKind;
+    }
 
     private static final Object LOG_LOCK = new Object();
 
@@ -281,11 +289,20 @@ public final class AIGateway {
             CONNECT_FAILS.set(0);
             TIMEOUT_FAILS.set(0);
             ENDPOINT_FAILS.set(0);
+            lastErrorKind = "";
             if (BREAKER_OPENED_AT.get() != 0L) {
                 closeBreaker();
             }
             return;
         }
+        lastErrorKind = switch (kind) {
+            case CONNECT, TIMEOUT -> "offline";
+            case ENDPOINT -> {
+                int status = AIClient.lastHttpStatus();
+                yield (status == 401 || status == 403) ? "auth" : "endpoint";
+            }
+            default -> lastErrorKind;
+        };
 
         if (probe && BREAKER_OPENED_AT.get() != 0L) {
             // 熔断仍处于打开态的探测失败：重新计时

@@ -1010,5 +1010,11 @@
   "qianxiang.trial.gold_bonus": "试炼保底：+%s 金粒",
   "qianxiang.npc.abyss_merchant.buy.not_material": "「把你手里带相的料给我看看。」（主手持有要卖的材料，潜行右键出售）",
   "qianxiang.npc.abyss_merchant.buy.limit": "「今日的份额用完了。」（收购限 %s 次/日）",
-  "qianxiang.npc.abyss_merchant.buy.done": "成交：+%s 金粒"
+  "qianxiang.npc.abyss_merchant.buy.done": "成交：+%s 金粒",
+  "qianxiang.ai.status.online": "AI 在线",
+  "qianxiang.ai.status.offline": "AI 离线 · 关键词兜底",
+  "qianxiang.ai.status.auth": "AI 密钥无效，请检查 config/qianxiang-ai.json",
+  "qianxiang.ai.chat.greeting": "想做点什么？说给我听，比如：",
+  "qianxiang.ai.chat.greeting_alchemy": "想炼什么法术？说给我听",
+  "qianxiang.ai.chat.fallback_note": "（AI 离线·关键词配方）"
 }

@@ -55,6 +55,14 @@ public final class AIClient {
     /** 本次失败是否为「端点回了非 2xx」（持续 400/500 = 端点故障，也要能熔断）。 */
     private static final ThreadLocal<Boolean> LAST_ENDPOINT_ERROR = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
+    /** 最近一次非 2xx 的 HTTP 状态码（0 = 无；401/403 = 密钥无效，供界面红字提示）。 */
+    private static final ThreadLocal<Integer> LAST_HTTP_STATUS = ThreadLocal.withInitial(() -> 0);
+
+    /** 供 {@link AIGateway} 判定 lastErrorKind：仅同线程紧随一次 chat 后有意义。 */
+    static int lastHttpStatus() {
+        return LAST_HTTP_STATUS.get();
+    }
+
     /**
      * 内存开关：本端点不支持 {@code response_format} 时置 true（WQ-64）。
      * 部分「OpenAI 兼容」端点（旧版 llama.cpp server、自建代理、部分国产兼容层）
@@ -99,6 +107,7 @@ public final class AIClient {
         LAST_CONNECT_ISSUE.set(Boolean.FALSE);
         LAST_REQUEST_TIMEOUT.set(Boolean.FALSE);
         LAST_ENDPOINT_ERROR.set(Boolean.FALSE);
+        LAST_HTTP_STATUS.set(0);
         try {
             if (cfg.isOpenAI()) {
                 return chatOpenAI(cfg, userMessage, systemPrompt);
@@ -283,6 +292,7 @@ public final class AIClient {
         if (resp.statusCode() / 100 != 2) {
             // 端点故障标记：持续 400/500 不是「内容不可用」，应计入熔断（WQ-63）
             LAST_ENDPOINT_ERROR.set(Boolean.TRUE);
+            LAST_HTTP_STATUS.set(resp.statusCode());
             Qianxiang.LOGGER.warn("[Qianxiang] AI({}) 非 2xx 响应 status={} body={}",
                     cfg.provider, resp.statusCode(), truncate(resp.body(), 200));
             return null;

@@ -139,10 +139,13 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                 .build();
         this.addRenderableWidget(this.retrieveAllButton);
 
-        // 结果界面回调：AI 回包到达时刷新方案卡。
+        // 结果界面回调：AI 回包到达时刷新方案卡（顺带记一条 AI 气泡）。
         ClientAlchemyTableAI.setListener(result -> {
             this.lastAiResult = result;
             this.status = result.proposals().isEmpty() ? Status.IDLE : Status.READY;
+            if (result != null && !result.proposals().isEmpty()) {
+                AiChatLog.ALCHEMY.addAi(chatTextOf(result), result.fallback());
+            }
         });
     }
 
@@ -154,13 +157,11 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
 
     // ============================ 渲染 ============================
 
-    // 「去格子化」：材料区改文字列表（槽位坐标已挪屏外，列表只读数据模型）。
-    private static final int MATLIST_X = 8;
-    private static final int MATLIST_Y = 17;
-    private static final int MATLIST_ROW_H = 9;
-    private static final int MATLIST_MAX_ROWS = 4;
-    /** 三行操作提示首行 y（0.6 缩放小字、行距 6px：状态条与「开始创作」按钮之间）。 */
-    private static final int MATLIST_HINT_Y = 66;
+    // 材料区图标网格：3 列 × 2 行（6 槽），每格 18×18（物品图标+数量角标，
+    // 空槽淡虚线框提示投入；hover 显示名称+取回提示，左键取 1、Shift 取整槽）。
+    private static final int MATGRID_X = 8;
+    private static final int MATGRID_Y = 17;
+    private static final int MATGRID_COLS = 3;
 
     /** 去格子化：材料槽不再画物品，产物槽/背包走原版。 */
     @Override
@@ -171,52 +172,33 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         super.renderSlot(g, slot);
     }
 
-    /** 材料列表行：真实槽位下标 + 物品栈（取回 payload 要用槽位下标）。 */
-    private record MatRow(int slot, net.minecraft.world.item.ItemStack stack) {}
-
-    /** 材料区文字列表：材料名×数量，超出省略；行 hover 高亮（点击取回）；下方投入提示行。 */
-    private void renderMaterialList(GuiGraphics g) {
-        List<MatRow> rows = new ArrayList<>();
+    /** 材料区图标网格：3 列 × 2 行，物品图标+数量角标；空槽淡虚线框（提示投入）。 */
+    private void renderMaterialGrid(GuiGraphics g) {
+        int hovered = hoveredGridSlot();
         for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
-            var s = this.menu.getSlot(i).getItem();
-            if (!s.isEmpty()) rows.add(new MatRow(i, s));
+            int cx = leftPos + MATGRID_X + (i % MATGRID_COLS) * MaterialGrid.CELL;
+            int cy = topPos + MATGRID_Y + (i / MATGRID_COLS) * MaterialGrid.CELL;
+            MaterialGrid.renderCell(g, this.font, this.menu.getSlot(i), cx, cy, i == hovered);
         }
-        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            var s = rows.get(i).stack();
-            String line = s.getHoverName().getString() + " ×" + s.getCount();
-            g.drawString(this.font, this.font.plainSubstrByWidth(line, 60),
-                    leftPos + MATLIST_X, topPos + MATLIST_Y + i * MATLIST_ROW_H, 0xE0E0E0, false);
-        }
-        if (rows.size() > shown) {
-            g.drawString(this.font, "… +" + (rows.size() - shown),
-                    leftPos + MATLIST_X, topPos + MATLIST_Y + shown * MATLIST_ROW_H, 0xAAAAAA, false);
-        }
-        // 三行操作说明（0.6 缩放小字：投入/取回/台子外交互各一行）
-        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert").getString(),
-                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y, 0x777777, 0.6f);
-        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert_2").getString(),
-                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + 6, 0x777777, 0.6f);
-        drawTinyString(g, Component.translatable("qianxiang.table.hint_insert_3").getString(),
-                leftPos + MATLIST_X, topPos + MATLIST_HINT_Y + 12, 0x777777, 0.6f);
     }
 
-    /** 命中材料列表行 → 该行的真实槽位下标；未命中 -1。 */
-    private int hitTestMaterialRow(double mouseX, double mouseY) {
-        List<MatRow> rows = new ArrayList<>();
-        for (int i = 0; i < AlchemyTableMenu.MATERIAL_SLOTS; i++) {
-            var s = this.menu.getSlot(i).getItem();
-            if (!s.isEmpty()) rows.add(new MatRow(i, s));
-        }
-        int shown = Math.min(rows.size(), MATLIST_MAX_ROWS);
-        for (int i = 0; i < shown; i++) {
-            int rx = leftPos + MATLIST_X;
-            int ry = topPos + MATLIST_Y + i * MATLIST_ROW_H;
-            if (mouseX >= rx && mouseX < rx + 64 && mouseY >= ry && mouseY < ry + MATLIST_ROW_H) {
-                return rows.get(i).slot();
-            }
-        }
-        return -1;
+    /** 当前 hover 的材料槽下标（无 hover -1）。 */
+    private int hoveredGridSlot() {
+        if (this.minecraft == null) return -1;
+        double mx = this.minecraft.mouseHandler.xpos() * this.minecraft.getWindow().getGuiScaledWidth()
+                / this.minecraft.getWindow().getScreenWidth();
+        double my = this.minecraft.mouseHandler.ypos() * this.minecraft.getWindow().getGuiScaledHeight()
+                / this.minecraft.getWindow().getScreenHeight();
+        return MaterialGrid.slotAt(leftPos + MATGRID_X, topPos + MATGRID_Y, MATGRID_COLS,
+                mx, my, AlchemyTableMenu.MATERIAL_SLOTS);
+    }
+
+    /** 命中材料网格格 → 真实槽位下标；未命中/空槽返回 -1。 */
+    private int hitTestMaterialGrid(double mouseX, double mouseY) {
+        int slot = MaterialGrid.slotAt(leftPos + MATGRID_X, topPos + MATGRID_Y, MATGRID_COLS,
+                mouseX, mouseY, AlchemyTableMenu.MATERIAL_SLOTS);
+        if (slot < 0 || this.menu.getSlot(slot).getItem().isEmpty()) return -1;
+        return slot;
     }
 
     /** 缩放绘制小字（卡片材料状态标签用）。 */
@@ -255,7 +237,8 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         // 「自动备料」：有 AI 方案才显示
         this.autoPlaceButton.visible = lastAiResult != null
                 && !lastAiResult.proposals().isEmpty() && !awaitingRitual;
-        renderMaterialList(g);
+        renderMaterialGrid(g);
+        renderChatLine(g, mouseX, mouseY);
         renderStatus(g);
         renderCards(g, mouseX, mouseY);
         renderTooltip(g, mouseX, mouseY);
@@ -280,15 +263,12 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
         return false;
     }
 
-    /** 材料行 hover tooltip：物品名 + 取回操作提示（锻造台同语义，从简无性质卡）。 */
+    /** 材料格 hover tooltip：物品名 + 取回操作提示（锻造台同语义，从简无性质卡）。 */
     private void renderMaterialRowTooltip(GuiGraphics g, int mouseX, int mouseY) {
-        int slot = hitTestMaterialRow(mouseX, mouseY);
+        int slot = hitTestMaterialGrid(mouseX, mouseY);
         if (slot < 0) return;
         var stack = this.menu.getSlot(slot).getItem();
-        if (stack.isEmpty()) return;
-        g.renderTooltip(this.font, List.of(stack.getHoverName(),
-                        Component.translatable("qianxiang.table.retrieve_hint")
-                                .withStyle(net.minecraft.ChatFormatting.GRAY)),
+        g.renderTooltip(this.font, MaterialGrid.tooltipFor(this.menu.getSlot(slot)),
                 java.util.Optional.empty(), mouseX, mouseY);
     }
 
@@ -313,6 +293,53 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
             status = Status.READY;
         } else if (status != Status.IDLE) {
             status = Status.IDLE;
+        }
+    }
+
+    /** AI 气泡文本：首方案 summary（lang 键走 translatable）；空则 confirmMessage。 */
+    private static String chatTextOf(ClientForgeTableAI.AiResult result) {
+        String summary = result.proposals().isEmpty() ? "" : result.proposals().get(0).summary();
+        if (summary == null || summary.isBlank()) summary = result.confirmMessage();
+        if (summary == null) return "";
+        return summary.startsWith("qianxiang.")
+                ? Component.translatable(summary).getString() : summary;
+    }
+
+    /** 紧凑聊天行（炼金台 AI 区小：状态行 + 最近一条气泡/问候示例，x=104 右列 y=34/43）。 */
+    private void renderChatLine(GuiGraphics g, int mouseX, int mouseY) {
+        int x = leftPos + 104, w = 144;
+        String statusKey = switch (ClientAlchemyTableAI.aiStatus) {
+            case "auth" -> "qianxiang.ai.status.auth";
+            case "offline", "endpoint" -> "qianxiang.ai.status.offline";
+            default -> "qianxiang.ai.status.online";
+        };
+        int statusColor = switch (ClientAlchemyTableAI.aiStatus) {
+            case "auth" -> 0xFFFF5555;
+            case "offline", "endpoint" -> 0xFFFFFF55;
+            default -> 0xFF55FF55;
+        };
+        g.drawString(this.font, this.font.plainSubstrByWidth(
+                Component.translatable(statusKey).getString(), w), x, topPos + 34, statusColor, false);
+        var log = AiChatLog.ALCHEMY.msgs();
+        if (log.isEmpty()) {
+            g.drawString(this.font, this.font.plainSubstrByWidth(
+                    Component.translatable("qianxiang.ai.chat.greeting_alchemy").getString(), w),
+                    x, topPos + 43, 0xAAAAAA, false);
+            return;
+        }
+        var last = log.get(log.size() - 1);
+        String text = last.text() + (last.fallback()
+                ? " " + Component.translatable("qianxiang.ai.chat.fallback_note").getString() : "");
+        text = this.font.plainSubstrByWidth(text, w - 8);
+        int tw = this.font.width(text) + 6;
+        int by = topPos + 42;
+        if (last.user()) {
+            g.fill(x + w - tw, by, x + w, by + 10, 0xC0201810);
+            g.drawString(this.font, text, x + w - tw + 3, by + 1, 0xE0E0E0, false);
+        } else {
+            g.fill(x, by, x + tw, by + 10, 0x40101010);
+            g.fill(x, by, x + 1, by + 10, 0xFFB87333);
+            g.drawString(this.font, text, x + 3, by + 1, 0xFFD8CDB0, false);
         }
     }
 
@@ -446,7 +473,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
                 }
             }
             // 材料列表行点击 = 取回该槽材料（左键 1 个，Shift+左键全部）
-            int retrieveSlot = hitTestMaterialRow(mouseX, mouseY);
+            int retrieveSlot = hitTestMaterialGrid(mouseX, mouseY);
             if (retrieveSlot >= 0) {
                 if (!awaitingRitual) {
                     PacketDistributor.sendToServer(new com.qianxiang.network.TableRetrievePayload(
@@ -485,6 +512,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     /** 发送 AI 推荐请求到服务端（type=magic，产出带 spellJson 的卷轴方案）。 */
     private void sendAiRequest() {
         String request = this.requestBox.getValue().trim();
+        AiChatLog.ALCHEMY.addUser(request);
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(
@@ -495,6 +523,7 @@ public class AlchemyTableScreen extends AbstractContainerScreen<AlchemyTableMenu
     /** 发送「AI 修改确认」请求到服务端。 */
     private void sendConfirmRequest() {
         String request = this.requestBox.getValue().trim();
+        AiChatLog.ALCHEMY.addUser(request);
         status = Status.PARSING;
         aiRequestStartMillis = Util.getMillis();
         PacketDistributor.sendToServer(new AiRequestPayload(

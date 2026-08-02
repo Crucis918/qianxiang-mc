@@ -145,8 +145,10 @@ public final class DynamicWeaponModel implements BakedModel {
 
         @Override
         public List<BakedQuad> getQuads(@Nullable BlockState state, @Nullable Direction direction, RandomSource random) {
-            // 上下文分叉：手持用形态 3D 挤出，GUI/GROUND/FIXED 保持 2D 片
-            List<BakedQuad> quads = isHeldContext(context) ? variant.quads3d : variant.quads;
+            // 上下文分叉：手持用形态 3D 挤出，GUI/GROUND/FIXED 保持 2D 片。
+            // weapon_3d=false（默认）时手持也走 2D 片——实机反馈 3D 挤出像「玻璃板」。
+            boolean use3d = isHeldContext(context) && QianxiangClientConfig.get().weapon3d;
+            List<BakedQuad> quads = use3d ? variant.quads3d : variant.quads;
             return direction == null ? quads : List.of();
         }
 

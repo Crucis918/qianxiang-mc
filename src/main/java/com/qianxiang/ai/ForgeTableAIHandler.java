@@ -117,7 +117,8 @@ public final class ForgeTableAIHandler {
                                 finalResult.proposals(),
                                 finalResult.confirmMessage() == null ? "" : finalResult.confirmMessage(),
                                 finalResult.suggestQuestions() == null
-                                        ? java.util.List.of() : finalResult.suggestQuestions()
+                                        ? java.util.List.of() : finalResult.suggestQuestions(),
+                                AIGateway.lastErrorKind()
                         ));
                     } catch (Throwable t) {
                         // 玩家可能已断线：回包失败不该影响方块复位

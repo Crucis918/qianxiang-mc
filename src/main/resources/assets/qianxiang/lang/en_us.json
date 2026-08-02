@@ -1010,5 +1010,11 @@
   "qianxiang.trial.gold_bonus": "Trial bonus: +%s gold nuggets",
   "qianxiang.npc.abyss_merchant.buy.not_material": "\"Show me something with a phase in it.\" (Hold the material in your main hand and sneak-right-click to sell)",
   "qianxiang.npc.abyss_merchant.buy.limit": "\"That's all for today.\" (Buyback limited to %s per day)",
-  "qianxiang.npc.abyss_merchant.buy.done": "Deal: +%s gold nuggets"
+  "qianxiang.npc.abyss_merchant.buy.done": "Deal: +%s gold nuggets",
+  "qianxiang.ai.status.online": "AI online",
+  "qianxiang.ai.status.offline": "AI offline — keyword fallback",
+  "qianxiang.ai.status.auth": "Invalid AI key — check config/qianxiang-ai.json",
+  "qianxiang.ai.chat.greeting": "What shall we make? Tell me, e.g.:",
+  "qianxiang.ai.chat.greeting_alchemy": "What spell shall we brew?",
+  "qianxiang.ai.chat.fallback_note": "(AI offline — keyword recipe)"
 }

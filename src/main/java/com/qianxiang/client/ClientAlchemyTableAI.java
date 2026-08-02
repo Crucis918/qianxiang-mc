@@ -43,6 +43,7 @@ public final class ClientAlchemyTableAI {
         }
         lastAcceptedSeq = payload.seq();
         lastReqId = payload.reqId() == null ? "" : payload.reqId();
+        aiStatus = payload.aiStatus() == null ? "" : payload.aiStatus();
         boolean fallback = !payload.proposals().isEmpty()
                 && payload.proposals().stream().allMatch(
                         com.qianxiang.ai.PhaseAIRecipeService.RecipeProposal::isFallback);
@@ -77,6 +78,7 @@ public final class ClientAlchemyTableAI {
         onResult = null;
         lastResult = null;
         lastReqId = "";
+        aiStatus = "";
         selectedIndex = SpellJsonReportPayload.NONE;
         nextSeq = 0;
         lastAcceptedSeq = 0;
@@ -84,6 +86,8 @@ public final class ClientAlchemyTableAI {
 
     /** 最近一次响应的飞轮 reqId（WQ-71：放料回传用；无则 ""）。 */
     private static volatile String lastReqId = "";
+    /** 最近一次响应的 AI 状态（"" 在线 / offline / auth=密钥无效 / endpoint）。 */
+    public static volatile String aiStatus = "";
 
     /** 最近一次响应的 reqId（放料回传用；无则 ""）。 */
     public static String lastReqId() {
